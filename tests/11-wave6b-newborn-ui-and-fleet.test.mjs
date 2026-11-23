@@ -120,7 +120,7 @@ test('Wave 6B.1: Newborn SSR Studio DOM tree, Light-Mode default invariant, offi
   assert.equal(folderNewbornLinks.length, 1, 'Folder-scoped view must render /folders/42/newborn tab');
   assert.ok(folderHtml.includes("newbornStudioApp('42', 'hunt')"));
   assert.ok(settingsHtml.includes("newbornStudioApp('', 'settings')"));
-  assert.ok(folderHtml.includes("typeof syncFolderSettingsFromActive === 'function'"), 'Folder header Settings action must not hijack non-folder rooms');
+  assert.ok(folderHtml.includes('href="/folders/42/settings"'), 'Folder header Settings tab must route cleanly to Room 5');
 });
 
 test('Wave 6B.2: /newborn & /folders/:id/newborn HTTP routes, offline Launchpad API, smart seed parser & board context hydration', async (t) => {
@@ -641,9 +641,8 @@ test('Wave 6B.3: newbornStudioApp 3-Second Studio VM execution — HTTP 202 + 1.
   assert.equal(bodyClasses.has('dark'), false);
   assert.equal(storageMap.get('pa_theme'), 'dark');
 
-  // 3. Verify Settings Slide-Over preset, save (PATCH), & reset
-  studio.openSettingsDrawer('filters');
-  assert.equal(studio.settingsDrawerOpen, true);
+  // 3. Verify Settings preset, save (PATCH), & reset (dead settingsDrawerOpen removed in Pre-Wave 5)
+  assert.equal('settingsDrawerOpen' in studio, false, 'Dead settingsDrawerOpen state must be removed');
   studio.applyAgePreset('14d');
   assert.equal(studio.settingsDraft.qualification.max_age_days, 14);
   studio.settingsDraft.automation.auto_track_enabled = true;
@@ -653,7 +652,6 @@ test('Wave 6B.3: newbornStudioApp 3-Second Studio VM execution — HTTP 202 + 1.
   assert.ok(patchSettingsCall);
   assert.equal(patchSettingsCall.body.qualification.max_age_days, 14);
   assert.equal(studio.scheduleStatus.watchlist_poll_due, true, 'Must use exact watchlist_poll_due key');
-  assert.equal(studio.settingsDrawerOpen, false);
 
   await studio.resetSettingsToDefaults();
   assert.equal(studio.settingsDraft.qualification.max_age_days, 30);
@@ -683,7 +681,10 @@ test('Wave 6B.3: newbornStudioApp 3-Second Studio VM execution — HTTP 202 + 1.
   await studio.clearCookie();
   assert.equal(studio.cookieStatus.has_cookie, false);
 
-  // 6. Verify HTTP 202 Focused Hunt passes 3-Filter + Per-Path deep-scroll targets -> clean timer stop on completion
+  // 6. Verify HTTP 202 Focused Hunt passes explicit 3-Filter + Per-Path deep-scroll overrides -> clean timer stop on completion
+  if (studio.workspaceHuntDefaults) {
+    studio.workspaceHuntDefaults.huntFilters.minSaves = 15;
+  }
   studio.huntFilters.maxAgeDays = 14;
   studio.huntFilters.minRepins = 50;
   studio.huntFilters.minSaves = 0;

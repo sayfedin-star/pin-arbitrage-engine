@@ -967,6 +967,26 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
             </div>
           </div>
 
+          <!-- Compact Folder Identity Bar -->
+          <div class="pt-5 pb-2 border-b border-slate-100 dark:border-[#27272A] grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label for="room5-folder-name" class="text-[10px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">Campaign Name</label>
+              <input id="room5-folder-name" type="text" x-model="folderSettings.name" placeholder="e.g. High Protein Meals" class="w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/70 dark:bg-[#18181B] text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500">
+            </div>
+            <div>
+              <label for="room5-folder-desc" class="text-[10px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">Description</label>
+              <input id="room5-folder-desc" type="text" x-model="folderSettings.description" placeholder="Campaign Topic Cluster &amp; Cross-SERP Intelligence" class="w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/70 dark:bg-[#18181B] text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500">
+            </div>
+            <div>
+              <span class="text-[10px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Theme Color</span>
+              <div class="flex items-center gap-2 mt-2">
+                <template x-for="c in colorOptions" :key="c">
+                  <button type="button" @click="folderSettings.color = c" :aria-label="'Select folder color ' + c" class="w-6 h-6 rounded-lg border-2 transition-transform cursor-pointer" :class="folderSettings.color === c ? 'scale-110 border-slate-900 dark:border-white shadow' : 'border-transparent'" :style="'background-color: ' + c"></button>
+                </template>
+              </div>
+            </div>
+          </div>
+
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-6">
             <!-- Left: Fleet Execution & Crawler Controls -->
             <div class="space-y-4">
@@ -1022,11 +1042,17 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
 
               <!-- V4 Wave 4: Campaign Pin Graph Rules Override -->
               <div class="p-4 rounded-xl border border-emerald-500/25 bg-emerald-500/5 space-y-3">
-                <div class="flex items-center justify-between">
+                <div class="flex items-center justify-between flex-wrap gap-2">
                   <div class="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
                     <i data-lucide="git-branch" class="w-3.5 h-3.5 text-emerald-500 shrink-0"></i><span>Pin Graph Rules (Related Pins)</span>
                   </div>
-                  <a href="/settings" class="text-[10px] font-mono text-indigo-500 hover:underline">Workspace Cookie &amp; Defaults</a>
+                  <div class="flex items-center gap-2">
+                    <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold"
+                          :class="isPinGraphInherited() ? 'bg-slate-200/80 dark:bg-[#27272A] text-slate-600 dark:text-slate-300' : 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'"
+                          x-text="isPinGraphInherited() ? 'Inherited from Workspace' : 'Custom Override'"></span>
+                    <button type="button" x-show="!isPinGraphInherited()" @click="resetPinGraphToWorkspace()" class="text-[10px] font-semibold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer">Reset</button>
+                    <a href="/settings" class="text-[10px] font-mono text-indigo-500 hover:underline">Defaults</a>
+                  </div>
                 </div>
                 <label class="flex items-center justify-between text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
                   <span>Auto-track qualifying Related Pins</span>
@@ -1067,14 +1093,20 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
               </div>
 
               <div class="p-4 rounded-xl border border-indigo-500/20 bg-indigo-50/30 dark:bg-indigo-950/10 space-y-3">
-                <div class="flex items-center justify-between">
-                  <label class="text-xs font-semibold text-slate-900 dark:text-white">Daily Tracked SERP Top-N</label>
-                  <span class="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400" x-text="'Top ' + (folderSettings.serp_top_n || 20) + ' pins / keyword'"></span>
+                <div class="flex items-center justify-between flex-wrap gap-2">
+                  <div class="flex items-center gap-2">
+                    <label class="text-xs font-semibold text-slate-900 dark:text-white">Daily Tracked SERP Top-N</label>
+                    <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold"
+                          :class="isSerpTopNInherited() ? 'bg-slate-200/80 dark:bg-[#27272A] text-slate-600 dark:text-slate-300' : 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'"
+                          x-text="isSerpTopNInherited() ? 'Inherited from Workspace' : 'Custom Override'"></span>
+                    <button type="button" x-show="!isSerpTopNInherited()" @click="resetSerpTopNToWorkspace()" class="text-[10px] font-semibold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer">Reset</button>
+                  </div>
+                  <span class="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400" x-text="'Top ' + (folderSettings.serp_top_n || workspaceSettingsDefaults.default_serp_top_n || 20) + ' pins / keyword'"></span>
                 </div>
                 <input type="range" min="5" max="100" step="5" x-model.number="folderSettings.serp_top_n" class="w-full accent-indigo-600">
                 <div class="flex justify-between text-[10px] text-slate-400 font-mono">
                   <span>Top 5</span>
-                  <span>Top 20 (Default)</span>
+                  <span x-text="'Top ' + (workspaceSettingsDefaults.default_serp_top_n || 20) + ' (Workspace Default)'">Top 20 (Workspace Default)</span>
                   <span>Top 100</span>
                 </div>
               </div>

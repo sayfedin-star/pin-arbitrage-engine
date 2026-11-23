@@ -592,7 +592,7 @@ export async function handleFoldersRoutes({
       if (effectiveSerpTopN === undefined || effectiveSerpTopN === null || effectiveSerpTopN === '') {
         const wsSettings = await getWorkspaceSettings(sql, workspaceId).catch(() => null);
         if (wsSettings && Number.isFinite(Number(wsSettings.default_serp_top_n))) {
-          effectiveSerpTopN = Math.min(50, Math.max(10, Math.round(Number(wsSettings.default_serp_top_n))));
+          effectiveSerpTopN = Math.min(100, Math.max(5, Math.round(Number(wsSettings.default_serp_top_n))));
         }
       }
       const created = await createFolder(sql, {

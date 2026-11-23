@@ -217,9 +217,22 @@ ${renderAppSidebar({
                 </tbody>
               </table>
             </div>
-            <template x-if="!isLoading && filteredCreators.length === 0">
-              <div class="p-10 text-center text-sm text-slate-500 dark:text-[#A1A1AA]">
-                No watched creators in this workspace yet. Click <button type="button" @click="showAddCreatorModal = true" class="text-rose-600 dark:text-rose-400 font-semibold hover:underline cursor-pointer">+ Add Creator</button> to start tracking.
+            <template x-if="!isLoading && filteredCreators.length === 0 && (counts.creator || 0) > 0 && searchQuery.trim()">
+              <div class="p-10 text-center space-y-2">
+                <div class="text-sm font-semibold text-slate-800 dark:text-[#FAFAFA]">No watched creators match your filter</div>
+                <button type="button" @click="searchQuery = ''" class="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] text-xs font-semibold text-slate-600 dark:text-[#A1A1AA] hover:text-slate-900 dark:hover:text-white cursor-pointer">Clear Search</button>
+              </div>
+            </template>
+            <template x-if="!isLoading && filteredCreators.length === 0 && (counts.creator || 0) === 0">
+              <div class="p-10 text-center space-y-3">
+                <div class="text-sm font-semibold text-slate-800 dark:text-[#FAFAFA]">No watched creators in this workspace yet</div>
+                <p class="text-xs text-slate-500 dark:text-[#A1A1AA] max-w-md mx-auto">
+                  Workspace Watchlist holds creators you explicitly pin for daily monitoring, separate from Campaign-discovered profiles shown in <a href="/radar" class="text-rose-600 dark:text-rose-400 font-semibold hover:underline">Radar</a>.
+                </p>
+                <div class="flex flex-wrap items-center justify-center gap-2 pt-1">
+                  <button type="button" @click="showAddCreatorModal = true" class="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold cursor-pointer">+ Add Creator</button>
+                  <button type="button" @click="importTopFromRadar('creator')" :disabled="isImportingFromRadar" class="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:border-rose-400 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer disabled:opacity-50" x-text="isImportingFromRadar ? 'Importing...' : 'Import Top 10 Creators from Radar'"></button>
+                </div>
               </div>
             </template>
           </div>
@@ -360,9 +373,22 @@ ${renderAppSidebar({
               </tbody>
             </table>
           </div>
-          <template x-if="!isLoading && filteredDomains.length === 0">
-            <div class="p-10 text-center text-sm text-slate-500 dark:text-[#A1A1AA]">
-              No watched domains in this workspace yet. Click <button type="button" @click="showAddDomainModal = true" class="text-rose-600 dark:text-rose-400 font-semibold hover:underline cursor-pointer">+ Add Domain</button> to track a domain.
+          <template x-if="!isLoading && filteredDomains.length === 0 && (counts.domain || 0) > 0 && searchQuery.trim()">
+            <div class="p-10 text-center space-y-2">
+              <div class="text-sm font-semibold text-slate-800 dark:text-[#FAFAFA]">No watched domains match your filter</div>
+              <button type="button" @click="searchQuery = ''" class="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] text-xs font-semibold text-slate-600 dark:text-[#A1A1AA] hover:text-slate-900 dark:hover:text-white cursor-pointer">Clear Search</button>
+            </div>
+          </template>
+          <template x-if="!isLoading && filteredDomains.length === 0 && (counts.domain || 0) === 0">
+            <div class="p-10 text-center space-y-3">
+              <div class="text-sm font-semibold text-slate-800 dark:text-[#FAFAFA]">No watched domains in this workspace yet</div>
+              <p class="text-xs text-slate-500 dark:text-[#A1A1AA] max-w-md mx-auto">
+                Watchlist tracks domains you intentionally monitor, separate from all active domains discovered across campaigns in <a href="/radar" class="text-rose-600 dark:text-rose-400 font-semibold hover:underline">Radar</a>.
+              </p>
+              <div class="flex flex-wrap items-center justify-center gap-2 pt-1">
+                <button type="button" @click="showAddDomainModal = true" class="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold cursor-pointer">+ Add Domain</button>
+                <button type="button" @click="importTopFromRadar('domain')" :disabled="isImportingFromRadar" class="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:border-rose-400 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer disabled:opacity-50" x-text="isImportingFromRadar ? 'Importing...' : 'Import Top 10 Domains from Radar'"></button>
+              </div>
             </div>
           </template>
         </div>

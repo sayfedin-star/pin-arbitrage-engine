@@ -134,6 +134,32 @@ function computeNextConsecutiveDays(prevDays, prevDateVal, todayDateStr, qualifi
  */
 export function applyWorkspaceExtractionTargetsToSettings(settings, workspaceSettings = null, explicitOverrides = null) {
   if (!settings || typeof settings !== 'object') return settings;
+  if (!workspaceSettings || typeof workspaceSettings !== 'object') return settings;
+
+  const clamp = (val, min, max) => {
+    const n = Number(val);
+    if (!Number.isFinite(n)) return null;
+    return Math.min(max, Math.max(min, Math.round(n)));
+  };
+
+  // V4 Pre-Wave 5 SSOT: Also honor workspace_settings qualification defaults when not explicitly overridden
+  const qual = settings?.qualification;
+  const ovQual = explicitOverrides?.qualification || {};
+  if (qual && typeof qual === 'object') {
+    if (ovQual.max_age_days === undefined && workspaceSettings.max_pin_age_days != null) {
+      const maxAge = clamp(workspaceSettings.max_pin_age_days, 1, 3650);
+      if (maxAge !== null) qual.max_age_days = maxAge;
+    }
+    if (ovQual.min_repin_count === undefined && workspaceSettings.min_repin_count != null) {
+      const minRp = clamp(workspaceSettings.min_repin_count, 0, 1000000);
+      if (minRp !== null) qual.min_repin_count = minRp;
+    }
+    if (ovQual.min_save_count === undefined && workspaceSettings.min_save_count != null) {
+      const minSv = clamp(workspaceSettings.min_save_count, 0, 1000000);
+      if (minSv !== null) qual.min_save_count = minSv;
+    }
+  }
+
   const targets = workspaceSettings?.extraction_targets;
   if (!targets || typeof targets !== 'object') return settings;
 
@@ -144,11 +170,6 @@ export function applyWorkspaceExtractionTargetsToSettings(settings, workspaceSet
   const ovEnabledList = Array.isArray(explicitOverrides?.discovery?.enabled_surfaces)
     ? new Set(explicitOverrides.discovery.enabled_surfaces)
     : null;
-  const clamp = (val, min, max) => {
-    const n = Number(val);
-    if (!Number.isFinite(n)) return null;
-    return Math.min(max, Math.max(min, Math.round(n)));
-  };
 
   if (targets.search && typeof targets.search === 'object' && !ovSurfaces.pin_serp_capsules) {
     if (typeof targets.search.enabled === 'boolean' && surfaces.pin_serp_capsules && !ovEnabledList) {
@@ -170,8 +191,11 @@ export function applyWorkspaceExtractionTargetsToSettings(settings, workspaceSet
       if (maxB !== null) surfaces.fresh_boards.max_boards_to_expand = Math.min(50, maxB);
       if (perB !== null) surfaces.fresh_boards.target_pins_per_board = perB;
     }
-    if (!ovSurfaces.board_more_ideas && surfaces.board_more_ideas && perB !== null) {
-      surfaces.board_more_ideas.target_pins_per_board = perB;
+    if (!ovSurfaces.board_more_ideas && surfaces.board_more_ideas) {
+      if (typeof targets.boards.enabled === 'boolean' && !ovEnabledList) {
+        surfaces.board_more_ideas.enabled = targets.boards.enabled;
+      }
+      if (perB !== null) surfaces.board_more_ideas.target_pins_per_board = perB;
     }
     if (!ovSurfaces.board_feed && surfaces.board_feed && perB !== null) {
       surfaces.board_feed.target_pins_per_board = perB;

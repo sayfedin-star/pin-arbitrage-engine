@@ -333,7 +333,8 @@ export async function apiRoutesPlugin(app, options = {}) {
               sql,
               workspaceId,
               jsonResponse: boundJsonResponse,
-              methodNotAllowedResponse: boundMethodNotAllowed
+              methodNotAllowedResponse: boundMethodNotAllowed,
+              invalidateEdgeCache
             });
             if (watchlistRes) return watchlistRes;
           }

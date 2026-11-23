@@ -39,10 +39,24 @@ export function getRadarClientAppScript() {
         });
       }
 
+      function toFiniteNum(val, fallback) {
+        if (val === null || val === undefined || val === '') return fallback;
+        var n = Number(val);
+        return isFinite(n) ? n : fallback;
+      }
+
+      function firstFiniteNum(values, fallback) {
+        for (var i = 0; i < values.length; i++) {
+          var v = toFiniteNum(values[i], NaN);
+          if (isFinite(v)) return v;
+        }
+        return fallback;
+      }
+
       function formatCompact(val) {
-        var n = Number(val || 0);
-        if (!isFinite(n)) return '0';
+        var n = toFiniteNum(val, 0);
         var abs = Math.abs(n);
+        if (abs >= 1000000000) return (n / 1000000000).toFixed(1).replace(/[.]0$/, '') + 'B';
         if (abs >= 1000000) return (n / 1000000).toFixed(1).replace(/[.]0$/, '') + 'M';
         if (abs >= 1000) return (n / 1000).toFixed(1).replace(/[.]0$/, '') + 'K';
         return String(Math.round(n));
@@ -130,26 +144,34 @@ export function getRadarClientAppScript() {
             return formatCompact(n);
           },
 
+          fmtSigned(n) {
+            var v = toFiniteNum(n, 0);
+            return (v >= 0 ? '+' : '') + formatCompact(v);
+          },
+
           safeImg(url) {
             return safeImgUrl(url);
           },
 
           pinGain(pin) {
             if (!pin) return 0;
-            var base24 = Number(
-              pin.repins_delta_24h ??
-              pin.saves_delta_24h ??
-              pin.daily_save_velocity ??
-              pin.effective_24h_momentum ??
-              pin.gain_24h ??
-              pin.repin_gain_24h ??
-              pin.saves_gain_24h ??
-              0
-            );
-            if (this.timeframe === '5d') return Number(pin.gain_5d ?? pin.repin_gain_5d ?? pin.saves_gain_5d ?? base24);
-            if (this.timeframe === '7d') return Number(pin.gain_7d ?? pin.repin_gain_7d ?? pin.saves_gain_7d ?? pin.saves_delta_7d ?? base24);
-            if (this.timeframe === '10d') return Number(pin.gain_10d ?? pin.repin_gain_10d ?? pin.gain_7d ?? base24);
-            if (this.timeframe === '15d') return Number(pin.gain_15d ?? pin.repin_gain_15d ?? pin.gain_7d ?? base24);
+            var base24 = firstFiniteNum([
+              pin.repins_delta_24h,
+              pin.saves_delta_24h,
+              pin.daily_save_velocity,
+              pin.effective_24h_momentum,
+              pin.gain_24h,
+              pin.repin_gain_24h,
+              pin.saves_gain_24h
+            ], 0);
+            if (this.timeframe !== '24h') {
+              var winGain = toFiniteNum(pin.window_saves_gain, NaN);
+              if (isFinite(winGain)) return winGain;
+            }
+            if (this.timeframe === '5d') return firstFiniteNum([pin.gain_5d, pin.repin_gain_5d, pin.saves_gain_5d], base24);
+            if (this.timeframe === '7d') return firstFiniteNum([pin.gain_7d, pin.repin_gain_7d, pin.saves_gain_7d, pin.saves_delta_7d], base24);
+            if (this.timeframe === '10d') return firstFiniteNum([pin.gain_10d, pin.repin_gain_10d, pin.gain_7d], base24);
+            if (this.timeframe === '15d') return firstFiniteNum([pin.gain_15d, pin.repin_gain_15d, pin.gain_7d], base24);
             return base24;
           },
 
@@ -200,9 +222,18 @@ export function getRadarClientAppScript() {
               }
               var kpis = data.kpis || {};
               this.pulseSummary = {
-                total_pins: Number(kpis.total_active_pins ?? data.total_count ?? data.total ?? rows.length),
-                total_gain: Number(kpis.total_saves_velocity ?? kpis.total_repins_delta ?? gainSum),
-                hot_pins: Number(kpis.pins_gaining_count ?? hotCount)
+                total_pins: firstFiniteNum([
+                  kpis.total_active_serp_pins,
+                  kpis.active_pins_24h,
+                  kpis.total_active_pins,
+                  data.total_count,
+                  data.total,
+                  rows.length
+                ], 0),
+                total_gain: this.timeframe !== '24h'
+                  ? firstFiniteNum([kpis.total_window_saves_gain, gainSum], 0)
+                  : firstFiniteNum([kpis.total_24h_saves_velocity, kpis.total_saves_velocity, kpis.total_repins_delta, gainSum], 0),
+                hot_pins: firstFiniteNum([kpis.pins_gaining_24h_count, kpis.pins_gaining_count, hotCount], 0)
               };
             } catch (_) {}
           },
@@ -216,11 +247,17 @@ export function getRadarClientAppScript() {
               var rows = Array.isArray(data.creators) ? data.creators : (Array.isArray(data.competitors) ? data.competitors : (Array.isArray(data.data) ? data.data : []));
               this.creators = rows;
               var ov = data.overview || {};
+              var trackedProfiles = firstFiniteNum([ov.total_scoped_creators, ov.tracked_profiles, rows.length], 0);
+              var avgDivisor = Math.max(1, firstFiniteNum([ov.tracked_profiles, rows.length], 1));
+              var explicitAvg = toFiniteNum(ov.avg_monthly_views, NaN);
+              var avgMonthlyViews = isFinite(explicitAvg)
+                ? explicitAvg
+                : Math.round(firstFiniteNum([ov.total_impressions], 0) / avgDivisor);
               this.creatorsSummary = {
-                tracked_profiles: Number(ov.tracked_profiles ?? rows.length),
-                total_pins: Number(ov.pins_tracked ?? ov.total_pins ?? 0),
-                total_audience: Number(ov.total_audience ?? 0),
-                avg_monthly_views: Number(ov.avg_monthly_views ?? ov.total_impressions ?? 0)
+                tracked_profiles: trackedProfiles,
+                total_pins: firstFiniteNum([ov.pins_tracked, ov.total_pins], 0),
+                total_audience: firstFiniteNum([ov.total_audience, ov.combined_reach], 0),
+                avg_monthly_views: avgMonthlyViews
               };
             } catch (_) {}
           },
@@ -235,10 +272,10 @@ export function getRadarClientAppScript() {
               this.domains = rows;
               var totalPins = 0;
               for (var i = 0; i < rows.length; i++) {
-                totalPins += Number(rows[i].pin_count ?? rows[i].total_pins ?? 0);
+                totalPins += firstFiniteNum([rows[i].pin_count, rows[i].total_pins], 0);
               }
               this.domainsSummary = {
-                total_domains: Number(data.total_domains ?? data.total_count ?? data.total ?? rows.length),
+                total_domains: firstFiniteNum([data.total_domains, data.total_count, data.total, rows.length], 0),
                 total_pins: totalPins
               };
             } catch (_) {}
@@ -301,7 +338,7 @@ export function getRadarClientAppScript() {
             if (!q) return this.pulsePins;
             var self = this;
             return this.pulsePins.filter(function(p) {
-              var hay = (self.decodeTitle(p.title || '') + ' ' + String(p.domain || p.clean_domain || '') + ' ' + String(p.keyword || '') + ' ' + String(p.pin_id || '')).toLowerCase();
+              var hay = (self.decodeTitle(p.title || '') + ' ' + String(p.domain || p.clean_domain || '') + ' ' + String(p.keyword_text || p.keyword || '') + ' ' + String(p.pin_id || '')).toLowerCase();
               return hay.indexOf(q) !== -1;
             });
           },
@@ -310,7 +347,7 @@ export function getRadarClientAppScript() {
             var q = String(this.searchQuery || '').trim().toLowerCase();
             if (!q) return this.creators;
             return this.creators.filter(function(c) {
-              var hay = (String(c.username || '') + ' ' + String(c.full_name || '') + ' ' + String(c.domain || '')).toLowerCase();
+              var hay = (String(c.username || '') + ' ' + String(c.display_name || c.full_name || '') + ' ' + String(c.website_url || c.domain || '')).toLowerCase();
               return hay.indexOf(q) !== -1;
             });
           },

@@ -802,8 +802,8 @@ export async function handleCreatorsRoutes(routeCtx) {
         const competitors = await listCompetitors(sql, {
           account_type,
           search,
-          limit,
-          offset
+          limit: enforceWorkspaceScope ? 5000 : limit,
+          offset: enforceWorkspaceScope ? 0 : offset
         });
         if (overview?._degraded || competitors?._degraded) {
           const degradedErr = new Error('Creators overview or list query degraded due to transient DB failure');
@@ -844,30 +844,45 @@ export async function handleCreatorsRoutes(routeCtx) {
           if (h) allowedHandles.add(h);
         }
 
-        // Default workspace with explicit ?workspace_scope=1 falls back to all tracked profiles only if empty? No:
-        // If workspace 1 has watchlist/folder links, scope to them; if workspace 1 has 0 links on Radar, show global legacy profiles.
-        // Non-default workspaces (id !== 1) ALWAYS stay strictly isolated (empty if 0 linked/watchlisted creators).
-        const hasScopedTargets = allowedHandles.size > 0 || allowedIds.size > 0;
-        const scopedCompetitors = (!hasScopedTargets && numericWid === 1)
-          ? competitors
+        // Default workspace (id === 1) keeps full Radar discovery even after adding items to Watchlist
+        // (avoiding the single-item / partial-import collapse footgun); non-default workspaces stay strictly isolated.
+        const useGlobalFallback = numericWid === 1;
+        const fullScoped = useGlobalFallback
+          ? (competitors || [])
           : (competitors || []).filter((c) => {
               const handle = String(c?.username || '').replace(/^@/, '').trim().toLowerCase();
               return allowedIds.has(Number(c?.id)) || (handle && allowedHandles.has(handle));
             });
 
+        const pagedCompetitors = fullScoped.slice(offset, offset + limit);
+        const totalScopedCreators = useGlobalFallback
+          ? Math.max(Number(overview?.tracked_profiles ?? overview?.competitor_count ?? 0), fullScoped.length)
+          : fullScoped.length;
+        const totalImpressions = useGlobalFallback && overview?.total_impressions != null
+          ? Number(overview.total_impressions)
+          : fullScoped.reduce((sum, c) => sum + Number(c?.profile_views || 0), 0);
+        const totalAudience = useGlobalFallback && overview?.total_audience != null
+          ? Number(overview.total_audience)
+          : fullScoped.reduce((sum, c) => sum + Number(c?.monthly_reach || 0), 0);
+        const pinsTracked = useGlobalFallback && overview?.pins_tracked != null
+          ? Number(overview.pins_tracked)
+          : fullScoped.reduce((sum, c) => sum + Number(c?.total_pins || 0), 0);
+        const avgDivisor = totalScopedCreators > 0 ? totalScopedCreators : fullScoped.length;
         const scopedOverview = {
           ...overview,
-          tracked_profiles: scopedCompetitors.length,
-          active_count: scopedCompetitors.filter((c) => c?.is_active !== false).length,
-          paused_count: scopedCompetitors.filter((c) => c?.is_active === false).length,
-          total_audience: scopedCompetitors.reduce((sum, c) => sum + Number(c?.monthly_reach || 0), 0),
-          total_impressions: scopedCompetitors.reduce((sum, c) => sum + Number(c?.profile_views || 0), 0),
-          combined_reach: scopedCompetitors.reduce((sum, c) => sum + Number(c?.monthly_reach || 0), 0),
-          pins_tracked: scopedCompetitors.reduce((sum, c) => sum + Number(c?.total_pins || 0), 0)
+          tracked_profiles: totalScopedCreators,
+          total_scoped_creators: totalScopedCreators,
+          active_count: fullScoped.filter((c) => c?.is_active !== false).length,
+          paused_count: fullScoped.filter((c) => c?.is_active === false).length,
+          total_audience: totalAudience,
+          total_impressions: totalImpressions,
+          avg_monthly_views: avgDivisor > 0 ? Math.round(totalImpressions / avgDivisor) : 0,
+          combined_reach: totalAudience,
+          pins_tracked: pinsTracked
         };
         return {
           overview: scopedOverview,
-          competitors: scopedCompetitors,
+          competitors: pagedCompetitors,
           workspace_id: numericWid,
           workspace_scoped: true
         };

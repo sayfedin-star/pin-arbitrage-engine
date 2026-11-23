@@ -173,15 +173,6 @@ export function renderCampaignWorkspaceHeader({
           <span>Refresh</span>
         </button>
 
-        <!-- Settings Action -->
-        <button type="button"
-                @click="if (typeof currentRoom !== 'undefined' && typeof syncFolderSettingsFromActive === 'function') { currentRoom = 'settings'; try { window.history?.pushState({}, '', '/folders/' + ((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : '${jsCleanFolderId}') + '/settings'); } catch (_) {} syncFolderSettingsFromActive(); } else { window.location.href = '/folders/' + ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${jsCleanFolderId}') + '/settings'; }"
-                class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] text-xs font-medium text-slate-700 dark:text-[#FAFAFA] transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
-                title="Folder Settings & Rules">
-          <i data-lucide="settings" class="w-3.5 h-3.5 text-slate-400 dark:text-[#71717A]"></i>
-          <span>Settings</span>
-        </button>
-
         <!-- Delete Action -->
         <button type="button"
                 @click="typeof confirmDeleteFolder === 'function' ? confirmDeleteFolder((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : '${jsCleanFolderId}') : window.PAE.confirmDeleteFolder((typeof activeFolderId !== 'undefined' && activeFolderId) ? activeFolderId : ((typeof scopedFolderId !== 'undefined' && scopedFolderId) ? scopedFolderId : '${jsCleanFolderId}'), typeof executeDeleteFolder === 'function' ? executeDeleteFolder : null)"

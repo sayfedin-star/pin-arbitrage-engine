@@ -223,7 +223,7 @@ export const DEFAULT_NEWBORN_SETTINGS = Object.freeze({
     max_board_age_days: 90,
     max_queries_per_run: 25,
     surfaces: {
-      growing_trends: { enabled: true, max_pages: 1, limit: 25 },
+      growing_trends: { enabled: true, max_pages: 1, limit: 50 },
       zero_query_popular: { enabled: true, max_pages: 1 },
       pin_serp_capsules: { enabled: true, max_pages: 10, page_size: 50, target_pins: 500 },
       fresh_boards: { enabled: true, max_pages: 2, max_boards_to_expand: 10, max_boards: 10, target_pins_per_board: 100 },

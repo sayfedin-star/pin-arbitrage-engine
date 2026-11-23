@@ -656,15 +656,15 @@ test('Wave 4 Pillar 3: POST /api/folders inherits workspace_settings.default_ser
   assert.equal(payload?.success, true);
   assert.equal(capturedSerpTopN, 35, 'POST /api/folders must inherit workspace_settings.default_serp_top_n (35)');
 
-  // Verify POST /api/folders clamps inherited default_serp_top_n into [10..50]
+  // Verify POST /api/folders clamps inherited default_serp_top_n into [5..100] (aligned with Room 5 & folders-crud.mjs)
   let clampedTopN = null;
   const sqlClamp = createMockSql((query, values) => {
     if (/FROM\s+workspace_settings/i.test(query)) {
-      return [{ workspace_id: 2, default_serp_top_n: 90, extraction_targets: {}, pin_graph_rules: {}, alert_thresholds: {} }];
+      return [{ workspace_id: 2, default_serp_top_n: 150, extraction_targets: {}, pin_graph_rules: {}, alert_thresholds: {} }];
     }
     if (/INSERT INTO keyword_folders/i.test(query)) {
-      clampedTopN = values.find((v) => v === 50) ?? null;
-      return [{ id: 89, name: 'Clamped', slug: 'clamped', workspace_id: 2, serp_top_n: 50, color: '#6366F1', description: '', metadata: {} }];
+      clampedTopN = values.find((v) => v === 100) ?? null;
+      return [{ id: 89, name: 'Clamped', slug: 'clamped', workspace_id: 2, serp_top_n: 100, color: '#6366F1', description: '', metadata: {} }];
     }
     return [];
   });
@@ -685,7 +685,7 @@ test('Wave 4 Pillar 3: POST /api/folders inherits workspace_settings.default_ser
     methodNotAllowedResponse: () => ({ status: 405 }),
     invalidateEdgeCache: () => {}
   });
-  assert.equal(clampedTopN, 50, 'Inherited workspace_settings.default_serp_top_n must clamp to [10..50]');
+  assert.equal(clampedTopN, 100, 'Inherited workspace_settings.default_serp_top_n must clamp to [5..100]');
 
   // Verify POST /api/folders/:id/pin-graph-seeds forwards source_type (e.g. 'trigger')
   let capturedSeedSource = null;

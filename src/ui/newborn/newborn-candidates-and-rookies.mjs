@@ -15,9 +15,10 @@
  * - `Past Hunts`: Run history with Scrolled -> Matched Re-pins -> Verified Winners funnel.
  */
 
-export function getNewbornCandidatesAndRookiesHtml() {
+export function getNewbornCandidatesAndRookiesHtml({ folderId = '' } = {}) {
+  const isCampaignScoped = Boolean(String(folderId || '').trim());
   return `
-    <!-- Clean 3-Tab Navigation Strip -->
+    <!-- Clean Tab Navigation Strip -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-[#27272A] pb-3">
       <div role="tablist" aria-label="Newborn workspace views" class="inline-flex items-center gap-1 p-1 rounded-xl bg-slate-100/90 dark:bg-[#18181B] border border-slate-200/80 dark:border-[#27272A] self-start">
         <button type="button"
@@ -33,7 +34,7 @@ export function getNewbornCandidatesAndRookiesHtml() {
           <span class="px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-[#E4E4E7]" x-text="candidatesTotal"></span>
         </button>
 
-        <button type="button"
+        ${isCampaignScoped ? '' : `<button type="button"
                 role="tab"
                 id="tab-newborn-cluster"
                 :aria-selected="activeView === 'cluster' ? 'true' : 'false'"
@@ -47,7 +48,7 @@ export function getNewbornCandidatesAndRookiesHtml() {
             <span class="px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300"
                   x-text="activeCluster.keyword_count || (activeCluster.keywords || []).length"></span>
           </template>
-        </button>
+        </button>`}
 
         <button type="button"
                 role="tab"
@@ -162,7 +163,7 @@ export function getNewbornCandidatesAndRookiesHtml() {
               <template x-if="!activeRunId">
                 <div class="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-[#E4E4E7]">
                   <i data-lucide="layers" class="w-3.5 h-3.5 text-slate-400" aria-hidden="true"></i>
-                  <span>All Discovered Golden Pins</span>
+                  <span>${isCampaignScoped ? 'Campaign Golden Pins' : 'All Discovered Golden Pins'}</span>
                 </div>
               </template>
             </div>

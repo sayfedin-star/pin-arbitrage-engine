@@ -27,13 +27,23 @@ export async function handleWatchlistRoutes({
   sql,
   workspaceId = DEFAULT_WORKSPACE_ID,
   jsonResponse,
-  methodNotAllowedResponse
+  methodNotAllowedResponse,
+  invalidateEdgeCache = null
 }) {
   if (!isWatchlistRoute(pathname)) return null;
 
   if (!sql) {
     return jsonResponse({ success: false, error: 'Database unavailable' }, 503);
   }
+
+  const bustRadarCaches = async () => {
+    if (typeof invalidateEdgeCache === 'function') {
+      await Promise.all([
+        Promise.resolve(invalidateEdgeCache('creators')).catch(() => {}),
+        Promise.resolve(invalidateEdgeCache('domains:leaderboard')).catch(() => {})
+      ]);
+    }
+  };
 
   // GET/POST /api/watchlist
   if (pathname === '/api/watchlist') {
@@ -71,6 +81,7 @@ export async function handleWatchlistRoutes({
           notes: body?.notes ?? '',
           addedFromFolderId: body?.added_from_folder_id ?? body?.folder_id ?? null
         });
+        await bustRadarCaches();
         return jsonResponse({ success: true, item }, 201);
       } catch (err) {
         return jsonResponse({ success: false, error: err.message }, err.status || 400);
@@ -93,6 +104,7 @@ export async function handleWatchlistRoutes({
           creatorTrackingMode: body?.creator_tracking_mode,
           notes: body?.notes
         });
+        await bustRadarCaches();
         return jsonResponse({ success: true, item }, 200);
       } catch (err) {
         return jsonResponse({ success: false, error: err.message }, err.status || 400);
@@ -102,6 +114,7 @@ export async function handleWatchlistRoutes({
     if (method === 'DELETE') {
       try {
         const result = await removeWatchlistItem(sql, { workspaceId, id });
+        await bustRadarCaches();
         return jsonResponse({ success: true, ...result }, 200);
       } catch (err) {
         return jsonResponse({ success: false, error: err.message }, err.status || 400);

@@ -88,9 +88,9 @@ ${renderAppSidebar({
   })}
 <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-5 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out motion-reduce:transition-none" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
 ${safeFolderId ? compactHtmlFragment(renderCampaignWorkspaceHeader({ activeRoom: 'newborn', folderId: safeFolderId })) : ''}
-${compactHtmlFragment(getNewbornHeaderAndLaunchpadHtml())}
-${compactHtmlFragment(getNewbornCandidatesAndRookiesHtml())}
-${compactHtmlFragment(getNewbornClusterExplorerHtml())}
+${compactHtmlFragment(getNewbornHeaderAndLaunchpadHtml({ folderId: safeFolderId }))}
+${compactHtmlFragment(getNewbornCandidatesAndRookiesHtml({ folderId: safeFolderId }))}
+${safeFolderId ? '' : compactHtmlFragment(getNewbornClusterExplorerHtml())}
 </main>
 ${compactHtmlFragment(getNewbornSettingsAndModalsHtml())}
 ${renderPageBootstrapScript({ folderId: safeFolderId, initialMode: safeInitialMode })}

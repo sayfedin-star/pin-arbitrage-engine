@@ -63,6 +63,7 @@ window.watchlistApp = function watchlistApp() {
     togglingModeIds: {},
     syncingCreatorKeys: {},
     removingIds: {},
+    isImportingFromRadar: false,
 
     // Inline Creator Catalog Explorer (Instant Client-Side Filtering)
     selectedCreatorKey: '',
@@ -271,6 +272,89 @@ window.watchlistApp = function watchlistApp() {
         this.showToast(err.message || 'Could not add domain');
       } finally {
         this.isSubmittingDomain = false;
+      }
+    },
+
+    async importTopFromRadar(entityType) {
+      if (this.isImportingFromRadar) return;
+      const isCreator = entityType === 'creator';
+      this.isImportingFromRadar = true;
+      let imported = 0;
+      let skipped = 0;
+      let failed = 0;
+      let lastErr = '';
+      try {
+        const endpoint = isCreator
+          ? '/api/creators?limit=10&workspace_scope=1'
+          : '/api/domains?limit=10&sort=velocity&workspace_scope=1';
+        const res = await this._reqFetch(endpoint, { headers: { Accept: 'application/json' } });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        const rows = isCreator
+          ? (Array.isArray(data.creators) ? data.creators : (Array.isArray(data.competitors) ? data.competitors : []))
+          : (Array.isArray(data.domains) ? data.domains : (Array.isArray(data.data) ? data.data : []));
+        const top = rows.slice(0, 10);
+        if (top.length === 0) {
+          this.showToast('No ' + (isCreator ? 'creators' : 'domains') + ' found in Radar to import');
+          return;
+        }
+        const existingKeys = new Set(
+          (this.items || [])
+            .filter((it) => it && it.entity_type === (isCreator ? 'creator' : 'domain'))
+            .map((it) => String(it.entity_key || '').trim().toLowerCase())
+            .filter(Boolean)
+        );
+        for (let i = 0; i < top.length; i++) {
+          const row = top[i];
+          const key = isCreator
+            ? String(row?.username || '').replace(/^@+/, '').trim()
+            : String(row?.domain || row?.clean_domain || '').trim();
+          if (!key) continue;
+          const normKey = key.toLowerCase();
+          if (existingKeys.has(normKey)) {
+            skipped++;
+            continue;
+          }
+          const payload = isCreator
+            ? { entity_type: 'creator', entity_key: key, creator_tracking_mode: 'metrics_only', notes: String(row?.display_name || '').trim() }
+            : { entity_type: 'domain', entity_key: key };
+          try {
+            const addRes = await this._reqFetch('/api/watchlist', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            if (addRes.ok) {
+              imported++;
+              existingKeys.add(normKey);
+            } else {
+              failed++;
+              const errBody = await addRes.json().catch(() => ({}));
+              lastErr = errBody.error || errBody.message || ('HTTP ' + addRes.status);
+            }
+          } catch (itemErr) {
+            failed++;
+            lastErr = itemErr?.message || 'Network error';
+          }
+        }
+        const label = isCreator ? 'creator(s)' : 'domain(s)';
+        if (imported > 0) {
+          const extras = [];
+          if (skipped > 0) extras.push(skipped + ' already watched');
+          if (failed > 0) extras.push(failed + ' failed');
+          this.showToast('Imported ' + imported + ' ' + label + ' from Radar' + (extras.length ? ' (' + extras.join(', ') + ')' : ''));
+        } else if (failed > 0) {
+          this.showToast('Import failed (' + failed + ' error' + (failed > 1 ? 's' : '') + (lastErr ? ': ' + lastErr : '') + ')');
+        } else if (skipped > 0) {
+          this.showToast('All ' + skipped + ' top ' + label + ' are already in Watchlist');
+        }
+      } catch (err) {
+        this.showToast(err.message || 'Import from Radar failed');
+      } finally {
+        if (imported > 0) {
+          await this.loadWatchlist();
+        }
+        this.isImportingFromRadar = false;
       }
     },
 

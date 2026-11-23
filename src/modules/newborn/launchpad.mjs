@@ -45,8 +45,7 @@ function buildLaunchpadBucketKey({
   age = '',
   gender = '',
   includeTerms = '',
-  excludeTerms = '',
-  limit = 50
+  excludeTerms = ''
 }) {
   const norm = (v) => String(v || '').trim().toLowerCase();
   const base = `${country}:${trendType}:${l1Interest}`;
@@ -55,8 +54,7 @@ function buildLaunchpadBucketKey({
     norm(age) ? `a=${norm(age)}` : '',
     norm(gender) ? `g=${norm(gender)}` : '',
     norm(includeTerms) ? `in=${norm(includeTerms)}` : '',
-    norm(excludeTerms) ? `ex=${norm(excludeTerms)}` : '',
-    Number(limit) && Number(limit) !== 50 ? `l=${Math.max(5, Math.min(100, Number(limit)))}` : ''
+    norm(excludeTerms) ? `ex=${norm(excludeTerms)}` : ''
   ].filter(Boolean);
   return extras.length > 0 ? `${base}|${extras.join('&')}` : base;
 }
@@ -120,16 +118,30 @@ export async function getNewbornLaunchpadFeed(sql, {
     age,
     gender,
     includeTerms,
-    excludeTerms,
-    limit: resolvedLimit
+    excludeTerms
   });
-  const bucket = cached?.buckets?.[bucketKey] || null;
+  const buckets = cached?.buckets || {};
+  let bucket = buckets[bucketKey] || null;
+  // Backward-compatible read fallback if legacy limit-suffixed cache holds more trends
+  const sep = bucketKey.includes('|') ? '&' : '|';
+  for (const legacySuffix of ['l=100', 'l=75']) {
+    const candidate = buckets[`${bucketKey}${sep}${legacySuffix}`];
+    if (Array.isArray(candidate?.trends) && candidate.trends.length > (Array.isArray(bucket?.trends) ? bucket.trends.length : 0)) {
+      bucket = candidate;
+    }
+  }
+  const rawTrends = Array.isArray(bucket?.trends) ? bucket.trends : [];
+  const slicedTrends = rawTrends.slice(0, resolvedLimit);
+  const fetchedLimit = Number(bucket?.fetched_limit || 0);
+  const cacheInsufficient = !bucket || (fetchedLimit < resolvedLimit && rawTrends.length < resolvedLimit);
 
   return {
     country: resolvedCountry,
     trend_type: resolvedType,
     l1_interest: resolvedInterest,
     limit: resolvedLimit,
+    cached_total: rawTrends.length,
+    cache_insufficient: cacheInsufficient,
     filters: {
       moments: String(moments || '').trim(),
       age: String(age || '').trim(),
@@ -137,7 +149,7 @@ export async function getNewbornLaunchpadFeed(sql, {
       include_terms: String(includeTerms || '').trim(),
       exclude_terms: String(excludeTerms || '').trim()
     },
-    trends: Array.isArray(bucket?.trends) ? bucket.trends : [],
+    trends: slicedTrends,
     popular_terms: Array.isArray(cached?.zero_query?.popular_terms) ? cached.zero_query.popular_terms : [],
     ideas_for_you_terms: Array.isArray(cached?.zero_query?.ideas_for_you_terms) ? cached.zero_query.ideas_for_you_terms : [],
     zero_query_used_guest_fallback: Boolean(cached?.zero_query?.used_guest_fallback),
@@ -189,12 +201,15 @@ export async function refreshNewbornLaunchpadFeed(sql, options = {}) {
     ...routerOptions
   });
 
+  // Always fetch the full Pinterest ceiling (100) per filter bucket so 50/75/100 switches slice cleanly without refetching
+  const fetchLimit = 100;
+
   const [trendsRes, zeroQueryRes] = await Promise.all([
     harvestTrendsFn(router, {
       country: resolvedCountry,
       trendType: resolvedType,
       l1Interest: resolvedInterest,
-      limit: resolvedLimit,
+      limit: fetchLimit,
       moments: String(moments || '').trim(),
       age: String(age || '').trim(),
       gender: String(gender || '').trim(),
@@ -205,6 +220,7 @@ export async function refreshNewbornLaunchpadFeed(sql, options = {}) {
     harvestZeroQueryFn(router, { country: resolvedCountry })
   ]);
 
+  const allTrends = Array.isArray(trendsRes.trends) ? trendsRes.trends : [];
   const nowIso = new Date().toISOString();
   const bucketKey = buildLaunchpadBucketKey({
     country: resolvedCountry,
@@ -214,8 +230,7 @@ export async function refreshNewbornLaunchpadFeed(sql, options = {}) {
     age,
     gender,
     includeTerms,
-    excludeTerms,
-    limit: resolvedLimit
+    excludeTerms
   });
 
   if (sql && typeof sql === 'function') {
@@ -237,7 +252,8 @@ export async function refreshNewbornLaunchpadFeed(sql, options = {}) {
     }
 
     existingCache.buckets[bucketKey] = {
-      trends: trendsRes.trends || [],
+      trends: allTrends,
+      fetched_limit: fetchLimit,
       fetched_at: nowIso
     };
     existingCache.zero_query = {
@@ -265,6 +281,8 @@ export async function refreshNewbornLaunchpadFeed(sql, options = {}) {
     trend_type: resolvedType,
     l1_interest: resolvedInterest,
     limit: resolvedLimit,
+    cached_total: allTrends.length,
+    cache_insufficient: false,
     filters: {
       moments: String(moments || '').trim(),
       age: String(age || '').trim(),
@@ -272,7 +290,7 @@ export async function refreshNewbornLaunchpadFeed(sql, options = {}) {
       include_terms: String(includeTerms || '').trim(),
       exclude_terms: String(excludeTerms || '').trim()
     },
-    trends: trendsRes.trends || [],
+    trends: allTrends.slice(0, resolvedLimit),
     popular_terms: zeroQueryRes.popular_terms || zeroQueryRes.terms || [],
     ideas_for_you_terms: zeroQueryRes.ideas_for_you_terms || [],
     zero_query_used_guest_fallback: Boolean(zeroQueryRes.used_guest_fallback),

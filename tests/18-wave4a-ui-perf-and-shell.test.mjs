@@ -599,7 +599,8 @@ test('Wave 4A.5: Fetch hygiene, AbortController cancellation, discovery safeUrl 
   assert.ok(dashHtmlRes.body.includes('Impressions'));
 
   const foldersHtmlRes = await app.inject({ method: 'GET', url: '/folders' });
-  assert.ok(foldersHtmlRes.body.includes('isSettingsModalOpen'), 'folders-modals.mjs must preserve isSettingsModalOpen');
+  assert.ok(foldersHtmlRes.body.includes("currentRoom === 'settings'"), 'folders-studio-view.mjs must preserve Room 5 settings view');
+  assert.equal(foldersHtmlRes.body.includes('isSettingsModalOpen'), false, 'dead duplicate isSettingsModalOpen modal must be removed from folders-modals.mjs');
 
   // 3. discovery-client-app.mjs delegates safeUrl directly to window.PAEFormatters.safeUrl (zero shadow)
   const discAsset = getClientJsAsset('discovery');

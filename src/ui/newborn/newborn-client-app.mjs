@@ -22,7 +22,7 @@ export function getNewbornClientAppScript() {
           max_board_age_days: 90,
           max_queries_per_run: 25,
           surfaces: {
-            growing_trends: { enabled: false, max_pages: 1, limit: 25 },
+            growing_trends: { enabled: false, max_pages: 1, limit: 50 },
             zero_query_popular: { enabled: false, max_pages: 1 },
             pin_serp_capsules: { enabled: true, max_pages: 10, page_size: 50, target_pins: 500 },
             fresh_boards: { enabled: true, max_pages: 2, max_boards: 10, target_pins_per_board: 100 },
@@ -87,6 +87,9 @@ export function getNewbornClientAppScript() {
         _ideaLookupSeq: 0,
 
         // Pure 3-Filter Qualification Controls + Hydration Cap
+        huntOptionsExpanded: false,
+        workspaceHuntDefaults: null,
+        _autoRefreshedLaunchpadKeys: {},
         huntFilters: {
           maxAgeDays: 30,
           minRepins: 20,
@@ -233,8 +236,7 @@ export function getNewbornClientAppScript() {
         isSubmittingWatchlistPoll: false,
         runs: [],
 
-        // Slide-Over Settings Drawer & Modals
-        settingsDrawerOpen: initialMode === 'settings',
+        // Settings Draft & Modals
         settingsTab: 'filters',
         settingsDraft: cloneJson(DEFAULT_SETTINGS_DRAFT),
         scheduleStatus: null,
@@ -299,6 +301,10 @@ export function getNewbornClientAppScript() {
               const qp = new URLSearchParams(window.location.search);
               const qSeed = (qp.get('search') || qp.get('q') || '').trim();
               if (qSeed) this.huntInput = qSeed;
+              const qFolderId = (qp.get('folder_id') || '').trim();
+              if (qFolderId && !this.targetCampaignFolderId) {
+                this.targetCampaignFolderId = qFolderId;
+              }
             }
           } catch (_) {}
 
@@ -428,17 +434,6 @@ export function getNewbornClientAppScript() {
           if (this.profileModalOpen) { this.profileModalOpen = false; return; }
           if (this.promoteModalOpen) { this.promoteModalOpen = false; return; }
           if (this.dossierOpen) { this.dossierOpen = false; return; }
-          if (this.settingsDrawerOpen) { this.closeSettingsDrawer(); }
-        },
-
-        openSettingsDrawer(tab = 'filters') {
-          this.settingsTab = tab || 'filters';
-          this.settingsDrawerOpen = true;
-          this.refreshIcons();
-        },
-
-        closeSettingsDrawer() {
-          this.settingsDrawerOpen = false;
         },
 
         isRunActiveStatus(status) {
@@ -564,13 +559,211 @@ export function getNewbornClientAppScript() {
           }
         },
 
+        applyWorkspaceDefaultsToHeroControls(wsSettings) {
+          if (!wsSettings || typeof wsSettings !== 'object') return;
+          if (wsSettings.max_pin_age_days != null && Number.isFinite(Number(wsSettings.max_pin_age_days))) {
+            this.huntFilters.maxAgeDays = Math.max(1, Math.min(365, Number(wsSettings.max_pin_age_days)));
+          }
+          if (wsSettings.min_repin_count != null && Number.isFinite(Number(wsSettings.min_repin_count))) {
+            this.huntFilters.minRepins = Math.max(0, Number(wsSettings.min_repin_count));
+          }
+          if (wsSettings.min_save_count != null && Number.isFinite(Number(wsSettings.min_save_count))) {
+            this.huntFilters.minSaves = Math.max(0, Number(wsSettings.min_save_count));
+          }
+          if (wsSettings.execution_mode && ['auto', 'direct', 'fleet'].includes(String(wsSettings.execution_mode).toLowerCase())) {
+            this.executionMode = String(wsSettings.execution_mode).toLowerCase();
+          }
+          const et = wsSettings.extraction_targets && typeof wsSettings.extraction_targets === 'object'
+            ? wsSettings.extraction_targets
+            : null;
+          if (et) {
+            if (et.search && typeof et.search === 'object') {
+              if (typeof et.search.enabled === 'boolean') this.huntPaths.search.enabled = et.search.enabled;
+              if (et.search.target_pins != null && Number.isFinite(Number(et.search.target_pins))) {
+                this.huntPaths.search.target_pins = Number(et.search.target_pins);
+              }
+            }
+            if (et.boards && typeof et.boards === 'object') {
+              if (typeof et.boards.enabled === 'boolean') this.huntPaths.boards.enabled = et.boards.enabled;
+              if (et.boards.max_boards != null && Number.isFinite(Number(et.boards.max_boards))) {
+                this.huntPaths.boards.max_boards = Number(et.boards.max_boards);
+              }
+              if (et.boards.target_pins_per_board != null && Number.isFinite(Number(et.boards.target_pins_per_board))) {
+                this.huntPaths.boards.target_pins_per_board = Number(et.boards.target_pins_per_board);
+              }
+            }
+            if (et.idea_page && typeof et.idea_page === 'object') {
+              if (typeof et.idea_page.enabled === 'boolean') this.huntPaths.idea_page.enabled = et.idea_page.enabled;
+              if (et.idea_page.target_pins != null && Number.isFinite(Number(et.idea_page.target_pins))) {
+                this.huntPaths.idea_page.target_pins = Number(et.idea_page.target_pins);
+              }
+            }
+            if (et.home_feed && typeof et.home_feed === 'object') {
+              if (typeof et.home_feed.enabled === 'boolean') this.huntPaths.home_feed.enabled = et.home_feed.enabled;
+              if (et.home_feed.target_pins != null && Number.isFinite(Number(et.home_feed.target_pins))) {
+                this.huntPaths.home_feed.target_pins = Number(et.home_feed.target_pins);
+              }
+            }
+            const rel = et.related_pins || et.related;
+            if (rel && typeof rel === 'object' && rel.target_pins != null && Number.isFinite(Number(rel.target_pins))) {
+              this.huntPaths.related.target_pins = Number(rel.target_pins);
+            }
+            const hydCap = et.hydration?.max_pin_hydrations_per_run ?? et.max_pin_hydrations;
+            if (hydCap != null && Number.isFinite(Number(hydCap))) {
+              this.huntFilters.maxPinHydrations = Math.max(5, Math.min(5000, Number(hydCap)));
+            }
+          }
+        },
+
+        snapshotCurrentHuntControls() {
+          return {
+            huntFilters: cloneJson(this.huntFilters),
+            huntPaths: cloneJson(this.huntPaths),
+            executionMode: String(this.executionMode || 'auto')
+          };
+        },
+
+        hasHuntOverrides() {
+          if (!this.workspaceHuntDefaults) return false;
+          const d = this.workspaceHuntDefaults;
+          const f = this.huntFilters;
+          const p = this.huntPaths;
+          return (
+            Number(f.maxAgeDays) !== Number(d.huntFilters.maxAgeDays) ||
+            Number(f.minRepins) !== Number(d.huntFilters.minRepins) ||
+            Number(f.minSaves) !== Number(d.huntFilters.minSaves) ||
+            Number(f.maxPinHydrations) !== Number(d.huntFilters.maxPinHydrations) ||
+            Boolean(p.search.enabled) !== Boolean(d.huntPaths.search.enabled) ||
+            Number(p.search.target_pins) !== Number(d.huntPaths.search.target_pins) ||
+            Boolean(p.boards.enabled) !== Boolean(d.huntPaths.boards.enabled) ||
+            Number(p.boards.max_boards) !== Number(d.huntPaths.boards.max_boards) ||
+            Number(p.boards.target_pins_per_board) !== Number(d.huntPaths.boards.target_pins_per_board) ||
+            Boolean(p.idea_page.enabled) !== Boolean(d.huntPaths.idea_page.enabled) ||
+            Number(p.idea_page.target_pins) !== Number(d.huntPaths.idea_page.target_pins) ||
+            Boolean(p.home_feed.enabled) !== Boolean(d.huntPaths.home_feed.enabled) ||
+            Number(p.home_feed.target_pins) !== Number(d.huntPaths.home_feed.target_pins) ||
+            Number(p.related.target_pins) !== Number(d.huntPaths.related.target_pins) ||
+            String(this.executionMode || 'auto') !== String(d.executionMode || 'auto')
+          );
+        },
+
+        resetHuntOverrides() {
+          if (!this.workspaceHuntDefaults) return;
+          this.huntFilters = cloneJson(this.workspaceHuntDefaults.huntFilters);
+          this.huntPaths = cloneJson(this.workspaceHuntDefaults.huntPaths);
+          this.executionMode = String(this.workspaceHuntDefaults.executionMode || 'auto');
+          this.refreshIcons();
+        },
+
+        buildExplicitHuntOverrides() {
+          if (!this.workspaceHuntDefaults || !this.hasHuntOverrides()) return {};
+          const d = this.workspaceHuntDefaults;
+          const f = this.huntFilters;
+          const p = this.huntPaths;
+          const out = {};
+
+          const filters = {};
+          if (Number(f.maxAgeDays) !== Number(d.huntFilters.maxAgeDays)) {
+            filters.max_age_days = Math.max(1, Math.min(365, Number(f.maxAgeDays) || 30));
+          }
+          if (Number(f.minRepins) !== Number(d.huntFilters.minRepins)) {
+            const mr = Number(f.minRepins);
+            filters.min_repin_count = Number.isFinite(mr) ? Math.max(0, mr) : 0;
+          }
+          if (Number(f.minSaves) !== Number(d.huntFilters.minSaves)) {
+            const ms = Number(f.minSaves);
+            filters.min_save_count = Number.isFinite(ms) ? Math.max(0, ms) : 0;
+          }
+          if (Number(f.maxPinHydrations) !== Number(d.huntFilters.maxPinHydrations)) {
+            filters.max_pin_hydrations_per_run = Math.max(5, Math.min(5000, Number(f.maxPinHydrations) || 500));
+          }
+          if (Object.keys(filters).length > 0) out.filters = filters;
+
+          const paths = {};
+          if (
+            Boolean(p.search.enabled) !== Boolean(d.huntPaths.search.enabled) ||
+            Number(p.search.target_pins) !== Number(d.huntPaths.search.target_pins)
+          ) {
+            paths.search = {
+              enabled: Boolean(p.search.enabled),
+              target_pins: Number(p.search.target_pins) || 500
+            };
+          }
+          if (
+            Boolean(p.boards.enabled) !== Boolean(d.huntPaths.boards.enabled) ||
+            Number(p.boards.max_boards) !== Number(d.huntPaths.boards.max_boards) ||
+            Number(p.boards.target_pins_per_board) !== Number(d.huntPaths.boards.target_pins_per_board)
+          ) {
+            paths.boards = {
+              enabled: Boolean(p.boards.enabled),
+              max_boards: Number(p.boards.max_boards) || 10,
+              target_pins_per_board: Number(p.boards.target_pins_per_board) || 100
+            };
+          }
+          if (
+            Boolean(p.idea_page.enabled) !== Boolean(d.huntPaths.idea_page.enabled) ||
+            Number(p.idea_page.target_pins) !== Number(d.huntPaths.idea_page.target_pins)
+          ) {
+            paths.idea_page = {
+              enabled: Boolean(p.idea_page.enabled),
+              target_pins: Number(p.idea_page.target_pins) || 250
+            };
+          }
+          if (
+            Boolean(p.home_feed.enabled) !== Boolean(d.huntPaths.home_feed.enabled) ||
+            Number(p.home_feed.target_pins) !== Number(d.huntPaths.home_feed.target_pins)
+          ) {
+            paths.home_feed = {
+              enabled: Boolean(p.home_feed.enabled),
+              target_pins: Number(p.home_feed.target_pins) || 250
+            };
+          }
+          if (Number(p.related.target_pins) !== Number(d.huntPaths.related.target_pins)) {
+            paths.related = {
+              target_pins: Number(p.related.target_pins) || 200
+            };
+          }
+          if (Object.keys(paths).length > 0) out.paths = paths;
+          return out;
+        },
+
+        activeHuntSummaryText() {
+          const parts = [
+            '<= ' + (Number(this.huntFilters.maxAgeDays) || 30) + 'd',
+            '>= ' + (Number(this.huntFilters.minRepins) || 0) + ' rp'
+          ];
+          if (Number(this.huntFilters.minSaves) > 0) {
+            parts.push('>= ' + Number(this.huntFilters.minSaves) + ' saves');
+          }
+          const paths = [];
+          if (this.huntPaths.search.enabled) paths.push('Search ' + (Number(this.huntPaths.search.target_pins) || 500));
+          if (this.huntPaths.boards.enabled) {
+            paths.push('Boards ' + (Number(this.huntPaths.boards.max_boards) || 10) + 'x' + (Number(this.huntPaths.boards.target_pins_per_board) || 100));
+          }
+          if (this.huntPaths.idea_page.enabled) paths.push('Ideas ' + (Number(this.huntPaths.idea_page.target_pins) || 250));
+          if (this.huntPaths.home_feed.enabled) paths.push('Home ' + (Number(this.huntPaths.home_feed.target_pins) || 250));
+          if (paths.length > 0) parts.push(paths.join(', '));
+          const modeLabel = this.executionMode === 'fleet' ? 'Fleet' : (this.executionMode === 'direct' ? 'Direct' : 'Auto');
+          parts.push(modeLabel);
+          return parts.join(' · ');
+        },
+
         async loadSettingsAndProfiles() {
           try {
-            const { data } = await this.apiJson('/api/newborn/settings');
+            const [nbRes, wsRes] = await Promise.all([
+              this.apiJson('/api/newborn/settings'),
+              this.apiJson('/api/workspaces/settings').catch(() => ({ data: null }))
+            ]);
+            const data = nbRes?.data || {};
             if (data.settings) {
               this.settingsDraft = cloneJson(data.settings);
               this.syncSettingsToHeroControls(data.settings);
             }
+            const wsSettings = wsRes?.data?.settings || (wsRes?.data && wsRes.data.max_pin_age_days != null ? wsRes.data : null);
+            if (wsSettings) {
+              this.applyWorkspaceDefaultsToHeroControls(wsSettings);
+            }
+            this.workspaceHuntDefaults = this.snapshotCurrentHuntControls();
             if (data.schedule) this.scheduleStatus = data.schedule;
             if (data.cookie_status) this.cookieStatus = data.cookie_status;
             if (Array.isArray(data.surfaces_catalog)) this.surfacesCatalog = data.surfaces_catalog;
@@ -582,11 +775,14 @@ export function getNewbornClientAppScript() {
 
         async loadOverviewAndRuns() {
           try {
+            const overviewUrl = this.scopedFolderId
+              ? ('/api/newborn/overview?folder_id=' + encodeURIComponent(this.scopedFolderId))
+              : '/api/newborn/overview';
             const runsUrl = this.scopedFolderId
               ? ('/api/newborn/runs?limit=30&folder_id=' + encodeURIComponent(this.scopedFolderId))
               : '/api/newborn/runs?limit=30';
             const [ovRes, runsRes] = await Promise.all([
-              this.apiJson('/api/newborn/overview'),
+              this.apiJson(overviewUrl),
               this.apiJson(runsUrl)
             ]);
             this.overview = ovRes.data;
@@ -696,7 +892,10 @@ export function getNewbornClientAppScript() {
 
         async loadRecentClusters() {
           try {
-            const { data } = await this.apiJson('/api/newborn/clusters?limit=15');
+            const url = this.scopedFolderId
+              ? ('/api/newborn/clusters?limit=15&folder_id=' + encodeURIComponent(this.scopedFolderId))
+              : '/api/newborn/clusters?limit=15';
+            const { data } = await this.apiJson(url);
             this.recentClusters = Array.isArray(data?.clusters) ? data.clusters : [];
           } catch (_) {}
         },
@@ -929,13 +1128,7 @@ export function getNewbornClientAppScript() {
               folder_id: this.scopedFolderId || undefined,
               execution_mode: this.executionMode || 'auto',
               shards: this.fleetShards || 8,
-              filters: {
-                max_age_days: this.huntFilters.maxAgeDays,
-                min_repin_count: this.huntFilters.minRepins,
-                min_save_count: this.huntFilters.minSaves,
-                max_pin_hydrations_per_run: this.huntFilters.maxPinHydrations
-              },
-              paths: this.huntPaths
+              ...this.buildExplicitHuntOverrides()
             };
             const { data } = await this.apiJson('/api/newborn/cluster/hunt', {
               method: 'POST',
@@ -945,7 +1138,7 @@ export function getNewbornClientAppScript() {
             if (runId) {
               this.activeRunId = runId;
               this.activeRun = data.run || { id: runId, status: 'queued', progress_pct: 5 };
-              this.startRunPolling(runId);
+              this.startPollingRun(runId);
             }
             this.toast('Launched Quick Newborn Hunt for ' + picked.length + ' basket keywords', 'success');
           } catch (err) {
@@ -1024,20 +1217,14 @@ export function getNewbornClientAppScript() {
                   folder_id: targetFolderId,
                   execution_mode: this.executionMode || 'auto',
                   shards: this.fleetShards || 8,
-                  filters: {
-                    max_age_days: this.huntFilters.maxAgeDays,
-                    min_repin_count: this.huntFilters.minRepins,
-                    min_save_count: this.huntFilters.minSaves,
-                    max_pin_hydrations_per_run: this.huntFilters.maxPinHydrations
-                  },
-                  paths: this.huntPaths
+                  ...this.buildExplicitHuntOverrides()
                 })
               });
               const runId = huntData?.run_id || huntData?.run?.id || null;
               if (runId) {
                 this.activeRunId = runId;
                 this.activeRun = huntData.run || { id: runId, status: 'queued', progress_pct: 5 };
-                this.startRunPolling(runId);
+                this.startPollingRun(runId);
               }
             }
 
@@ -1079,33 +1266,7 @@ export function getNewbornClientAppScript() {
               shards: Math.max(1, Math.min(20, Number(this.fleetShards) || 8)),
               profile_id: this.selectedProfileId || null,
               folder_id: this.scopedFolderId ? Number(this.scopedFolderId) : null,
-              filters: {
-                max_age_days: Math.max(1, Math.min(365, Number(this.huntFilters.maxAgeDays) || 30)),
-                min_repin_count: Math.max(0, Number(this.huntFilters.minRepins) || 0),
-                min_save_count: Math.max(0, Number(this.huntFilters.minSaves) || 0),
-                max_pin_hydrations_per_run: Math.max(5, Math.min(5000, Number(this.huntFilters.maxPinHydrations) || 500)),
-                resolve_root_pin: Boolean(this.settingsDraft?.qualification?.resolve_root_pin)
-              },
-              paths: {
-                search: {
-                  enabled: Boolean(this.huntPaths.search.enabled),
-                  target_pins: Number(this.huntPaths.search.target_pins) || 500
-                },
-                boards: {
-                  enabled: Boolean(this.huntPaths.boards.enabled),
-                  max_boards: Number(this.huntPaths.boards.max_boards) || 10,
-                  target_pins_per_board: Number(this.huntPaths.boards.target_pins_per_board) || 100
-                },
-                idea_page: {
-                  enabled: Boolean(this.huntPaths.idea_page.enabled),
-                  target_pins: Number(this.huntPaths.idea_page.target_pins) || 250
-                },
-                home_feed: {
-                  enabled: Boolean(this.huntPaths.home_feed.enabled),
-                  target_pins: Number(this.huntPaths.home_feed.target_pins) || 250
-                },
-                related: { enabled: false }
-              }
+              ...this.buildExplicitHuntOverrides()
             };
             const { data } = await this.apiJson('/api/newborn/cluster/hunt', {
               method: 'POST',
@@ -1326,8 +1487,10 @@ export function getNewbornClientAppScript() {
         async loadCrossoverForActiveHunt() {
           const signal = this._nextAbortSignal('crossover');
           try {
-            const qs = this.activeRunId ? ('?run_id=' + encodeURIComponent(this.activeRunId) + '&limit=30') : '?limit=30';
-            const { data } = await this.apiJson('/api/newborn/crossover' + qs, signal ? { signal } : {});
+            const params = new URLSearchParams({ limit: '30' });
+            if (this.activeRunId) params.set('run_id', String(this.activeRunId));
+            if (this.scopedFolderId) params.set('folder_id', String(this.scopedFolderId));
+            const { data } = await this.apiJson('/api/newborn/crossover?' + params.toString(), signal ? { signal } : {});
             if (signal && signal.aborted) return;
             this.crossoverClusters = Array.isArray(data?.clusters) ? data.clusters : [];
           } catch (err) {
@@ -1511,6 +1674,22 @@ export function getNewbornClientAppScript() {
             this.launchpadTrends = Array.isArray(data?.trends) ? data.trends : [];
             this.launchpadPopularTerms = Array.isArray(data?.popular_terms) ? data.popular_terms : [];
             this.launchpadIdeasForYou = Array.isArray(data?.ideas_for_you_terms) ? data.ideas_for_you_terms : [];
+
+            const filterKey = [
+              this.launchpadCountry || 'US',
+              this.launchpadTrendType || 'growing',
+              this.launchpadInterest || 'all',
+              this.launchpadMoments || '',
+              this.launchpadAge || '',
+              this.launchpadGender || '',
+              (this.launchpadIncludeTerms || '').trim().toLowerCase(),
+              (this.launchpadExcludeTerms || '').trim().toLowerCase()
+            ].join('|');
+            if (data?.cache_insufficient === true && !this.isRefreshingLaunchpad && !this._autoRefreshedLaunchpadKeys[filterKey]) {
+              this._autoRefreshedLaunchpadKeys[filterKey] = true;
+              await this.refreshLaunchpadLive();
+              return;
+            }
           } catch (_) {}
           this.refreshIcons();
         },
@@ -1577,33 +1756,7 @@ export function getNewbornClientAppScript() {
               shards: Math.max(1, Math.min(20, Number(this.fleetShards) || 8)),
               profile_id: this.selectedProfileId || null,
               folder_id: this.scopedFolderId ? Number(this.scopedFolderId) : null,
-              filters: {
-                max_age_days: Math.max(1, Math.min(365, Number(this.huntFilters.maxAgeDays) || 30)),
-                min_repin_count: Math.max(0, Number(this.huntFilters.minRepins) || 0),
-                min_save_count: Math.max(0, Number(this.huntFilters.minSaves) || 0),
-                max_pin_hydrations_per_run: Math.max(5, Math.min(5000, Number(this.huntFilters.maxPinHydrations) || 500)),
-                resolve_root_pin: Boolean(this.settingsDraft?.qualification?.resolve_root_pin)
-              },
-              paths: {
-                search: {
-                  enabled: Boolean(this.huntPaths.search.enabled),
-                  target_pins: Number(this.huntPaths.search.target_pins) || 500
-                },
-                boards: {
-                  enabled: Boolean(this.huntPaths.boards.enabled),
-                  max_boards: Number(this.huntPaths.boards.max_boards) || 10,
-                  target_pins_per_board: Number(this.huntPaths.boards.target_pins_per_board) || 100
-                },
-                idea_page: {
-                  enabled: Boolean(this.huntPaths.idea_page.enabled),
-                  target_pins: Number(this.huntPaths.idea_page.target_pins) || 250
-                },
-                home_feed: {
-                  enabled: Boolean(this.huntPaths.home_feed.enabled),
-                  target_pins: Number(this.huntPaths.home_feed.target_pins) || 250
-                },
-                related: { enabled: false }
-              }
+              ...this.buildExplicitHuntOverrides()
             };
             const { data } = await this.apiJson('/api/newborn/discover', {
               method: 'POST',
@@ -2020,7 +2173,10 @@ export function getNewbornClientAppScript() {
         async loadWatchlist() {
           const signal = this._nextAbortSignal('watchlist');
           try {
-            const { data } = await this.apiJson('/api/newborn/candidates?stage=watchlist&limit=200&sort=repins', signal ? { signal } : {});
+            const url = this.scopedFolderId
+              ? ('/api/newborn/candidates?stage=watchlist&limit=200&sort=repins&folder_id=' + encodeURIComponent(this.scopedFolderId))
+              : '/api/newborn/candidates?stage=watchlist&limit=200&sort=repins';
+            const { data } = await this.apiJson(url, signal ? { signal } : {});
             if (signal && signal.aborted) return;
             this.watchlistCandidates = Array.isArray(data?.candidates) ? data.candidates : [];
           } catch (err) {
@@ -2031,7 +2187,10 @@ export function getNewbornClientAppScript() {
         async loadDailyAnchors() {
           const signal = this._nextAbortSignal('anchors');
           try {
-            const { data } = await this.apiJson('/api/newborn/anchors?active_only=true&limit=200', signal ? { signal } : {});
+            const url = this.scopedFolderId
+              ? ('/api/newborn/anchors?active_only=true&limit=200&folder_id=' + encodeURIComponent(this.scopedFolderId))
+              : '/api/newborn/anchors?active_only=true&limit=200';
+            const { data } = await this.apiJson(url, signal ? { signal } : {});
             if (signal && signal.aborted) return;
             this.dailyAnchors = Array.isArray(data?.anchors) ? data.anchors : [];
           } catch (err) {
@@ -2119,7 +2278,6 @@ export function getNewbornClientAppScript() {
             }
             if (data?.schedule) this.scheduleStatus = data.schedule;
             this.toast('Settings saved', 'success');
-            this.closeSettingsDrawer();
           } catch (err) {
             this.toast('Save failed: ' + err.message, 'error');
           } finally {
@@ -2178,7 +2336,6 @@ export function getNewbornClientAppScript() {
             if (data?.run_id) {
               this.activeRunId = Number(data.run_id);
               this.activeRun = data.run;
-              this.closeSettingsDrawer();
               this.startPollingRun(data.run_id);
               this.toast('Auto-cycle started (Run #' + data.run_id + ')', 'info');
             }

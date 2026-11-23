@@ -282,7 +282,7 @@ export async function harvestGrowingTrendsSurface(
     country = 'US',
     trendType = 'growing',
     l1Interest = 'all',
-    limit = 25,
+    limit = 50,
     fetch90dForecast = true,
     includeTerms = [],
     excludeTerms = [],
@@ -303,7 +303,7 @@ export async function harvestGrowingTrendsSurface(
   const interestParam = resolvedL1Id
     ? `&l1interests=${encodeURIComponent(resolvedL1Id)}`
     : '';
-  const clampedLimit = Math.max(5, Math.min(100, Number(limit) || 25));
+  const clampedLimit = Math.max(5, Math.min(100, Number(limit) || 50));
 
   const includeList = (Array.isArray(includeTerms) ? includeTerms : String(includeTerms || '').split(','))
     .map((t) => String(t || '').trim().toLowerCase())

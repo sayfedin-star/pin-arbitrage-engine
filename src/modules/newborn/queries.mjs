@@ -34,73 +34,180 @@ function decodeCandidateAnnotations(annotations) {
   });
 }
 
+function parseOptionalPositiveInt(val) {
+  if (val == null || val === '') return null;
+  const n = Number(val);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
 /**
  * Single-pass Executive Overview for `/api/newborn/overview`.
  */
-export async function getNewbornOverview(sql, env = {}, { workspaceId = 1 } = {}) {
-  const wid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
+export async function getNewbornOverview(sql, env = {}, { workspaceId = 1, folderId = null } = {}) {
+  const wid = parseOptionalPositiveInt(workspaceId) || 1;
+  const fid = parseOptionalPositiveInt(folderId);
   const fetchRecentRuns = async () => {
     try {
-      return await sql`
-        SELECT id, run_type, status, execution_mode, progress_stage, progress_detail, progress_pct, error_message,
-               workspace_id, folder_id, cluster_id, seed_queries, surfaces_used, cookie_mode,
-               candidates_discovered, candidates_qualified,
-               golden_pins_count, rookie_creators_count, auto_watchlisted_count, auto_promoted_count,
-               snowball_hops_executed, shards_total, shards_completed, shards_failed,
-               github_run_id, github_run_url, cancel_requested_at,
-               telemetry, started_at, completed_at
-        FROM newborn_runs
-        WHERE workspace_id = ${wid}
-        ORDER BY started_at DESC
-        LIMIT 12;
-      `;
+      return fid !== null
+        ? await sql`
+            SELECT id, run_type, status, execution_mode, progress_stage, progress_detail, progress_pct, error_message,
+                   workspace_id, folder_id, cluster_id, seed_queries, surfaces_used, cookie_mode,
+                   candidates_discovered, candidates_qualified,
+                   golden_pins_count, rookie_creators_count, auto_watchlisted_count, auto_promoted_count,
+                   snowball_hops_executed, shards_total, shards_completed, shards_failed,
+                   github_run_id, github_run_url, cancel_requested_at,
+                   telemetry, started_at, completed_at
+            FROM newborn_runs
+            WHERE workspace_id = ${wid}
+              AND folder_id = ${fid}
+            ORDER BY started_at DESC
+            LIMIT 12;
+          `
+        : await sql`
+            SELECT id, run_type, status, execution_mode, progress_stage, progress_detail, progress_pct, error_message,
+                   workspace_id, folder_id, cluster_id, seed_queries, surfaces_used, cookie_mode,
+                   candidates_discovered, candidates_qualified,
+                   golden_pins_count, rookie_creators_count, auto_watchlisted_count, auto_promoted_count,
+                   snowball_hops_executed, shards_total, shards_completed, shards_failed,
+                   github_run_id, github_run_url, cancel_requested_at,
+                   telemetry, started_at, completed_at
+            FROM newborn_runs
+            WHERE workspace_id = ${wid}
+            ORDER BY started_at DESC
+            LIMIT 12;
+          `;
     } catch (err) {
       if (String(err?.code || '') !== '42703') throw err;
       if (wid !== 1) return [];
-      return await sql`
-        SELECT id, run_type, status, execution_mode, progress_stage, progress_detail, progress_pct, error_message,
-               folder_id, cluster_id, seed_queries, surfaces_used, cookie_mode,
-               candidates_discovered, candidates_qualified,
-               golden_pins_count, rookie_creators_count, auto_watchlisted_count, auto_promoted_count,
-               snowball_hops_executed, shards_total, shards_completed, shards_failed,
-               github_run_id, github_run_url, cancel_requested_at,
-               telemetry, started_at, completed_at
-        FROM newborn_runs
-        ORDER BY started_at DESC
-        LIMIT 12;
-      `;
+      return fid !== null
+        ? await sql`
+            SELECT id, run_type, status, execution_mode, progress_stage, progress_detail, progress_pct, error_message,
+                   folder_id, cluster_id, seed_queries, surfaces_used, cookie_mode,
+                   candidates_discovered, candidates_qualified,
+                   golden_pins_count, rookie_creators_count, auto_watchlisted_count, auto_promoted_count,
+                   snowball_hops_executed, shards_total, shards_completed, shards_failed,
+                   github_run_id, github_run_url, cancel_requested_at,
+                   telemetry, started_at, completed_at
+            FROM newborn_runs
+            WHERE folder_id = ${fid}
+            ORDER BY started_at DESC
+            LIMIT 12;
+          `
+        : await sql`
+            SELECT id, run_type, status, execution_mode, progress_stage, progress_detail, progress_pct, error_message,
+                   folder_id, cluster_id, seed_queries, surfaces_used, cookie_mode,
+                   candidates_discovered, candidates_qualified,
+                   golden_pins_count, rookie_creators_count, auto_watchlisted_count, auto_promoted_count,
+                   snowball_hops_executed, shards_total, shards_completed, shards_failed,
+                   github_run_id, github_run_url, cancel_requested_at,
+                   telemetry, started_at, completed_at
+            FROM newborn_runs
+            ORDER BY started_at DESC
+            LIMIT 12;
+          `;
     }
   };
+
+  const statsPromise = fid !== null
+    ? sql`
+        SELECT
+          COUNT(*)::int AS total_candidates,
+          COUNT(*) FILTER (WHERE stage = 'discovered')::int AS discovered_count,
+          COUNT(*) FILTER (WHERE stage = 'watchlist')::int AS watchlist_count,
+          COUNT(*) FILTER (WHERE stage = 'promoted')::int AS promoted_count,
+          COUNT(*) FILTER (WHERE stage = 'discarded')::int AS discarded_count,
+          COUNT(*) FILTER (WHERE is_golden_pin = TRUE AND stage <> 'discarded')::int AS golden_pins_count,
+          COUNT(*) FILTER (WHERE is_linkless = TRUE AND stage <> 'discarded')::int AS linkless_vacuum_count,
+          COUNT(*) FILTER (WHERE is_rookie_outlier = TRUE AND stage <> 'discarded')::int AS rookie_outliers_count,
+          COALESCE(ROUND(AVG(golden_score) FILTER (WHERE stage <> 'discarded')::numeric, 2), 0)::double precision AS avg_golden_score,
+          (SELECT COUNT(*)::int FROM newborn_rookie_accounts WHERE stage <> 'discarded') AS rookie_accounts_count,
+          (SELECT COUNT(*)::int FROM newborn_rookie_accounts WHERE stage = 'watchlist') AS rookie_watchlist_count,
+          (SELECT COUNT(*)::int FROM newborn_rookie_accounts WHERE stage = 'promoted') AS rookie_promoted_count,
+          (SELECT COUNT(*)::int FROM newborn_daily_anchors WHERE is_active = TRUE AND folder_id = ${fid}) AS active_daily_anchors_count,
+          (SELECT COUNT(*)::int FROM newborn_rule_profiles WHERE is_active = TRUE) AS active_profiles_count
+        FROM newborn_candidates
+        WHERE folder_id = ${fid};
+      `
+    : wid !== 1
+      ? sql`
+          SELECT
+            COUNT(*)::int AS total_candidates,
+            COUNT(*) FILTER (WHERE stage = 'discovered')::int AS discovered_count,
+            COUNT(*) FILTER (WHERE stage = 'watchlist')::int AS watchlist_count,
+            COUNT(*) FILTER (WHERE stage = 'promoted')::int AS promoted_count,
+            COUNT(*) FILTER (WHERE stage = 'discarded')::int AS discarded_count,
+            COUNT(*) FILTER (WHERE is_golden_pin = TRUE AND stage <> 'discarded')::int AS golden_pins_count,
+            COUNT(*) FILTER (WHERE is_linkless = TRUE AND stage <> 'discarded')::int AS linkless_vacuum_count,
+            COUNT(*) FILTER (WHERE is_rookie_outlier = TRUE AND stage <> 'discarded')::int AS rookie_outliers_count,
+            COALESCE(ROUND(AVG(golden_score) FILTER (WHERE stage <> 'discarded')::numeric, 2), 0)::double precision AS avg_golden_score,
+            0::int AS rookie_accounts_count,
+            0::int AS rookie_watchlist_count,
+            0::int AS rookie_promoted_count,
+            (
+              SELECT COUNT(*)::int
+              FROM newborn_daily_anchors nda
+              WHERE nda.is_active = TRUE
+                AND nda.folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
+            ) AS active_daily_anchors_count,
+            (SELECT COUNT(*)::int FROM newborn_rule_profiles WHERE is_active = TRUE) AS active_profiles_count
+          FROM newborn_candidates
+          WHERE folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
+             OR first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = ${wid});
+        `
+      : sql`
+          SELECT
+            COUNT(*)::int AS total_candidates,
+            COUNT(*) FILTER (WHERE stage = 'discovered')::int AS discovered_count,
+            COUNT(*) FILTER (WHERE stage = 'watchlist')::int AS watchlist_count,
+            COUNT(*) FILTER (WHERE stage = 'promoted')::int AS promoted_count,
+            COUNT(*) FILTER (WHERE stage = 'discarded')::int AS discarded_count,
+            COUNT(*) FILTER (WHERE is_golden_pin = TRUE AND stage <> 'discarded')::int AS golden_pins_count,
+            COUNT(*) FILTER (WHERE is_linkless = TRUE AND stage <> 'discarded')::int AS linkless_vacuum_count,
+            COUNT(*) FILTER (WHERE is_rookie_outlier = TRUE AND stage <> 'discarded')::int AS rookie_outliers_count,
+            COALESCE(ROUND(AVG(golden_score) FILTER (WHERE stage <> 'discarded')::numeric, 2), 0)::double precision AS avg_golden_score,
+            (SELECT COUNT(*)::int FROM newborn_rookie_accounts WHERE stage <> 'discarded') AS rookie_accounts_count,
+            (SELECT COUNT(*)::int FROM newborn_rookie_accounts WHERE stage = 'watchlist') AS rookie_watchlist_count,
+            (SELECT COUNT(*)::int FROM newborn_rookie_accounts WHERE stage = 'promoted') AS rookie_promoted_count,
+            (SELECT COUNT(*)::int FROM newborn_daily_anchors WHERE is_active = TRUE) AS active_daily_anchors_count,
+            (SELECT COUNT(*)::int FROM newborn_rule_profiles WHERE is_active = TRUE) AS active_profiles_count
+          FROM newborn_candidates;
+        `;
+
+  const topCandidatesPromise = fid !== null
+    ? sql`
+        SELECT pin_id, title, board_name, is_golden_pin, is_linkless, golden_score, repin_count, save_count, repin_per_day, visual_annotations
+        FROM newborn_candidates
+        WHERE folder_id = ${fid}
+          AND stage IN ('discovered', 'watchlist', 'promoted')
+        ORDER BY repin_count DESC NULLS LAST, golden_score DESC, first_seen_at DESC
+        LIMIT 100;
+      `
+    : wid !== 1
+      ? sql`
+          SELECT pin_id, title, board_name, is_golden_pin, is_linkless, golden_score, repin_count, save_count, repin_per_day, visual_annotations
+          FROM newborn_candidates
+          WHERE stage IN ('discovered', 'watchlist', 'promoted')
+            AND (
+              folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
+              OR first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = ${wid})
+            )
+          ORDER BY repin_count DESC NULLS LAST, golden_score DESC, first_seen_at DESC
+          LIMIT 100;
+        `
+      : sql`
+          SELECT pin_id, title, board_name, is_golden_pin, is_linkless, golden_score, repin_count, save_count, repin_per_day, visual_annotations
+          FROM newborn_candidates
+          WHERE stage IN ('discovered', 'watchlist', 'promoted')
+          ORDER BY repin_count DESC NULLS LAST, golden_score DESC, first_seen_at DESC
+          LIMIT 100;
+        `;
 
   const [settings, cookieStatus, statsRows, recentRuns, topCandidates] = await Promise.all([
     getNewbornSettings(sql),
     getNewbornCookieStatus(sql, env, { workspaceId: wid }),
-    sql`
-      SELECT
-        COUNT(*)::int AS total_candidates,
-        COUNT(*) FILTER (WHERE stage = 'discovered')::int AS discovered_count,
-        COUNT(*) FILTER (WHERE stage = 'watchlist')::int AS watchlist_count,
-        COUNT(*) FILTER (WHERE stage = 'promoted')::int AS promoted_count,
-        COUNT(*) FILTER (WHERE stage = 'discarded')::int AS discarded_count,
-        COUNT(*) FILTER (WHERE is_golden_pin = TRUE AND stage <> 'discarded')::int AS golden_pins_count,
-        COUNT(*) FILTER (WHERE is_linkless = TRUE AND stage <> 'discarded')::int AS linkless_vacuum_count,
-        COUNT(*) FILTER (WHERE is_rookie_outlier = TRUE AND stage <> 'discarded')::int AS rookie_outliers_count,
-        COALESCE(ROUND(AVG(golden_score) FILTER (WHERE stage <> 'discarded')::numeric, 2), 0)::double precision AS avg_golden_score,
-        (SELECT COUNT(*)::int FROM newborn_rookie_accounts WHERE stage <> 'discarded') AS rookie_accounts_count,
-        (SELECT COUNT(*)::int FROM newborn_rookie_accounts WHERE stage = 'watchlist') AS rookie_watchlist_count,
-        (SELECT COUNT(*)::int FROM newborn_rookie_accounts WHERE stage = 'promoted') AS rookie_promoted_count,
-        (SELECT COUNT(*)::int FROM newborn_daily_anchors WHERE is_active = TRUE) AS active_daily_anchors_count,
-        (SELECT COUNT(*)::int FROM newborn_rule_profiles WHERE is_active = TRUE) AS active_profiles_count
-      FROM newborn_candidates;
-    `,
+    statsPromise,
     fetchRecentRuns(),
-    sql`
-      SELECT pin_id, title, board_name, is_golden_pin, is_linkless, golden_score, repin_count, save_count, repin_per_day, visual_annotations
-      FROM newborn_candidates
-      WHERE stage IN ('discovered', 'watchlist', 'promoted')
-      ORDER BY repin_count DESC NULLS LAST, golden_score DESC, first_seen_at DESC
-      LIMIT 100;
-    `
+    topCandidatesPromise
   ]);
 
   const counts = statsRows?.[0] || {};
@@ -109,6 +216,7 @@ export async function getNewbornOverview(sql, env = {}, { workspaceId = 1 } = {}
 
   return {
     success: true,
+    folder_id: fid,
     counts: {
       total_candidates: Number(counts.total_candidates || 0),
       discovered_count: Number(counts.discovered_count || 0),
@@ -142,12 +250,9 @@ export async function listNewbornCandidates(sql, filters = {}) {
   const stage = filters.stage && ['discovered', 'watchlist', 'promoted', 'discarded'].includes(String(filters.stage).toLowerCase())
     ? String(filters.stage).toLowerCase()
     : null;
-  const runId = filters.run_id != null && filters.run_id !== '' && Number(filters.run_id) > 0
-    ? Number(filters.run_id)
-    : null;
-  const folderId = filters.folder_id != null && filters.folder_id !== '' && Number(filters.folder_id) > 0
-    ? Number(filters.folder_id)
-    : null;
+  const wid = parseOptionalPositiveInt(filters.workspace_id ?? filters.workspaceId) || 1;
+  const runId = parseOptionalPositiveInt(filters.run_id);
+  const folderId = parseOptionalPositiveInt(filters.folder_id);
   const surface = filters.surface ? String(filters.surface).trim().toLowerCase() : null;
   const provenance = filters.provenance ? String(filters.provenance).trim().toUpperCase() : null;
   const creationMethod = filters.creation_method ? String(filters.creation_method).trim().toLowerCase() : null;
@@ -179,10 +284,15 @@ export async function listNewbornCandidates(sql, filters = {}) {
     ? sql`(${surface}::text IS NULL OR nrc.surface = ${surface} OR nc.first_surface = ${surface} OR nc.discovered_surfaces ? ${surface || ''})`
     : sql`(${surface}::text IS NULL OR nc.first_surface = ${surface} OR nc.discovered_surfaces ? ${surface || ''})`;
 
+  const wsScopeCond = (folderId === null && wid !== 1)
+    ? sql`(nc.folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid}) OR nc.first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = ${wid}))`
+    : sql`TRUE`;
+
   const whereCond = sql`
     (${stage}::text IS NULL OR nc.stage = ${stage})
     AND (${stage !== null}::boolean = TRUE OR nc.stage <> 'discarded')
     AND (${folderId}::int IS NULL OR nc.folder_id = ${folderId})
+    AND ${wsScopeCond}
     AND (${qualifiedOnly}::boolean = FALSE OR nc.qualified = TRUE)
     AND ${surfaceCond}
     AND (${provenance}::text IS NULL OR nc.upload_provenance = ${provenance})
@@ -463,9 +573,7 @@ export async function listNewbornRookies(sql, filters = {}) {
   const stage = filters.stage && ['discovered', 'watchlist', 'promoted', 'discarded'].includes(String(filters.stage).toLowerCase())
     ? String(filters.stage).toLowerCase()
     : null;
-  const runId = filters.run_id != null && filters.run_id !== '' && Number(filters.run_id) > 0
-    ? Number(filters.run_id)
-    : null;
+  const runId = parseOptionalPositiveInt(filters.run_id);
   const rawSearch = String(filters.search || filters.q || '').trim().toLowerCase();
   const searchPattern = rawSearch ? `%${escapeSqlWildcards(rawSearch)}%` : null;
   const limit = Math.min(200, Math.max(1, Number(filters.limit) || 50));
@@ -521,8 +629,8 @@ export async function listNewbornRookies(sql, filters = {}) {
  */
 export async function listNewbornRuns(sql, { limit = 30, folderId = null, workspaceId = 1 } = {}) {
   const clamped = Math.min(100, Math.max(1, Number(limit) || 30));
-  const numericFolderId = folderId !== null && folderId !== undefined && Number(folderId) > 0 ? Number(folderId) : null;
-  const wid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
+  const numericFolderId = parseOptionalPositiveInt(folderId);
+  const wid = parseOptionalPositiveInt(workspaceId) || 1;
 
   try {
     const rows = numericFolderId !== null
@@ -565,39 +673,63 @@ export async function listNewbornRuns(sql, { limit = 30, folderId = null, worksp
 /**
  * Lists standalone daily velocity crawler anchors (`newborn_daily_anchors`).
  */
-export async function listNewbornDailyAnchors(sql, { activeOnly = true, limit = 100, offset = 0 } = {}) {
+export async function listNewbornDailyAnchors(sql, { workspaceId = 1, activeOnly = true, folderId = null, limit = 100, offset = 0 } = {}) {
+  const wid = parseOptionalPositiveInt(workspaceId) || 1;
   const lim = Math.min(500, Math.max(1, Number(limit) || 100));
   const off = Math.max(0, Number(offset) || 0);
+  const numericFolderId = parseOptionalPositiveInt(folderId);
 
-  const rows = await sql`
-    SELECT
-      nda.*,
-      ump.title,
-      ump.image_url,
-      ump.clean_domain,
-      ump.save_count,
-      ump.repin_count,
-      ump.daily_save_velocity,
-      ump.daily_repin_velocity,
-      ump.last_scraped_at
-    FROM newborn_daily_anchors nda
-    JOIN universal_master_pins ump ON ump.pin_id = nda.pin_id
-    WHERE (${Boolean(activeOnly)}::boolean = FALSE OR nda.is_active = TRUE)
-    ORDER BY nda.promoted_at DESC, nda.pin_id ASC
-    LIMIT ${lim} OFFSET ${off};
-  `;
+  const rows = (numericFolderId === null && wid !== 1)
+    ? await sql`
+        SELECT
+          nda.*,
+          ump.title,
+          ump.image_url,
+          ump.clean_domain,
+          ump.save_count,
+          ump.repin_count,
+          ump.daily_save_velocity,
+          ump.daily_repin_velocity,
+          ump.last_scraped_at
+        FROM newborn_daily_anchors nda
+        JOIN universal_master_pins ump ON ump.pin_id = nda.pin_id
+        WHERE (${Boolean(activeOnly)}::boolean = FALSE OR nda.is_active = TRUE)
+          AND nda.folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
+        ORDER BY nda.promoted_at DESC, nda.pin_id ASC
+        LIMIT ${lim} OFFSET ${off};
+      `
+    : await sql`
+        SELECT
+          nda.*,
+          ump.title,
+          ump.image_url,
+          ump.clean_domain,
+          ump.save_count,
+          ump.repin_count,
+          ump.daily_save_velocity,
+          ump.daily_repin_velocity,
+          ump.last_scraped_at
+        FROM newborn_daily_anchors nda
+        JOIN universal_master_pins ump ON ump.pin_id = nda.pin_id
+        WHERE (${Boolean(activeOnly)}::boolean = FALSE OR nda.is_active = TRUE)
+          AND (${numericFolderId}::int IS NULL OR nda.folder_id = ${numericFolderId})
+        ORDER BY nda.promoted_at DESC, nda.pin_id ASC
+        LIMIT ${lim} OFFSET ${off};
+      `;
   return rows || [];
 }
 
 /**
  * Builds the Annotation + Board-Title Crossover matrix across staged Newborn candidates
- * (optionally strictly scoped to `runId` via `newborn_run_candidates`).
+ * (optionally strictly scoped to `runId` via `newborn_run_candidates` and/or `folderId`).
  */
-export async function getNewbornCrossoverReport(sql, { runId = null, stage = null, goldenOnly = false, limit = 30 } = {}) {
+export async function getNewbornCrossoverReport(sql, { workspaceId = 1, runId = null, folderId = null, stage = null, goldenOnly = false, limit = 30 } = {}) {
+  const wid = parseOptionalPositiveInt(workspaceId) || 1;
   const cleanStage = stage && ['discovered', 'watchlist', 'promoted'].includes(String(stage).toLowerCase())
     ? String(stage).toLowerCase()
     : null;
-  const numericRunId = runId != null && runId !== '' && Number(runId) > 0 ? Number(runId) : null;
+  const numericRunId = parseOptionalPositiveInt(runId);
+  const numericFolderId = parseOptionalPositiveInt(folderId);
 
   const rows = numericRunId !== null
     ? await sql`
@@ -606,25 +738,43 @@ export async function getNewbornCrossoverReport(sql, { runId = null, stage = nul
         FROM newborn_run_candidates nrc
         JOIN newborn_candidates nc ON nc.pin_id = nrc.pin_id
         WHERE nrc.run_id = ${numericRunId}
+          AND (${numericFolderId}::int IS NULL OR nc.folder_id = ${numericFolderId})
           AND (${cleanStage}::text IS NULL OR nc.stage = ${cleanStage})
           AND nc.stage <> 'discarded'
           AND (${Boolean(goldenOnly)}::boolean = FALSE OR nc.is_golden_pin = TRUE)
         ORDER BY nc.repin_count DESC NULLS LAST, nc.golden_score DESC
         LIMIT 1000;
       `
-    : await sql`
-        SELECT pin_id, title, board_name, is_golden_pin, is_linkless,
-               golden_score, repin_count, save_count, repin_per_day, save_per_day, visual_annotations
-        FROM newborn_candidates
-        WHERE (${cleanStage}::text IS NULL OR stage = ${cleanStage})
-          AND stage <> 'discarded'
-          AND (${Boolean(goldenOnly)}::boolean = FALSE OR is_golden_pin = TRUE)
-        ORDER BY repin_count DESC NULLS LAST, golden_score DESC
-        LIMIT 1000;
-      `;
+    : (numericFolderId === null && wid !== 1)
+      ? await sql`
+          SELECT pin_id, title, board_name, is_golden_pin, is_linkless,
+                 golden_score, repin_count, save_count, repin_per_day, save_per_day, visual_annotations
+          FROM newborn_candidates
+          WHERE (
+              folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
+              OR first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = ${wid})
+            )
+            AND (${cleanStage}::text IS NULL OR stage = ${cleanStage})
+            AND stage <> 'discarded'
+            AND (${Boolean(goldenOnly)}::boolean = FALSE OR is_golden_pin = TRUE)
+          ORDER BY repin_count DESC NULLS LAST, golden_score DESC
+          LIMIT 1000;
+        `
+      : await sql`
+          SELECT pin_id, title, board_name, is_golden_pin, is_linkless,
+                 golden_score, repin_count, save_count, repin_per_day, save_per_day, visual_annotations
+          FROM newborn_candidates
+          WHERE (${numericFolderId}::int IS NULL OR folder_id = ${numericFolderId})
+            AND (${cleanStage}::text IS NULL OR stage = ${cleanStage})
+            AND stage <> 'discarded'
+            AND (${Boolean(goldenOnly)}::boolean = FALSE OR is_golden_pin = TRUE)
+          ORDER BY repin_count DESC NULLS LAST, golden_score DESC
+          LIMIT 1000;
+        `;
 
   return {
     run_id: numericRunId,
+    folder_id: numericFolderId,
     analyzed_pins: (rows || []).length,
     clusters: buildNewbornCrossoverMatrix(rows || [], { limit })
   };

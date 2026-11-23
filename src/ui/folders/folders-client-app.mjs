@@ -35,8 +35,16 @@ export function getFoldersClientAppScript() {
         _foldersListAbortController: null,
         _activeFolderAbortController: null,
         auditDispatching: false,
-        isSettingsModalOpen: false,
         settingsLoading: false,
+        workspaceSettingsDefaults: {
+          default_serp_top_n: 20,
+          pin_graph_rules: {
+            auto_trigger_enabled: false,
+            linkless_only: false,
+            min_repins: 500,
+            max_pages: 20
+          }
+        },
         selectedTimeWindow: '24h',
         trackedPinsSummary: {
           items: [],
@@ -1176,7 +1184,11 @@ export function getFoldersClientAppScript() {
           }
 
           if (this.activeFolderId) {
-            await this.loadActiveFolder();
+            await Promise.all([
+              this.fetchWorkspaceSettingsDefaults(),
+              this.loadActiveFolder()
+            ]);
+            this.syncFolderSettingsFromActive();
             // Non-blocking background fetch for switcher dropdown when active folder is loaded
             this.loadFolders().catch(() => {});
           } else {
@@ -1406,6 +1418,54 @@ export function getFoldersClientAppScript() {
           }
         },
 
+        async fetchWorkspaceSettingsDefaults() {
+          try {
+            const res = await (window.safeApiFetch || fetch)('/api/workspaces/settings');
+            if (!res.ok) return;
+            const data = await res.json().catch(() => ({}));
+            const ws = data?.settings || {};
+            const wsTopN = Math.min(100, Math.max(5, Number(ws.default_serp_top_n || 20)));
+            const wsPgr = (ws.pin_graph_rules && typeof ws.pin_graph_rules === 'object') ? ws.pin_graph_rules : {};
+            this.workspaceSettingsDefaults = {
+              default_serp_top_n: wsTopN,
+              pin_graph_rules: {
+                auto_trigger_enabled: Boolean(wsPgr.auto_trigger_enabled),
+                linkless_only: Boolean(wsPgr.linkless_only),
+                min_repins: Number.isFinite(Number(wsPgr.min_repins)) ? Math.max(0, Number(wsPgr.min_repins)) : 500,
+                max_pages: Number.isFinite(Number(wsPgr.max_pages)) ? Math.min(100, Math.max(1, Number(wsPgr.max_pages))) : 20
+              }
+            };
+          } catch (_) {}
+        },
+
+        isSerpTopNInherited() {
+          const wsTopN = Number(this.workspaceSettingsDefaults?.default_serp_top_n || 20);
+          return Number(this.folderSettings?.serp_top_n || wsTopN) === wsTopN;
+        },
+
+        resetSerpTopNToWorkspace() {
+          this.folderSettings.serp_top_n = Number(this.workspaceSettingsDefaults?.default_serp_top_n || 20);
+        },
+
+        isPinGraphInherited() {
+          const cur = this.folderSettings?.pin_graph_rules || {};
+          const ws = this.workspaceSettingsDefaults?.pin_graph_rules || {};
+          return Boolean(cur.auto_trigger_enabled) === Boolean(ws.auto_trigger_enabled)
+            && Boolean(cur.linkless_only) === Boolean(ws.linkless_only)
+            && Number(cur.min_repins ?? 500) === Number(ws.min_repins ?? 500)
+            && Number(cur.max_pages ?? 20) === Number(ws.max_pages ?? 20);
+        },
+
+        resetPinGraphToWorkspace() {
+          const ws = this.workspaceSettingsDefaults?.pin_graph_rules || {};
+          this.folderSettings.pin_graph_rules = {
+            auto_trigger_enabled: Boolean(ws.auto_trigger_enabled),
+            linkless_only: Boolean(ws.linkless_only),
+            min_repins: Number(ws.min_repins ?? 500),
+            max_pages: Number(ws.max_pages ?? 20)
+          };
+        },
+
         syncFolderSettingsFromActive() {
           if (!this.activeFolder) return;
           let meta = this.activeFolder.metadata;
@@ -1418,6 +1478,8 @@ export function getFoldersClientAppScript() {
           if (!meta || typeof meta !== 'object' || Array.isArray(meta)) meta = {};
 
           const fallbackQuota = String(this.globalDefaultMaxPins || '50');
+          const wsTopN = Number(this.workspaceSettingsDefaults?.default_serp_top_n || 20);
+          const wsPgr = this.workspaceSettingsDefaults?.pin_graph_rules || {};
           const pgr = (this.activeFolder.pin_graph_rules && typeof this.activeFolder.pin_graph_rules === 'object')
             ? this.activeFolder.pin_graph_rules
             : {};
@@ -1425,7 +1487,7 @@ export function getFoldersClientAppScript() {
             name: this.activeFolder.name || '',
             description: this.activeFolder.description || '',
             color: this.activeFolder.color || '#6366f1',
-            serp_top_n: Math.min(100, Math.max(5, Number(this.activeFolder.serp_top_n || 20))),
+            serp_top_n: Math.min(100, Math.max(5, Number(this.activeFolder.serp_top_n ?? wsTopN))),
             enable_serp_harvest: meta.enable_serp_harvest !== undefined ? Boolean(meta.enable_serp_harvest) : true,
             max_pins: String(meta.max_pins || fallbackQuota),
             max_serp_pins: String(meta.max_serp_pins || meta.max_pins || fallbackQuota),
@@ -1436,19 +1498,22 @@ export function getFoldersClientAppScript() {
             block_fleet: Boolean(meta.block_fleet),
             auto_discover_creators: meta.auto_discover_creators !== undefined ? Boolean(meta.auto_discover_creators) : true,
             pin_graph_rules: {
-              auto_trigger_enabled: Boolean(pgr.auto_trigger_enabled),
-              linkless_only: Boolean(pgr.linkless_only),
-              min_repins: Number.isFinite(Number(pgr.min_repins)) ? Math.max(0, Number(pgr.min_repins)) : 500,
-              max_pages: Number.isFinite(Number(pgr.max_pages)) ? Math.min(100, Math.max(1, Number(pgr.max_pages))) : 20
+              auto_trigger_enabled: pgr.auto_trigger_enabled !== undefined ? Boolean(pgr.auto_trigger_enabled) : Boolean(wsPgr.auto_trigger_enabled),
+              linkless_only: pgr.linkless_only !== undefined ? Boolean(pgr.linkless_only) : Boolean(wsPgr.linkless_only),
+              min_repins: (pgr.min_repins !== undefined && pgr.min_repins !== null && pgr.min_repins !== '' && Number.isFinite(Number(pgr.min_repins))) ? Math.max(0, Number(pgr.min_repins)) : Number(wsPgr.min_repins ?? 500),
+              max_pages: (pgr.max_pages !== undefined && pgr.max_pages !== null && pgr.max_pages !== '' && Number.isFinite(Number(pgr.max_pages))) ? Math.min(100, Math.max(1, Number(pgr.max_pages))) : Number(wsPgr.max_pages ?? 20)
             }
           };
         },
 
         async openFolderSettingsModal() {
           if (!this.activeFolder) return;
-          await this.fetchGlobalDefaultQuota().catch(() => {});
+          await Promise.all([
+            this.fetchGlobalDefaultQuota().catch(() => {}),
+            this.fetchWorkspaceSettingsDefaults().catch(() => {})
+          ]);
           this.syncFolderSettingsFromActive();
-          this.isSettingsModalOpen = true;
+          this.currentRoom = 'settings';
         },
 
         async fetchGlobalDefaultQuota() {
@@ -1522,8 +1587,6 @@ export function getFoldersClientAppScript() {
               this.showToast('Folder settings saved successfully', 'success');
               if (andLaunchAudit) {
                 await this.dispatchFolderDeepAudit();
-              } else {
-                this.isSettingsModalOpen = false;
               }
             } else {
               const errData = await res.json().catch(() => ({}));
@@ -1553,11 +1616,11 @@ export function getFoldersClientAppScript() {
             const harvest = this.folderSettings?.enable_serp_harvest !== undefined
               ? Boolean(this.folderSettings.enable_serp_harvest)
               : (meta.enable_serp_harvest !== undefined ? Boolean(meta.enable_serp_harvest) : true);
-            const explicitFolderPins = this.isSettingsModalOpen
+            const explicitFolderPins = this.currentRoom === 'settings'
               ? String(this.folderSettings?.max_pins || meta.max_pins || '')
               : String(meta.max_pins || meta.max_serp_pins || '');
             const maxPins = explicitFolderPins;
-            const maxSerpPins = this.isSettingsModalOpen
+            const maxSerpPins = this.currentRoom === 'settings'
               ? String(this.folderSettings?.max_serp_pins || meta.max_serp_pins || maxPins)
               : String(meta.max_serp_pins || meta.max_pins || '');
             const crawlScope = String(this.folderSettings?.crawl_scope || meta.crawl_scope || 'all_pins');
@@ -1577,7 +1640,6 @@ export function getFoldersClientAppScript() {
             const data = await res.json();
             if (res.ok && data.success) {
               this.showToast(data.message || '20-Runner Parallel Fleet Audit dispatched successfully on GitHub Actions!', 'success');
-              if (this.isSettingsModalOpen) this.isSettingsModalOpen = false;
             } else {
               this.showToast('Dispatch note: ' + (data.message || data.error || 'Check GitHub token in settings'), 'error');
             }

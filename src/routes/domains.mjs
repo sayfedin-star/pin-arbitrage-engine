@@ -151,7 +151,9 @@ export async function handleDomainsRoutes(routeCtx) {
         }
 
         const baseDomains = Array.isArray(raw?.domains) ? raw.domains : [];
-        const scopedDomains = (allowedDomains.size === 0 && numericWid === 1)
+        // Default workspace (id === 1) preserves full Radar discovery even after adding items to Watchlist;
+        // non-default workspaces (id !== 1) always remain strictly isolated to workspace targets.
+        const scopedDomains = numericWid === 1
           ? baseDomains
           : baseDomains.filter((d) => {
               const norm = String(d?.domain || d?.clean_domain || '').trim().toLowerCase().replace(/^www\./, '');

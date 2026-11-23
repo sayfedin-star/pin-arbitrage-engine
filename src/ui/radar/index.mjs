@@ -108,7 +108,7 @@ ${renderAppSidebar({
         <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-4 shadow-2xs">
           <div class="text-[11px] font-mono uppercase tracking-wider text-slate-400 dark:text-[#71717A]">Pulse Pins</div>
           <div class="mt-1.5 text-2xl font-bold font-mono tabular-nums text-slate-900 dark:text-[#FAFAFA]" x-text="fmtNum(pulseSummary.total_pins)">0</div>
-          <div class="mt-1 text-xs text-emerald-600 dark:text-emerald-400 font-mono tabular-nums" x-text="'+' + fmtNum(pulseSummary.total_gain) + ' (' + timeframe + ')'">+0</div>
+          <div class="mt-1 text-xs text-emerald-600 dark:text-emerald-400 font-mono tabular-nums" x-text="fmtSigned(pulseSummary.total_gain) + ' (' + timeframe + ')'">+0</div>
         </div>
         <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-4 shadow-2xs">
           <div class="text-[11px] font-mono uppercase tracking-wider text-slate-400 dark:text-[#71717A]">Tracked Creators</div>
@@ -198,13 +198,13 @@ ${renderAppSidebar({
                         </template>
                         <div class="min-w-0">
                           <a :href="'/pin/' + encodeURIComponent(pin.pin_id)" class="font-semibold text-slate-900 dark:text-[#FAFAFA] hover:text-rose-600 dark:hover:text-rose-400 line-clamp-2" x-text="decodeTitle(pin.title) || ('Pin #' + pin.pin_id)"></a>
-                          <div class="text-[11px] font-mono text-slate-400 dark:text-[#71717A] mt-0.5 truncate" x-text="pin.keyword || pin.pin_id"></div>
+                          <div class="text-[11px] font-mono text-slate-400 dark:text-[#71717A] mt-0.5 truncate" x-text="pin.keyword_text || pin.keyword || pin.pin_id"></div>
                         </div>
                       </div>
                     </td>
                     <td class="px-4 py-3 font-mono text-slate-600 dark:text-[#A1A1AA]" x-text="pin.domain || pin.clean_domain || 'Uploaded by user'"></td>
-                    <td class="px-4 py-3 text-right font-mono tabular-nums font-semibold text-slate-900 dark:text-[#FAFAFA]" x-text="fmtNum(pin.repin_count ?? pin.saves ?? 0)"></td>
-                    <td class="px-4 py-3 text-right font-mono tabular-nums font-bold text-emerald-600 dark:text-emerald-400" x-text="'+' + fmtNum(pinGain(pin))"></td>
+                    <td class="px-4 py-3 text-right font-mono tabular-nums font-semibold text-slate-900 dark:text-[#FAFAFA]" x-text="fmtNum(pin.save_count ?? pin.repin_count ?? pin.saves ?? 0)"></td>
+                    <td class="px-4 py-3 text-right font-mono tabular-nums font-bold text-emerald-600 dark:text-emerald-400" x-text="fmtSigned(pinGain(pin))"></td>
                     <td class="px-4 py-3 text-right whitespace-nowrap">
                       <button
                         type="button"
@@ -250,17 +250,17 @@ ${renderAppSidebar({
                         </template>
                         <div class="min-w-0">
                           <a :href="'/' + encodeURIComponent(creator.username)" class="font-semibold text-slate-900 dark:text-[#FAFAFA] hover:text-rose-600 dark:hover:text-rose-400" x-text="'@' + creator.username"></a>
-                          <div class="text-[11px] text-slate-400 dark:text-[#71717A] truncate" x-text="creator.full_name || creator.domain || ''"></div>
+                          <div class="text-[11px] text-slate-400 dark:text-[#71717A] truncate" x-text="creator.display_name || creator.full_name || creator.website_url || creator.domain || ''"></div>
                         </div>
                       </div>
                     </td>
-                    <td class="px-4 py-3 text-right font-mono tabular-nums font-semibold" x-text="fmtNum(creator.total_audience ?? creator.followers ?? 0)"></td>
-                    <td class="px-4 py-3 text-right font-mono tabular-nums text-slate-600 dark:text-[#A1A1AA]" x-text="fmtNum(creator.monthly_views ?? 0)"></td>
+                    <td class="px-4 py-3 text-right font-mono tabular-nums font-semibold" x-text="fmtNum(creator.monthly_reach ?? creator.total_audience ?? creator.follower_count ?? creator.followers ?? 0)"></td>
+                    <td class="px-4 py-3 text-right font-mono tabular-nums text-slate-600 dark:text-[#A1A1AA]" x-text="fmtNum(creator.profile_views ?? creator.monthly_views ?? 0)"></td>
                     <td class="px-4 py-3 text-right font-mono tabular-nums" x-text="fmtNum(creator.total_pins ?? 0)"></td>
                     <td class="px-4 py-3 text-right whitespace-nowrap">
                       <button
                         type="button"
-                        @click="addToWatchlist('creator', creator.username, creator.full_name || ('@' + creator.username), 'metrics_only')"
+                        @click="addToWatchlist('creator', creator.username, creator.display_name || creator.full_name || ('@' + creator.username), 'metrics_only')"
                         class="px-2.5 py-1 rounded-lg border text-[11px] font-semibold transition cursor-pointer"
                         :class="isWatched('creator', creator.username) ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-700/50 text-emerald-700 dark:text-emerald-300' : 'border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-[#A1A1AA] hover:border-rose-400 hover:text-rose-600'"
                         x-text="isWatched('creator', creator.username) ? 'Watched' : '+ Watchlist'"></button>
@@ -300,7 +300,7 @@ ${renderAppSidebar({
                     </td>
                     <td class="px-4 py-3 text-right font-mono tabular-nums" x-text="fmtNum(dom.pin_count ?? dom.total_pins ?? 0)"></td>
                     <td class="px-4 py-3 text-right font-mono tabular-nums font-semibold" x-text="fmtNum(dom.total_saves ?? dom.total_repins ?? 0)"></td>
-                    <td class="px-4 py-3 text-right font-mono tabular-nums font-bold text-emerald-600 dark:text-emerald-400" x-text="'+' + fmtNum(dom.gain_24h ?? dom.saves_gain_24h ?? 0)"></td>
+                    <td class="px-4 py-3 text-right font-mono tabular-nums font-bold text-emerald-600 dark:text-emerald-400" x-text="fmtSigned(dom.avg_velocity ?? dom.gain_24h ?? dom.saves_gain_24h ?? 0)"></td>
                     <td class="px-4 py-3 text-right whitespace-nowrap">
                       <button
                         type="button"

@@ -589,12 +589,29 @@ export async function handleNewbornRoutes({
     return methodNotAllowedResponse('GET, POST, PUT, DELETE, OPTIONS');
   }
 
+  // Fail-closed folder ownership guard on all GET /api/newborn/* routes when ?folder_id is supplied
+  if (method === 'GET') {
+    const rawQueryFolderId = searchParams.get('folder_id');
+    if (rawQueryFolderId !== null && rawQueryFolderId !== '') {
+      try {
+        await assertFolderInWorkspace(sql, rawQueryFolderId, workspaceId);
+      } catch (err) {
+        return jsonResponse({
+          success: false,
+          error: err.status === 400 ? 'BAD_REQUEST' : 'NOT_FOUND',
+          message: err.message
+        }, err.status || 404, -1);
+      }
+    }
+  }
+
   // 4. /api/newborn/overview (GET) — strictly no-store (live run counts + cookie status)
   if (pathname === '/api/newborn/overview' || pathname === '/api/newborn') {
     if (method !== 'GET') {
       return methodNotAllowedResponse('GET, OPTIONS');
     }
-    const payload = await getNewbornOverview(sql, env, { workspaceId });
+    const folderId = searchParams.get('folder_id') || null;
+    const payload = await getNewbornOverview(sql, env, { workspaceId, folderId });
     return jsonResponse(payload, 200, -1);
   }
 
@@ -643,6 +660,7 @@ export async function handleNewbornRoutes({
       return methodNotAllowedResponse('GET, OPTIONS');
     }
     const filters = {
+      workspace_id: workspaceId,
       run_id: searchParams.get('run_id') || null,
       folder_id: searchParams.get('folder_id') || null,
       stage: searchParams.get('stage') || null,
@@ -663,11 +681,12 @@ export async function handleNewbornRoutes({
       limit: clampLimit(searchParams.get('limit'), 50, 500),
       offset: Math.max(0, parseInt(searchParams.get('offset') || '0', 10) || 0)
     };
-    const cacheKey = buildCanonicalCacheKey('newborn:candidates', searchParams);
-    const data = filters.run_id
+    const cacheKey = buildCanonicalCacheKey(`newborn:candidates:ws${workspaceId}`, searchParams);
+    const bypassCache = Boolean(filters.run_id || filters.folder_id);
+    const data = bypassCache
       ? await listNewbornCandidates(sql, filters)
       : await getCachedOrFetch(cacheKey, () => listNewbornCandidates(sql, filters), 10_000);
-    return jsonResponse({ success: true, ...data }, 200, filters.run_id ? -1 : 10);
+    return jsonResponse({ success: true, ...data }, 200, bypassCache ? -1 : 10);
   }
 
   // 5B. /api/newborn/candidates/stage (POST bulk stage transition)
@@ -770,16 +789,19 @@ export async function handleNewbornRoutes({
       return methodNotAllowedResponse('GET, OPTIONS');
     }
     const runId = searchParams.get('run_id') || null;
+    const folderId = searchParams.get('folder_id') || null;
     const stage = searchParams.get('stage') || null;
     const goldenOnly = searchParams.get('golden_only') === 'true';
     const limit = clampLimit(searchParams.get('limit'), 30, 100);
-    const cacheKey = buildCanonicalCacheKey('newborn:crossover', searchParams);
-    const report = await getCachedOrFetch(
-      cacheKey,
-      () => getNewbornCrossoverReport(sql, { runId, stage, goldenOnly, limit }),
-      15_000
-    );
-    return jsonResponse({ success: true, ...report }, 200, runId ? -1 : 15);
+    const cacheKey = buildCanonicalCacheKey(`newborn:crossover:ws${workspaceId}`, searchParams);
+    const report = (runId || folderId)
+      ? await getNewbornCrossoverReport(sql, { workspaceId, runId, folderId, stage, goldenOnly, limit })
+      : await getCachedOrFetch(
+          cacheKey,
+          () => getNewbornCrossoverReport(sql, { workspaceId, runId, folderId, stage, goldenOnly, limit }),
+          15_000
+        );
+    return jsonResponse({ success: true, ...report }, 200, (runId || folderId) ? -1 : 15);
   }
 
   // 8. /api/newborn/runs (GET) — strictly no-store
@@ -850,9 +872,10 @@ export async function handleNewbornRoutes({
       return methodNotAllowedResponse('GET, OPTIONS');
     }
     const activeOnly = searchParams.get('active_only') !== 'false';
+    const folderId = searchParams.get('folder_id') || null;
     const limit = clampLimit(searchParams.get('limit'), 100, 500);
     const offset = Math.max(0, parseInt(searchParams.get('offset') || '0', 10) || 0);
-    const anchors = await listNewbornDailyAnchors(sql, { activeOnly, limit, offset });
+    const anchors = await listNewbornDailyAnchors(sql, { workspaceId, activeOnly, folderId, limit, offset });
     return jsonResponse({ success: true, anchors }, 200, -1);
   }
 
