@@ -398,57 +398,7 @@ export function renderDashboardClusterModals() {
     </div>
   </div>
 
-  <!-- Cookie Settings Modal -->
-  <div x-show="isCookieModalOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" @keydown.escape.window="isCookieModalOpen = false">
-    <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl w-full max-w-lg shadow-2xl p-6 space-y-4 text-slate-900 dark:text-[#FAFAFA]" role="dialog" aria-modal="true" aria-label="Pinterest Session Cookie Settings" @click.away="isCookieModalOpen = false">
-      <div class="flex items-center justify-between border-b border-slate-200 dark:border-[#27272A] pb-3">
-        <div class="flex items-center space-x-2">
-          <i data-lucide="key" class="w-5 h-5 text-amber-500"></i>
-          <h3 class="font-bold text-sm">Configure Pinterest Session Cookie</h3>
-        </div>
-        <button @click="isCookieModalOpen = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-white">
-          <i data-lucide="x" class="w-4 h-4"></i>
-        </button>
-      </div>
-
-      <div class="space-y-3 text-xs">
-        <div class="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-1.5 text-amber-800 dark:text-amber-300 font-mono">
-          <p class="font-bold flex items-center gap-1.5"><i data-lucide="zap" class="w-3.5 h-3.5 shrink-0"></i><span>Why are session cookies required for BUBBLE_ONE_COL and RecGPT extraction?</span></p>
-          <p class="text-[11px] leading-relaxed">
-            Pinterest treats unauthenticated requests as anonymous visitors, returning 0 search capsules and 0 RecGPT candidates. Adding an active session cookie allows the engine to retrieve BUBBLE_ONE_COL guided capsules and the full 147 RecGPT candidate quota.
-          </p>
-        </div>
-
-        <div class="space-y-1 text-slate-600 dark:text-slate-400 text-[11px]">
-          <p class="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5"><i data-lucide="pin" class="w-3.5 h-3.5 text-rose-500 shrink-0"></i><span>3-Step Setup Guide:</span></p>
-          <ol class="list-decimal list-inside space-y-0.5">
-            <li>Open <code class="text-rose-500">pinterest.com</code> in your browser and log in.</li>
-            <li>Press <code class="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">F12</code> and navigate to the <strong>Network</strong> tab.</li>
-            <li>Select any request, copy the value of the <strong>Cookie:</strong> line from <em>Request Headers</em>, and paste it below:</li>
-          </ol>
-        </div>
-
-        <div>
-          <label class="block font-semibold text-slate-700 dark:text-slate-300 mb-1">PINTEREST_COOKIE (Full Cookie String)</label>
-          <textarea x-model="cookieInput" rows="4" placeholder="_auth=1; _pinterest_sess=TWc9PSZ..." class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white focus:outline-none focus:border-amber-500 font-mono text-[11px]"></textarea>
-        </div>
-
-        <div class="flex items-center space-x-2 text-[11px] font-mono text-slate-500">
-          <span>Current Status:</span>
-          <span class="font-bold" :class="cookieStatus.has_cookie ? 'text-emerald-500' : 'text-amber-500'" x-text="cookieStatus.has_cookie ? 'Authenticated (Active Cookie)' : 'Unauthenticated (Guest Mode)'"></span>
-          <span x-show="cookieStatus.preview" class="text-[10px] text-slate-400" x-text="'(' + cookieStatus.preview + ')'"></span>
-        </div>
-      </div>
-
-      <div class="pt-3 border-t border-slate-200 dark:border-[#27272A] flex justify-end space-x-2">
-        <button @click="isCookieModalOpen = false" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700">Cancel</button>
-        <button @click="saveCookie()" :disabled="isSavingCookie" class="px-4 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white transition active:scale-95 disabled:opacity-50 flex items-center space-x-1.5">
-          <i data-lucide="check" class="w-3.5 h-3.5"></i>
-          <span x-text="isSavingCookie ? 'Saving...' : 'Save & Activate Session'"></span>
-        </button>
-      </div>
-    </div>
-  </div>
+  <!-- Cookie configuration centralized in /settings#cookie (V4 Wave 3) -->
 
   <!-- Direct Raw JSON Ingestion Modal -->
   <div x-show="isRawJsonModalOpen" x-cloak class="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4" @keydown.escape.window="isRawJsonModalOpen = false">

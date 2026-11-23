@@ -37,11 +37,45 @@ import { upsertStagedRookiesBatch } from './harvester.mjs';
 
 export const LAUNCHPAD_CACHE_KEY = 'newborn_launchpad_cache';
 
+function buildLaunchpadBucketKey({
+  country,
+  trendType,
+  l1Interest,
+  moments = '',
+  age = '',
+  gender = '',
+  includeTerms = '',
+  excludeTerms = '',
+  limit = 50
+}) {
+  const norm = (v) => String(v || '').trim().toLowerCase();
+  const base = `${country}:${trendType}:${l1Interest}`;
+  const extras = [
+    norm(moments) ? `m=${norm(moments)}` : '',
+    norm(age) ? `a=${norm(age)}` : '',
+    norm(gender) ? `g=${norm(gender)}` : '',
+    norm(includeTerms) ? `in=${norm(includeTerms)}` : '',
+    norm(excludeTerms) ? `ex=${norm(excludeTerms)}` : '',
+    Number(limit) && Number(limit) !== 50 ? `l=${Math.max(5, Math.min(100, Number(limit)))}` : ''
+  ].filter(Boolean);
+  return extras.length > 0 ? `${base}|${extras.join('&')}` : base;
+}
+
 /**
  * Pure read-only Trends & Zero-Query Launchpad feed (`GET /api/newborn/launchpad`).
  * Safe even when `sql` is null / offline.
  */
-export async function getNewbornLaunchpadFeed(sql, { country = null, trendType = 'growing', l1Interest = 'all' } = {}) {
+export async function getNewbornLaunchpadFeed(sql, {
+  country = null,
+  trendType = 'growing',
+  l1Interest = 'all',
+  moments = '',
+  age = '',
+  gender = '',
+  includeTerms = '',
+  excludeTerms = '',
+  limit = 50
+} = {}) {
   const settings = await getNewbornSettings(sql);
   const resolvedCountry = /^[A-Z]{2}$/.test(String(country || '').toUpperCase())
     ? String(country).toUpperCase()
@@ -50,6 +84,7 @@ export async function getNewbornLaunchpadFeed(sql, { country = null, trendType =
     ? String(trendType).toLowerCase()
     : 'growing';
   const resolvedInterest = String(l1Interest || settings.discovery?.default_l1_interest || 'all').toLowerCase();
+  const resolvedLimit = Math.max(5, Math.min(100, Number(limit) || 50));
 
   let cached = null;
   let recentSeeds = [];
@@ -77,13 +112,31 @@ export async function getNewbornLaunchpadFeed(sql, { country = null, trendType =
     }));
   }
 
-  const bucketKey = `${resolvedCountry}:${resolvedType}:${resolvedInterest}`;
+  const bucketKey = buildLaunchpadBucketKey({
+    country: resolvedCountry,
+    trendType: resolvedType,
+    l1Interest: resolvedInterest,
+    moments,
+    age,
+    gender,
+    includeTerms,
+    excludeTerms,
+    limit: resolvedLimit
+  });
   const bucket = cached?.buckets?.[bucketKey] || null;
 
   return {
     country: resolvedCountry,
     trend_type: resolvedType,
     l1_interest: resolvedInterest,
+    limit: resolvedLimit,
+    filters: {
+      moments: String(moments || '').trim(),
+      age: String(age || '').trim(),
+      gender: String(gender || '').trim(),
+      include_terms: String(includeTerms || '').trim(),
+      exclude_terms: String(excludeTerms || '').trim()
+    },
     trends: Array.isArray(bucket?.trends) ? bucket.trends : [],
     popular_terms: Array.isArray(cached?.zero_query?.popular_terms) ? cached.zero_query.popular_terms : [],
     ideas_for_you_terms: Array.isArray(cached?.zero_query?.ideas_for_you_terms) ? cached.zero_query.ideas_for_you_terms : [],
@@ -98,17 +151,26 @@ export async function getNewbornLaunchpadFeed(sql, { country = null, trendType =
 
 /**
  * Live Trends & Zero-Query Launchpad refresh (`POST /api/newborn/launchpad`).
- * Fetches live `Growing` / `Seasonal` / `Monthly` / `Yearly` trends + 90d `Predicted Peaks`
- * and `Zero-Query` (`Popular on Pinterest` + `Ideas for you`) via `NewbornCookieRouter`.
+ * Fetches 50-100 live `Growing` / `Seasonal` / `Monthly` / `Yearly` trends with full
+ * Pinterest Trends filters (moments, age, gender, includeTerms, excludeTerms, interest, country)
+ * plus 90d `Predicted Peaks` and `Zero-Query` terms via `NewbornCookieRouter`.
  */
 export async function refreshNewbornLaunchpadFeed(sql, options = {}) {
   const {
     country = null,
     trendType = 'growing',
     l1Interest = 'all',
-    limit = 25,
+    moments = '',
+    age = '',
+    gender = '',
+    includeTerms = '',
+    excludeTerms = '',
+    limit = 50,
+    workspaceId = null,
     routerOptions = {},
-    env = null
+    env = null,
+    harvestTrendsFn = harvestGrowingTrendsSurface,
+    harvestZeroQueryFn = harvestZeroQueryPopularSurface
   } = options;
 
   const settings = await getNewbornSettings(sql);
@@ -119,26 +181,42 @@ export async function refreshNewbornLaunchpadFeed(sql, options = {}) {
     ? String(trendType).toLowerCase()
     : 'growing';
   const resolvedInterest = String(l1Interest || settings.discovery?.default_l1_interest || 'all').toLowerCase();
+  const resolvedLimit = Math.max(5, Math.min(100, Number(limit) || 50));
 
-  const resolvedCookie = await resolveNewbornRawCookie(sql, env || routerOptions.env || {});
+  const resolvedCookie = await resolveNewbornRawCookie(sql, env || routerOptions.env || {}, { workspaceId });
   const router = new NewbornCookieRouter({
     rawCookie: resolvedCookie.rawCookie,
     ...routerOptions
   });
 
   const [trendsRes, zeroQueryRes] = await Promise.all([
-    harvestGrowingTrendsSurface(router, {
+    harvestTrendsFn(router, {
       country: resolvedCountry,
       trendType: resolvedType,
       l1Interest: resolvedInterest,
-      limit: Math.max(5, Math.min(60, Number(limit) || 25)),
+      limit: resolvedLimit,
+      moments: String(moments || '').trim(),
+      age: String(age || '').trim(),
+      gender: String(gender || '').trim(),
+      includeTerms: String(includeTerms || '').trim(),
+      excludeTerms: String(excludeTerms || '').trim(),
       fetch90dForecast: true
     }),
-    harvestZeroQueryPopularSurface(router, { country: resolvedCountry })
+    harvestZeroQueryFn(router, { country: resolvedCountry })
   ]);
 
   const nowIso = new Date().toISOString();
-  const bucketKey = `${resolvedCountry}:${resolvedType}:${resolvedInterest}`;
+  const bucketKey = buildLaunchpadBucketKey({
+    country: resolvedCountry,
+    trendType: resolvedType,
+    l1Interest: resolvedInterest,
+    moments,
+    age,
+    gender,
+    includeTerms,
+    excludeTerms,
+    limit: resolvedLimit
+  });
 
   if (sql && typeof sql === 'function') {
     let existingCache = { buckets: {}, zero_query: {} };
@@ -186,6 +264,14 @@ export async function refreshNewbornLaunchpadFeed(sql, options = {}) {
     country: resolvedCountry,
     trend_type: resolvedType,
     l1_interest: resolvedInterest,
+    limit: resolvedLimit,
+    filters: {
+      moments: String(moments || '').trim(),
+      age: String(age || '').trim(),
+      gender: String(gender || '').trim(),
+      include_terms: String(includeTerms || '').trim(),
+      exclude_terms: String(excludeTerms || '').trim()
+    },
     trends: trendsRes.trends || [],
     popular_terms: zeroQueryRes.popular_terms || zeroQueryRes.terms || [],
     ideas_for_you_terms: zeroQueryRes.ideas_for_you_terms || [],

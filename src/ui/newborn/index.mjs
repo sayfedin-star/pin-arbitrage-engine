@@ -31,6 +31,14 @@ const VALID_INITIAL_MODES = new Set([
   'crossover'
 ]);
 
+function compactHtmlFragment(html) {
+  return String(html || '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/^[ \t]+/gm, '')
+    .replace(/\n{2,}/g, '\n')
+    .trim();
+}
+
 export function getNewbornPageHtml(folderId = '', initialRoom = '') {
   const rawFolderId = String(folderId || '').trim();
   const safeFolderId = rawFolderId.replace(/[^a-zA-Z0-9_-]/g, '');
@@ -65,7 +73,7 @@ export function getNewbornPageHtml(folderId = '', initialRoom = '') {
 <html lang="en">
 <head>
 ${renderSharedDocumentHead({
-  title: 'Newborn Pin Hunter | Pinterest Arbitrage',
+  title: 'Discover — Pin Arbitrage V4',
   referrerPolicy: 'same-origin',
   tailwindScriptHtml,
   includeThemeScript: true,
@@ -73,28 +81,18 @@ ${renderSharedDocumentHead({
 })}
 </head>
 <body x-cloak class="bg-[#F8FAFC] dark:bg-[#09090B] text-[#0F172A] dark:text-[#FAFAFA] min-h-screen antialiased flex flex-col font-sans transition-colors duration-150 motion-reduce:transition-none" x-data="newbornStudioApp('${safeFolderId}', '${safeInitialMode}')" @keydown.escape.window="handleEscapeKey()">
-
-  ${renderAppSidebar({
-    activeNav: safeFolderId ? 'folders' : 'newborn',
+${renderAppSidebar({
+    activeNav: safeFolderId ? 'campaigns' : 'discover',
     refreshHandler: 'refreshWorkspace(true)',
     refreshLoadingExpr: 'isLoading || isPollingRun'
   })}
-
-  <!-- Primary Workspace Container -->
-  <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-5 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out motion-reduce:transition-none" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
-
-    ${safeFolderId ? renderCampaignWorkspaceHeader({ activeRoom: 'newborn', folderId: safeFolderId }) : ''}
-
-${getNewbornHeaderAndLaunchpadHtml()}
-
-${getNewbornCandidatesAndRookiesHtml()}
-
-${getNewbornClusterExplorerHtml()}
-
-  </main>
-
-${getNewbornSettingsAndModalsHtml()}
-
+<main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-5 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out motion-reduce:transition-none" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
+${safeFolderId ? compactHtmlFragment(renderCampaignWorkspaceHeader({ activeRoom: 'newborn', folderId: safeFolderId })) : ''}
+${compactHtmlFragment(getNewbornHeaderAndLaunchpadHtml())}
+${compactHtmlFragment(getNewbornCandidatesAndRookiesHtml())}
+${compactHtmlFragment(getNewbornClusterExplorerHtml())}
+</main>
+${compactHtmlFragment(getNewbornSettingsAndModalsHtml())}
 ${renderPageBootstrapScript({ folderId: safeFolderId, initialMode: safeInitialMode })}
 ${renderClientJsScriptTag('newborn')}
 </body>

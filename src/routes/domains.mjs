@@ -42,6 +42,7 @@ export async function handleDomainsRoutes(routeCtx) {
     searchParams,
     sql,
     ctx,
+    workspaceId = 1,
     jsonResponse,
     clampLimit,
     buildCanonicalCacheKey,
@@ -78,7 +79,13 @@ export async function handleDomainsRoutes(routeCtx) {
         await invalidateEdgeCache('domains:leaderboard');
       }
 
+      const numericWid = Number(workspaceId) || 1;
+      const explicitWsScope = searchParams.get('workspace_scope') === '1' || searchParams.get('workspace_scope') === 'true';
+      const enforceWorkspaceScope = numericWid !== 1 || explicitWsScope;
+
       const cacheParams = {
+        workspaceId: numericWid,
+        workspaceScope: enforceWorkspaceScope ? 1 : 0,
         search: searchParams.get('search') || '',
         folderId: searchParams.get('folder_id') || '',
         keywordId: searchParams.get('keyword_id') || '',
@@ -99,11 +106,78 @@ export async function handleDomainsRoutes(routeCtx) {
       const cacheKey = buildCanonicalCacheKey('domains:leaderboard', cacheParams);
       const SIX_HOURS_MS = 21600000;
       const ONE_HOUR_MS = 3600000;
+      const fetchDomains = async () => {
+        if (!enforceWorkspaceScope) {
+          const raw = await listDomainsIntelligenceFast(sql, queryParams);
+          return { ...raw, workspace_id: numericWid };
+        }
+        const scopedQueryParams = {
+          ...queryParams,
+          page: 1,
+          limit: Math.max(cacheParams.limit, 500)
+        };
+        const [raw, watchRows, pinnedRows, trackedRows] = await Promise.all([
+          listDomainsIntelligenceFast(sql, scopedQueryParams),
+          sql`
+            SELECT LOWER(TRIM(entity_key)) AS dom
+            FROM workspace_watchlist
+            WHERE workspace_id = ${numericWid}
+              AND entity_type = 'domain'
+              AND entity_key IS NOT NULL;
+          `.catch(() => []),
+          sql`
+            SELECT DISTINCT LOWER(TRIM(fpd.domain)) AS dom
+            FROM folder_pinned_domains fpd
+            JOIN keyword_folders kf ON kf.id = fpd.folder_id
+            WHERE kf.workspace_id = ${numericWid}
+              AND fpd.domain IS NOT NULL;
+          `.catch(() => []),
+          sql`
+            SELECT DISTINCT LOWER(TRIM(COALESCE(ump.clean_domain, ''))) AS dom
+            FROM campaign_tracked_pins ctp
+            JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
+            WHERE ctp.workspace_id = ${numericWid}
+              AND ump.clean_domain IS NOT NULL
+              AND ump.clean_domain <> '';
+          `.catch(() => [])
+        ]);
+
+        const allowedDomains = new Set();
+        for (const list of [watchRows, pinnedRows, trackedRows]) {
+          for (const r of (list || [])) {
+            const d = String(r?.dom || '').trim().toLowerCase().replace(/^www\./, '');
+            if (d) allowedDomains.add(d);
+          }
+        }
+
+        const baseDomains = Array.isArray(raw?.domains) ? raw.domains : [];
+        const scopedDomains = (allowedDomains.size === 0 && numericWid === 1)
+          ? baseDomains
+          : baseDomains.filter((d) => {
+              const norm = String(d?.domain || d?.clean_domain || '').trim().toLowerCase().replace(/^www\./, '');
+              return norm && allowedDomains.has(norm);
+            });
+
+        const pageNum = Math.max(1, Number(cacheParams.page) || 1);
+        const pageLim = Math.max(1, Number(cacheParams.limit) || 50);
+        const startIdx = (pageNum - 1) * pageLim;
+        const pagedDomains = scopedDomains.slice(startIdx, startIdx + pageLim);
+
+        return {
+          ...raw,
+          domains: pagedDomains,
+          page: pageNum,
+          limit: pageLim,
+          total: scopedDomains.length,
+          total_domains: scopedDomains.length,
+          workspace_id: numericWid,
+          workspace_scoped: true
+        };
+      };
+
       const data = isForceRefresh
-        ? await listDomainsIntelligenceFast(sql, queryParams)
-        : await getCachedOrFetch(cacheKey, async () => {
-            return await listDomainsIntelligenceFast(sql, queryParams);
-          }, SIX_HOURS_MS, ONE_HOUR_MS, { forceRefresh: isForceRefresh });
+        ? await fetchDomains()
+        : await getCachedOrFetch(cacheKey, fetchDomains, SIX_HOURS_MS, ONE_HOUR_MS, { forceRefresh: isForceRefresh });
 
       // Gate background external WHOIS/RDAP & ads.txt scraping + DB mutations strictly behind verified API auth
       if (canMutateInBackground) {

@@ -124,17 +124,38 @@ export function getNewbornClientAppScript() {
         isEnrichingCluster: false,
         isLaunchingClusterHunt: false,
 
-        // Rising Trends Drawer
-        showTrendsDrawer: initialMode === 'launchpad',
+        // Full Pinterest Trends Panel (50-100 Trends + All 8 Filters)
+        showTrendsDrawer: !scopedFolderId || initialMode === 'launchpad',
         isRefreshingLaunchpad: false,
         launchpadCountry: 'US',
         launchpadTrendType: 'growing',
         launchpadInterest: 'all',
+        launchpadMoments: '',
+        launchpadAge: '',
+        launchpadGender: '',
+        launchpadIncludeTerms: '',
+        launchpadExcludeTerms: '',
+        launchpadLimit: 50,
         launchpadTrends: [],
         launchpadPopularTerms: [],
         launchpadIdeasForYou: [],
         l1InterestsCatalog: [],
         supportedCountries: [{ code: 'US', label: 'United States (US)' }],
+
+        // V4 Wave 3 Cluster Basket & Campaign Modal State
+        clusterBasket: [],
+        basketManualInput: '',
+        basketCampaignModalOpen: false,
+        isSubmittingBasketCampaign: false,
+        isLaunchingBasketHunt: false,
+        basketCampaignForm: {
+          mode: 'new',
+          newName: '',
+          existingFolderId: '',
+          serpTopN: 30,
+          trackTopNDaily: true,
+          runNewbornDeepHunt: false
+        },
 
         // Wave 6F Execution Mode & Live Run Control State
         executionMode: 'auto',
@@ -815,19 +836,220 @@ export function getNewbornClientAppScript() {
           const cap = this.maxClusterSelectableKeywords();
           if (this.selectedClusterKeywords.includes(clean)) {
             this.selectedClusterKeywords = this.selectedClusterKeywords.filter((t) => t !== clean);
+            this.removeFromBasket(clean);
           } else if (this.selectedClusterKeywords.length < cap) {
             this.selectedClusterKeywords = [...this.selectedClusterKeywords, clean];
+            this.addKeywordsToBasket([clean]);
           }
         },
 
         selectTopClusterKeywords(n = 15) {
           const maxCap = this.maxClusterSelectableKeywords();
           const cap = Math.max(1, Math.min(maxCap, Number(n) || 15));
-          this.selectedClusterKeywords = this.getFilteredClusterKeywords().slice(0, cap).map((k) => k.keyword);
+          const picked = this.getFilteredClusterKeywords().slice(0, cap).map((k) => k.keyword);
+          this.selectedClusterKeywords = picked;
+          this.addKeywordsToBasket(picked);
         },
 
         clearClusterSelection() {
           this.selectedClusterKeywords = [];
+        },
+
+        // --- Cluster Basket Helpers (Trends + Related Interests + Build Cluster) ---
+        isInBasket(term) {
+          const norm = String(term || '').trim().toLowerCase();
+          if (!norm) return false;
+          return (this.clusterBasket || []).some((k) => String(k || '').trim().toLowerCase() === norm);
+        },
+
+        toggleBasketKeyword(term) {
+          const clean = String(term || '').trim();
+          if (!clean) return;
+          if (this.isInBasket(clean)) {
+            this.removeFromBasket(clean);
+          } else {
+            this.addKeywordsToBasket([clean]);
+          }
+        },
+
+        addKeywordsToBasket(terms) {
+          const list = Array.isArray(terms) ? terms : [terms];
+          const existingLower = new Set((this.clusterBasket || []).map((k) => String(k || '').trim().toLowerCase()));
+          const next = [...(this.clusterBasket || [])];
+          for (const raw of list) {
+            const clean = String(raw || '').trim();
+            if (!clean) continue;
+            const lower = clean.toLowerCase();
+            if (existingLower.has(lower)) continue;
+            if (next.length >= 100) break;
+            existingLower.add(lower);
+            next.push(clean);
+          }
+          this.clusterBasket = next;
+          this.refreshIcons();
+        },
+
+        removeFromBasket(term) {
+          const norm = String(term || '').trim().toLowerCase();
+          this.clusterBasket = (this.clusterBasket || []).filter((k) => String(k || '').trim().toLowerCase() !== norm);
+        },
+
+        clearBasket() {
+          this.clusterBasket = [];
+        },
+
+        addManualBasketKeyword() {
+          const raw = String(this.basketManualInput || '').trim();
+          if (!raw) return;
+          const parts = raw.split(/[,\\n]+/).map((s) => s.trim()).filter(Boolean);
+          this.addKeywordsToBasket(parts);
+          this.basketManualInput = '';
+        },
+
+        openBasketCampaignModal() {
+          if (!this.clusterBasket || this.clusterBasket.length === 0) return;
+          if (!this.basketCampaignForm.newName) {
+            const seed = String(this.huntInput || this.clusterBasket[0] || 'New Campaign').trim();
+            this.basketCampaignForm.newName = seed.slice(0, 60);
+          }
+          if (!this.basketCampaignForm.existingFolderId && Array.isArray(this.foldersList) && this.foldersList.length > 0) {
+            this.basketCampaignForm.existingFolderId = this.foldersList[0].id;
+          }
+          this.basketCampaignModalOpen = true;
+          this.refreshIcons();
+        },
+
+        async launchBasketQuickHunt() {
+          if (!this.clusterBasket || this.clusterBasket.length === 0) return;
+          this.isLaunchingBasketHunt = true;
+          try {
+            const picked = this.clusterBasket.slice(0, 100);
+            const payload = {
+              keywords: picked,
+              folder_id: this.scopedFolderId || undefined,
+              execution_mode: this.executionMode || 'auto',
+              shards: this.fleetShards || 8,
+              filters: {
+                max_age_days: this.huntFilters.maxAgeDays,
+                min_repin_count: this.huntFilters.minRepins,
+                min_save_count: this.huntFilters.minSaves,
+                max_pin_hydrations_per_run: this.huntFilters.maxPinHydrations
+              },
+              paths: this.huntPaths
+            };
+            const { data } = await this.apiJson('/api/newborn/cluster/hunt', {
+              method: 'POST',
+              body: JSON.stringify(payload)
+            });
+            const runId = data?.run_id || data?.run?.id || null;
+            if (runId) {
+              this.activeRunId = runId;
+              this.activeRun = data.run || { id: runId, status: 'queued', progress_pct: 5 };
+              this.startRunPolling(runId);
+            }
+            this.toast('Launched Quick Newborn Hunt for ' + picked.length + ' basket keywords', 'success');
+          } catch (err) {
+            this.toast('Quick Hunt failed: ' + err.message, 'error');
+          } finally {
+            this.isLaunchingBasketHunt = false;
+            this.refreshIcons();
+          }
+        },
+
+        async submitBasketToCampaign() {
+          if (!this.clusterBasket || this.clusterBasket.length === 0) return;
+          const keywords = Array.from(new Set(
+            this.clusterBasket
+              .map((kw) => String(kw || '').trim())
+              .filter(Boolean)
+          )).slice(0, 100);
+          if (keywords.length === 0) {
+            this.toast('Add at least one valid keyword to the Cluster Basket first.', 'warning');
+            return;
+          }
+
+          this.isSubmittingBasketCampaign = true;
+          try {
+            const topN = Math.max(5, Math.min(100, Number(this.basketCampaignForm.serpTopN) || 30));
+            let targetFolderId = this.basketCampaignForm.existingFolderId;
+
+            if (this.basketCampaignForm.mode === 'new') {
+              const name = String(this.basketCampaignForm.newName || '').trim();
+              if (!name) {
+                this.toast('Enter a Campaign Name first.', 'warning');
+                return;
+              }
+              const { data: created } = await this.apiJson('/api/folders', {
+                method: 'POST',
+                body: JSON.stringify({ name, serp_top_n: topN })
+              });
+              targetFolderId = created?.folder?.id || created?.id || null;
+              if (!targetFolderId) throw new Error('Failed to create campaign folder');
+              // Reuse newly created campaign if a subsequent step fails and user retries
+              this.basketCampaignForm.mode = 'existing';
+              this.basketCampaignForm.existingFolderId = String(targetFolderId);
+            } else {
+              if (!targetFolderId) {
+                this.toast('Select an existing campaign.', 'warning');
+                return;
+              }
+              await this.apiJson('/api/folders/' + encodeURIComponent(targetFolderId), {
+                method: 'PATCH',
+                body: JSON.stringify({ serp_top_n: topN })
+              });
+            }
+
+            // Add all basket keywords to the target campaign (matching POST /api/folders/:id/items { keywords })
+            await this.apiJson('/api/folders/' + encodeURIComponent(targetFolderId) + '/items', {
+              method: 'POST',
+              body: JSON.stringify({ keywords })
+            });
+
+            if (this.basketCampaignForm.trackTopNDaily) {
+              try {
+                await this.apiJson('/api/folders/' + encodeURIComponent(targetFolderId) + '/tracked-pins/sync-top-n', {
+                  method: 'POST',
+                  body: JSON.stringify({ top_n: topN })
+                });
+              } catch (syncErr) {
+                this.toast('Campaign saved, but Top ' + topN + ' daily sync failed: ' + (syncErr?.message || 'unknown error'), 'warning');
+              }
+            }
+
+            if (this.basketCampaignForm.runNewbornDeepHunt) {
+              const { data: huntData } = await this.apiJson('/api/newborn/cluster/hunt', {
+                method: 'POST',
+                body: JSON.stringify({
+                  keywords,
+                  folder_id: targetFolderId,
+                  execution_mode: this.executionMode || 'auto',
+                  shards: this.fleetShards || 8,
+                  filters: {
+                    max_age_days: this.huntFilters.maxAgeDays,
+                    min_repin_count: this.huntFilters.minRepins,
+                    min_save_count: this.huntFilters.minSaves,
+                    max_pin_hydrations_per_run: this.huntFilters.maxPinHydrations
+                  },
+                  paths: this.huntPaths
+                })
+              });
+              const runId = huntData?.run_id || huntData?.run?.id || null;
+              if (runId) {
+                this.activeRunId = runId;
+                this.activeRun = huntData.run || { id: runId, status: 'queued', progress_pct: 5 };
+                this.startRunPolling(runId);
+              }
+            }
+
+            this.basketCampaignModalOpen = false;
+            this.clearBasket();
+            this.toast('Saved ' + keywords.length + ' keywords to Campaign (Top ' + topN + ' Daily)', 'success');
+          } catch (err) {
+            this.toast('Campaign save failed: ' + err.message, 'error');
+          } finally {
+            this.isSubmittingBasketCampaign = false;
+            this.refreshIcons();
+          }
         },
 
         async huntSingleClusterKeyword(term) {
@@ -1277,8 +1499,14 @@ export function getNewbornClientAppScript() {
             const params = new URLSearchParams({
               country: this.launchpadCountry || 'US',
               trend_type: this.launchpadTrendType || 'growing',
-              l1_interest: this.launchpadInterest || 'all'
+              l1_interest: this.launchpadInterest || 'all',
+              limit: String(this.launchpadLimit || 50)
             });
+            if (this.launchpadMoments) params.set('moments', this.launchpadMoments);
+            if (this.launchpadAge) params.set('age', this.launchpadAge);
+            if (this.launchpadGender) params.set('gender', this.launchpadGender);
+            if (this.launchpadIncludeTerms && this.launchpadIncludeTerms.trim()) params.set('include_terms', this.launchpadIncludeTerms.trim());
+            if (this.launchpadExcludeTerms && this.launchpadExcludeTerms.trim()) params.set('exclude_terms', this.launchpadExcludeTerms.trim());
             const { data } = await this.apiJson('/api/newborn/launchpad?' + params.toString());
             this.launchpadTrends = Array.isArray(data?.trends) ? data.trends : [];
             this.launchpadPopularTerms = Array.isArray(data?.popular_terms) ? data.popular_terms : [];
@@ -1296,13 +1524,18 @@ export function getNewbornClientAppScript() {
                 country: this.launchpadCountry || 'US',
                 trend_type: this.launchpadTrendType || 'growing',
                 l1_interest: this.launchpadInterest || 'all',
-                limit: 25
+                moments: this.launchpadMoments || '',
+                age: this.launchpadAge || '',
+                gender: this.launchpadGender || '',
+                include_terms: (this.launchpadIncludeTerms || '').trim(),
+                exclude_terms: (this.launchpadExcludeTerms || '').trim(),
+                limit: Math.max(50, Math.min(100, Number(this.launchpadLimit) || 50))
               })
             });
             this.launchpadTrends = Array.isArray(data?.trends) ? data.trends : [];
             this.launchpadPopularTerms = Array.isArray(data?.popular_terms) ? data.popular_terms : [];
             this.launchpadIdeasForYou = Array.isArray(data?.ideas_for_you_terms) ? data.ideas_for_you_terms : [];
-            this.toast('Loaded ' + this.launchpadTrends.length + ' rising Pinterest trends', 'success');
+            this.toast('Loaded ' + this.launchpadTrends.length + ' Pinterest trends', 'success');
           } catch (err) {
             this.toast('Trends refresh failed: ' + err.message, 'error');
           } finally {

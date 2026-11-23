@@ -13,6 +13,7 @@ export {
   harvestSinglePinRelatedLive,
   auditSweepCompetitor,
   quickPulseCreator,
+  syncFullCreatorCatalog,
   deepHarvestCreator,
   getPinArchiveOverview,
   getTopicClusters,
@@ -200,18 +201,18 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
           WHERE cbp.competitor_id = ${compId}
         )
         SELECT
-          COUNT(*) FILTER (WHERE is_official_domain = TRUE)::int AS total_catalog_pins,
+          COUNT(*)::int AS total_catalog_pins,
           COUNT(*) FILTER (WHERE is_official_domain = FALSE)::int AS external_pins_count,
-          COALESCE(SUM(save_count) FILTER (WHERE is_official_domain = TRUE), 0)::bigint AS total_saves,
+          COALESCE(SUM(save_count), 0)::bigint AS total_saves,
           COALESCE(SUM(save_count) FILTER (WHERE is_official_domain = FALSE), 0)::bigint AS external_saves,
-          COALESCE(SUM(repin_count) FILTER (WHERE is_official_domain = TRUE), 0)::bigint AS total_repins,
-          MIN(COALESCE(created_at_pinterest, first_discovered_at)) FILTER (WHERE is_official_domain = TRUE) AS earliest_pin_at,
-          MAX(COALESCE(created_at_pinterest, first_discovered_at)) FILTER (WHERE is_official_domain = TRUE) AS latest_pin_at,
-          COUNT(*) FILTER (WHERE is_official_domain = TRUE AND created_at_pinterest >= NOW() - INTERVAL '30 days')::int AS pins_last_30d,
-          COUNT(*) FILTER (WHERE is_official_domain = TRUE AND created_at_pinterest IS NOT NULL)::int AS dated_pins_count,
-          COUNT(*) FILTER (WHERE is_official_domain = TRUE AND is_winning = TRUE)::int AS winning_pins_count,
-          COUNT(DISTINCT NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(destination_url, ''))), '^https?://(www\\.)?[^/]+', ''), '[?#].*$', ''), '/+$', ''), '')) FILTER (WHERE is_official_domain = TRUE AND COALESCE(destination_url, '') NOT LIKE '%pinterest.%')::int AS official_urls_count,
-          GREATEST(1.0, EXTRACT(EPOCH FROM (MAX(created_at_pinterest) FILTER (WHERE is_official_domain = TRUE) - MIN(created_at_pinterest) FILTER (WHERE is_official_domain = TRUE))) / 86400.0) AS span_days
+          COALESCE(SUM(repin_count), 0)::bigint AS total_repins,
+          MIN(COALESCE(created_at_pinterest, first_discovered_at)) AS earliest_pin_at,
+          MAX(COALESCE(created_at_pinterest, first_discovered_at)) AS latest_pin_at,
+          COUNT(*) FILTER (WHERE created_at_pinterest >= NOW() - INTERVAL '30 days')::int AS pins_last_30d,
+          COUNT(*) FILTER (WHERE created_at_pinterest IS NOT NULL)::int AS dated_pins_count,
+          COUNT(*) FILTER (WHERE is_winning = TRUE)::int AS winning_pins_count,
+          COUNT(DISTINCT NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(destination_url, ''))), '^https?://(www\\.)?[^/]+', ''), '[?#].*$', ''), '/+$', ''), '')) FILTER (WHERE COALESCE(destination_url, '') NOT LIKE '%pinterest.%')::int AS official_urls_count,
+          GREATEST(1.0, EXTRACT(EPOCH FROM (MAX(created_at_pinterest) - MIN(created_at_pinterest))) / 86400.0) AS span_days
         FROM classified_cp;
       `;
       return agg || {};
@@ -736,7 +737,10 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   const stageFilter = (stage && typeof stage === 'string' && stage.trim()) ? stage.trim().toUpperCase() : null;
   const isHighVelocity = Boolean(high_velocity);
   const isChangedOnly = Boolean(changed_only);
-  const activeScope = (scope === 'ecosystem' || scope === 'curators' || scope === 'external') && primaryDomain ? scope : 'official';
+  const activeScope = (scope === 'ecosystem' || scope === 'curators' || scope === 'external' || scope === 'domain_only') && primaryDomain
+    ? scope
+    : (scope === 'all' ? 'all' : 'official');
+  const restrictToPrimaryDomain = activeScope === 'domain_only' && Boolean(primaryDomain);
 
   const boardsPromise = sql`
     SELECT DISTINCT COALESCE(NULLIF(TRIM(ump.board_name), ''), 'General') AS board_name, COUNT(*)::int as count
@@ -744,8 +748,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
     WHERE cbp.competitor_id = ${numericId} AND ump.board_name IS NOT NULL AND TRIM(ump.board_name) <> ''
       AND (
-        ${primaryDomain} = ''
-        OR ${activeScope} = 'external'
+        ${restrictToPrimaryDomain} = FALSE
         OR COALESCE(ump.clean_domain, '') IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
         OR ump.clean_domain ILIKE '%pinterest.%'
         OR ump.clean_domain ILIKE '%pin.it%'
@@ -755,7 +758,9 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   `;
 
   // [OPTIMIZED SARGABLE: 4-Table SSOT join with keyword_serp_positions]
-  const rowsPromise = activeScope === 'official'
+  // V4 Zero-Exclusion: default 'official'/'all' scopes include ALL creator catalog pins (multi-domain + uploaded).
+  const isDirectCatalogScope = activeScope === 'official' || activeScope === 'all' || activeScope === 'domain_only';
+  const rowsPromise = isDirectCatalogScope
     ? (ranked_only
       ? sql`
     SELECT 
@@ -811,7 +816,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     ) ksp ON TRUE
     WHERE cbp.competitor_id = ${numericId}
       AND (
-        ${primaryDomain} = ''
+        ${restrictToPrimaryDomain} = FALSE
         OR COALESCE(ump.clean_domain, '') IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
         OR ump.clean_domain ILIKE '%pinterest.%'
         OR ump.clean_domain ILIKE '%pin.it%'
@@ -884,7 +889,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       LEFT JOIN competitor_boards cb ON cb.competitor_id = cbp.competitor_id AND cb.board_id = cbp.board_id
       WHERE cbp.competitor_id = ${numericId}
         AND (
-          ${primaryDomain} = ''
+          ${restrictToPrimaryDomain} = FALSE
           OR COALESCE(ump.clean_domain, '') IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
           OR ump.clean_domain ILIKE '%pinterest.%'
           OR ump.clean_domain ILIKE '%pin.it%'
@@ -1142,11 +1147,11 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       WHERE cbp.competitor_id = ${numericId}
     )
     SELECT 
-      COUNT(*) FILTER (WHERE is_official_domain = TRUE)::int AS catalog_total,
+      COUNT(*)::int AS catalog_total,
       COUNT(*) FILTER (WHERE is_official_domain = FALSE)::int AS external_pins_total,
-      COUNT(*) FILTER (WHERE is_official_domain = TRUE AND (COALESCE(save_count, 0) >= 100 OR COALESCE(ump_vel, 0) >= 3.5))::int AS qualified_total,
-      COUNT(*) FILTER (WHERE is_official_domain = TRUE AND ksp_pin_id IS NOT NULL)::int AS ranked_total,
-      COUNT(*) FILTER (WHERE is_official_domain = TRUE AND COALESCE(ump_vel, 0) >= 10)::int AS high_velocity_total
+      COUNT(*) FILTER (WHERE COALESCE(save_count, 0) >= 100 OR COALESCE(ump_vel, 0) >= 3.5)::int AS qualified_total,
+      COUNT(*) FILTER (WHERE ksp_pin_id IS NOT NULL)::int AS ranked_total,
+      COUNT(*) FILTER (WHERE COALESCE(ump_vel, 0) >= 10)::int AS high_velocity_total
     FROM classified_cp;
   `;
 

@@ -32,14 +32,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   syncCompetitorProfile,
-  normalizePinterestUsername,
-  resolveQualificationRules
+  normalizePinterestUsername
 } from '../src/modules/creators/competitors-crud.mjs';
 import {
   syncCompetitorBoards,
   syncCompetitorBoardPins
 } from '../src/modules/creators/boards-service.mjs';
 import { syncCompetitorPins } from '../src/modules/creators/creator-ingest.mjs';
+import { syncFullCreatorCatalog } from '../src/modules/creators/creator-harvest-and-archive.mjs';
 import { getCreatorHubSettings } from '../src/modules/creators/creator-analytics.mjs';
 import {
   PINTEREST_CEILING_VALUE,
@@ -116,8 +116,6 @@ const personalBoardsOnly = process.env.PERSONAL_BOARDS_ONLY !== 'false';
 const targetBoardsInput = (process.env.TARGET_BOARDS || '').trim();
 const stepSummaryPath = process.env.GITHUB_STEP_SUMMARY || null;
 
-const AUTO_PROMOTE_PULSE_DELTA_24H = Number(process.env.AUTO_PROMOTE_PULSE_DELTA_24H || 25000);
-const AUTO_PROMOTE_PULSE_DELTA_7D = Number(process.env.AUTO_PROMOTE_PULSE_DELTA_7D || 100000);
 const rawPhase2MaxPins = parseInt(process.env.PHASE2_MAX_PINS || '250', 10);
 const PHASE2_MAX_PINS = Number.isFinite(rawPhase2MaxPins) && rawPhase2MaxPins > 0 ? Math.min(2000, rawPhase2MaxPins) : 250;
 const rawPhase2FreshHours = parseInt(process.env.PHASE2_FRESHNESS_HOURS || '18', 10);
@@ -1145,10 +1143,6 @@ async function run() {
         }
       };
 
-      const isAutoPromoteEnabled = creatorHubSettings?.auto_promote_enabled ?? false;
-      const dynamicDelta24h = Number(creatorHubSettings?.auto_promote_delta_24h ?? AUTO_PROMOTE_PULSE_DELTA_24H);
-      const dynamicDelta7d = Number(creatorHubSettings?.auto_promote_delta_7d ?? AUTO_PROMOTE_PULSE_DELTA_7D);
-
       const pulseSem = new Semaphore(6);
       await Promise.allSettled(pulseAccounts.map((acc) => pulseSem.run(async () => {
         const cleanUser = (acc.username || '').replace(/^@+/, '').trim();
@@ -1218,36 +1212,9 @@ async function run() {
             }
           }
 
-          let nextTrackingMode = 'pulse_only';
-          let nextCustomLabel = acc.custom_label || '';
-
-          // [INVARIANT: AUTO-PROMOTE-PULSE-BREAKOUT] Check if lightweight pulse creator breached breakout threshold
-          if (isAutoPromoteEnabled && (deltaReach24h >= dynamicDelta24h || reachDelta7d >= dynamicDelta7d)) {
-            console.log(`[🚀 AUTO-PROMOTE] @${cleanUser} exceeded breakout threshold (24h: +${deltaReach24h} vs ${dynamicDelta24h}, 7d: +${reachDelta7d} vs ${dynamicDelta7d}). Promoting pulse_only -> full!`);
-            const configuredQualRules = creatorHubSettings?.qualification_rules || {};
-            const resolvedAutoPromote = resolveQualificationRules(configuredQualRules, {
-              base: { tier1_min_saves: 500, tier2_min_velocity: 10.0 },
-              deriveTiersFromSaves: true
-            });
-            const qualRulesToPersist = {
-              tier1_min_saves: resolvedAutoPromote.tier1_min_saves,
-              tier2_min_repins: resolvedAutoPromote.tier2_min_repins,
-              tier2_min_velocity: resolvedAutoPromote.tier2_min_velocity,
-              tier3_min_saves: resolvedAutoPromote.tier3_min_saves,
-              auto_promote_inherited: true
-            };
-            nextTrackingMode = 'full';
-            if (!nextCustomLabel) nextCustomLabel = 'Breakout Auto-Promoted';
-            metaUpdate.profile_pulse_only = false;
-            metaUpdate.auto_promoted_at = new Date().toISOString();
-            metaUpdate.auto_promote_reason = 'reach_breakout';
-            metaUpdate.qualification_rules = qualRulesToPersist;
-
-            acc.tracking_mode = 'full';
-            acc.qualification_rules = qualRulesToPersist;
-            acc._wasAutoPromotedInThisRun = true;
-            fullAccounts.push(acc);
-          }
+          // Tracking mode is strictly operator-controlled via Watchlist toggle (Metrics Only vs Metrics + Full Catalog).
+          const nextTrackingMode = 'pulse_only';
+          const nextCustomLabel = acc.custom_label || '';
 
           const snapMeta = {
             total_saves: 0,
@@ -1309,56 +1276,49 @@ async function run() {
     }
 
     // -------------------------------------------------------------------------
-    // PHASE 1B: Full Catalog / Auto-Promoted Accounts Discovery
+    // PHASE 1B: Full Catalog Accounts (`BoardFeedResource` primary + `/_created/` merge)
     // -------------------------------------------------------------------------
     const fullSem = new Semaphore(Math.min(3, Math.max(1, fullAccounts.length)));
     await Promise.allSettled(fullAccounts.map((acc, i) => fullSem.run(async () => {
       const cleanUser = (acc.username || '').replace(/^@+/, '').trim();
-      const wasAutoPromotedInThisRun = Boolean(acc._wasAutoPromotedInThisRun);
       console.log(`\n----------------------------------------------------------------`);
       console.log(`[Phase 1B: ${i + 1}/${fullAccounts.length}] Full Creator Sync: @${cleanUser} (Account ID: ${acc.id})`);
       console.log(`----------------------------------------------------------------`);
 
-      if (!wasAutoPromotedInThisRun) {
-        try {
-          console.log(`[*] Updating reach & impressions for @${cleanUser}...`);
-          await syncCompetitorProfile(sql, cleanUser, cookie, { pulseOnly: false });
-        } catch (pErr) {
-          console.warn(`[!] Profile sync warning for @${cleanUser}:`, pErr.message);
-        }
+      try {
+        console.log(`[*] Updating reach & impressions for @${cleanUser}...`);
+        await syncCompetitorProfile(sql, cleanUser, cookie, { pulseOnly: false });
+      } catch (pErr) {
+        console.warn(`[!] Profile sync warning for @${cleanUser}:`, pErr.message);
       }
 
-      const shouldHarvest = !wasAutoPromotedInThisRun || (creatorHubSettings?.auto_harvest_pins !== false);
-      if (shouldHarvest) {
-        // 2. Discover Boards
-        try {
-          await syncCompetitorBoards(sql, acc.id, cleanUser, cookie);
-        } catch (_) {}
-
-        // 3. Discover Fresh Pins (early-stop: per-account rules or 3 pages or configured harvest pages)
-        try {
-          const accRules = acc.qualification_rules || acc.metadata?.qualification_rules || {};
-          const earlyStop = Number(accRules.early_stop_pages) || 3;
-          const harvestPages = Math.max(1, Math.ceil((Number(creatorHubSettings?.max_pins_harvest) || 150) / 50));
-          const targetPages = crawlMode === 'deep' || crawlMode === 'all'
-            ? (Number(accRules.max_pages) || maxPages || 500)
-            : (wasAutoPromotedInThisRun ? harvestPages : earlyStop);
-          console.log(`[*] Checking for fresh pins (target: ${targetPages} pages, early-stop: ${earlyStop})...`);
-          await syncCompetitorPins(sql, acc.id, cleanUser, {
-            mode: 'refresh',
-            maxPages: targetPages,
-            cookie: cookie
-          });
-        } catch (_) {}
-      } else {
-        console.log(`[*] Account @${cleanUser} auto-promoted but auto_harvest_pins is disabled in settings. Skipping pin harvest.`);
+      // Full catalog sync: BoardFeedResource primary across all boards + /_created/ merge (no early_stop_pages = 3 cap)
+      try {
+        const accRules = acc.qualification_rules || acc.metadata?.qualification_rules || {};
+        const targetPages = Number(accRules.max_pages) || maxPages || 500;
+        console.log(`[*] Running syncFullCreatorCatalog for @${cleanUser} (BoardFeedResource primary + /_created/ merge, maxPages=${targetPages})...`);
+        const catalogRes = await syncFullCreatorCatalog(sql, acc.id, cleanUser, {
+          maxPages: targetPages,
+          maxPagesPerBoard: 50,
+          cookie,
+          syncBoardsFirst: true,
+          personalBoardsOnly
+        });
+        console.log(`[✓] @${cleanUser} catalog sync: boards=${catalogRes.boards_crawled}/${catalogRes.boards_found}, board_pins=${catalogRes.board_pins_ingested}, created_pins=${catalogRes.created_pins_ingested}, errors=${catalogRes.errors?.length || 0}`);
+        if (Array.isArray(catalogRes.errors) && catalogRes.errors.length > 0) {
+          console.warn(`[!] @${cleanUser} catalog sync reported ${catalogRes.errors.length} warning(s):`, catalogRes.errors.slice(0, 5));
+        }
+      } catch (catErr) {
+        console.warn(`[!] Full catalog sync error for @${cleanUser}:`, catErr.message);
       }
 
       await sql`
         UPDATE competitor_profiles
         SET updated_at = NOW()
         WHERE id = ${acc.id};
-      `.catch(() => {});
+      `.catch((err) => {
+        console.warn(`[!] Failed updating timestamp for @${cleanUser}:`, err.message);
+      });
 
       accountsProcessed++;
     })));

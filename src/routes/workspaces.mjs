@@ -14,8 +14,16 @@ import {
   updateWorkspace,
   deleteWorkspace,
   getWorkspaceSettings,
-  updateWorkspaceSettings
+  updateWorkspaceSettings,
+  getWorkspaceCookieStatus,
+  saveWorkspaceCookie,
+  clearWorkspaceCookie
 } from '../modules/workspaces/service.mjs';
+import {
+  getNewbornCookieStatus,
+  saveNewbornCookie,
+  clearNewbornCookie
+} from '../modules/newborn/settings.mjs';
 
 export function isWorkspacesRoute(pathname) {
   return pathname === '/api/workspaces' || pathname.startsWith('/api/workspaces/');
@@ -106,6 +114,80 @@ export async function handleWorkspacesRoutes({
       return jsonResponse({ success: true, workspace_id: workspaceId, settings });
     }
     return methodNotAllowedResponse('GET, PUT, PATCH, POST, OPTIONS');
+  }
+
+  // 3B. GET / POST / DELETE /api/workspaces/cookie — Write-only Zone-A Pinterest Session Cookie
+  // [INVARIANT: ZERO-SECRET-LEAK] Never returns raw cookie strings in any response.
+  // [INVARIANT: WORKSPACE-COOKIE-ISOLATION] Global newborn_pinterest_cookie sync/fallback applies ONLY to DEFAULT_WORKSPACE_ID (1).
+  if (pathname === '/api/workspaces/cookie') {
+    const isDefaultWorkspace = Number(workspaceId) === DEFAULT_WORKSPACE_ID;
+    if (reply && typeof reply.header === 'function') {
+      reply.header('Cache-Control', 'private, no-store, max-age=0');
+    }
+    if (method === 'GET') {
+      const wsStatus = await getWorkspaceCookieStatus(sql, workspaceId);
+      const nbStatus = isDefaultWorkspace
+        ? await getNewbornCookieStatus(sql, {}, { workspaceId }).catch(() => ({ has_cookie: false }))
+        : { has_cookie: false };
+      const hasCookie = isDefaultWorkspace
+        ? Boolean(wsStatus?.has_cookie || nbStatus?.has_cookie)
+        : Boolean(wsStatus?.has_cookie);
+      return jsonResponse({
+        success: true,
+        workspace_id: workspaceId,
+        has_cookie: hasCookie,
+        is_configured: hasCookie,
+        preview: hasCookie ? '[CONFIGURED]' : '',
+        zone_routing_mode: hasCookie ? 'two_zone_auth_plus_zero_cookie' : 'guest_zero_cookie_fallback'
+      }, 200, -1);
+    }
+    if (method === 'POST' || method === 'PUT') {
+      try {
+        const body = await request.json().catch(() => ({}));
+        const rawCookie = String(body?.cookie ?? body?.raw_cookie ?? body?.pinterest_cookie ?? '').trim();
+        const wsStatus = await saveWorkspaceCookie(sql, workspaceId, rawCookie);
+        if (isDefaultWorkspace) {
+          await saveNewbornCookie(sql, rawCookie, { alsoUpdateShared: true }).catch(() => null);
+        }
+        if (typeof invalidateEdgeCache === 'function') {
+          await invalidateEdgeCache(`ws:${workspaceId}:`);
+          if (isDefaultWorkspace) {
+            await invalidateEdgeCache('newborn');
+          }
+        }
+        return jsonResponse({
+          success: true,
+          workspace_id: workspaceId,
+          has_cookie: Boolean(wsStatus.has_cookie),
+          is_configured: Boolean(wsStatus.is_configured),
+          preview: '[CONFIGURED]',
+          zone_routing_mode: 'two_zone_auth_plus_zero_cookie'
+        }, 200, -1);
+      } catch (err) {
+        return jsonResponse({ success: false, error: err.message }, err.status || 400, -1);
+      }
+    }
+    if (method === 'DELETE') {
+      await clearWorkspaceCookie(sql, workspaceId);
+      if (isDefaultWorkspace) {
+        await clearNewbornCookie(sql).catch(() => null);
+      }
+      if (typeof invalidateEdgeCache === 'function') {
+        await invalidateEdgeCache(`ws:${workspaceId}:`);
+        if (isDefaultWorkspace) {
+          await invalidateEdgeCache('newborn');
+        }
+      }
+      return jsonResponse({
+        success: true,
+        workspace_id: workspaceId,
+        has_cookie: false,
+        is_configured: false,
+        preview: '',
+        zone_routing_mode: 'guest_zero_cookie_fallback'
+      }, 200, -1);
+    }
+    return methodNotAllowedResponse('GET, POST, PUT, DELETE, OPTIONS');
   }
 
   // 4. GET / PATCH / PUT / DELETE /api/workspaces/:id

@@ -1268,7 +1268,30 @@ function extractRawCookieFromSettingVal(val) {
  * Internal resolver for the Newborn raw Pinterest session token.
  * NEVER expose the returned value over HTTP responses or logs!
  */
-export async function resolveNewbornRawCookie(sql, env = {}) {
+export async function resolveNewbornRawCookie(sql, env = {}, { workspaceId = null } = {}) {
+  const numericWid = Number(workspaceId);
+  const hasExplicitWorkspace = Number.isInteger(numericWid) && numericWid > 0;
+
+  if (hasExplicitWorkspace && sql && typeof sql === 'function') {
+    try {
+      const [wsRow] = await sql`
+        SELECT pinterest_cookie_enc
+        FROM workspace_settings
+        WHERE workspace_id = ${numericWid}
+        LIMIT 1;
+      `;
+      const wsRaw = typeof wsRow?.pinterest_cookie_enc === 'string' ? wsRow.pinterest_cookie_enc.trim() : '';
+      if (wsRaw.length > 10) {
+        return { rawCookie: wsRaw, source: `workspace:${numericWid}:pinterest_cookie_enc` };
+      }
+    } catch (_) {}
+
+    // Non-default workspaces MUST NOT silently inherit Workspace 1 / global cookies
+    if (numericWid !== 1) {
+      return { rawCookie: '', source: 'none' };
+    }
+  }
+
   if (sql && typeof sql === 'function') {
     try {
       const rows = await sql`
@@ -1319,8 +1342,8 @@ export async function resolveNewbornRawCookie(sql, env = {}) {
  * Returns strictly redacted Newborn cookie & routing status safe for UI/API responses.
  * [INVARIANT: ZERO-SECRET-LEAK] Never returns cookie strings, tokens, or prefixes.
  */
-export async function getNewbornCookieStatus(sql, env = {}) {
-  const { rawCookie, source } = await resolveNewbornRawCookie(sql, env);
+export async function getNewbornCookieStatus(sql, env = {}, { workspaceId = null } = {}) {
+  const { rawCookie, source } = await resolveNewbornRawCookie(sql, env, { workspaceId });
   const hasCookie = Boolean(rawCookie && rawCookie.length > 10);
   return {
     has_cookie: hasCookie,

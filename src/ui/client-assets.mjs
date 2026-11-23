@@ -17,6 +17,9 @@ import { getDomainsClientAppScript } from './domains/domains-client-app.mjs';
 import { getPinDetailsClientAppScripts } from './pin-details/client-app.mjs';
 import { getPulseClientAppScript } from './pulse/pulse-client-app.mjs';
 import { getDiscoveryClientAppScript } from './discovery/discovery-client-app.mjs';
+import { getRadarClientAppScript } from './radar/radar-client-app.mjs';
+import { getWatchlistClientAppJs } from './watchlist/watchlist-client-app.mjs';
+import { getSettingsClientAppJs } from './settings/settings-client-app.mjs';
 
 /**
  * Safely serializes arbitrary JSON for embedding inside an inline `<script>` block
@@ -68,7 +71,10 @@ const ASSET_PROVIDERS = new Map([
   ['domains', () => getDomainsClientAppScript()],
   ['pin-details', () => getPinDetailsClientAppScripts()],
   ['pulse', () => getPulseClientAppScript()],
-  ['discovery', () => getDiscoveryClientAppScript()]
+  ['discovery', () => getDiscoveryClientAppScript()],
+  ['radar', () => getRadarClientAppScript()],
+  ['watchlist', () => getWatchlistClientAppJs()],
+  ['settings', () => getSettingsClientAppJs()]
 ]);
 
 const assetCache = new Map();

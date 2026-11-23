@@ -11,7 +11,12 @@
 
 import { CircuitBreakerOpenError } from '../core/pinterest/client.mjs';
 import { dispatchGitHubWorkflow, resolveGitHubAuth } from '../http/github-workflow.mjs';
-import { assertFolderInWorkspace } from '../modules/workspaces/service.mjs';
+import {
+  DEFAULT_WORKSPACE_ID,
+  assertFolderInWorkspace,
+  saveWorkspaceCookie,
+  clearWorkspaceCookie
+} from '../modules/workspaces/service.mjs';
 import {
   SURFACES_CATALOG,
   VALID_UPLOAD_PROVENANCE,
@@ -355,7 +360,7 @@ export async function handleNewbornRoutes({
     if (method === 'GET') {
       const [settings, cookieStatus, profiles] = await Promise.all([
         getNewbornSettings(sql),
-        getNewbornCookieStatus(sql, env),
+        getNewbornCookieStatus(sql, env, { workspaceId }),
         sql ? listNewbornRuleProfiles(sql, { includeInactive: true }).catch(() => []) : Promise.resolve([])
       ]);
       const schedule = evaluateAutomationSchedule(settings);
@@ -500,36 +505,83 @@ export async function handleNewbornRoutes({
     return methodNotAllowedResponse('GET, PUT, PATCH, DELETE, OPTIONS');
   }
 
-  // 3. /api/newborn/cookie (GET, POST, PUT, DELETE) — strictly redacted & no-store
+  // 3. /api/newborn/cookie (GET, POST, PUT, DELETE) — strictly redacted, workspace-isolated & no-store
   if (pathname === '/api/newborn/cookie') {
+    const numericWid = Number(workspaceId) || DEFAULT_WORKSPACE_ID;
+    const isDefaultWorkspace = numericWid === DEFAULT_WORKSPACE_ID;
     if (method === 'GET') {
-      const status = await getNewbornCookieStatus(sql, env);
+      const status = await getNewbornCookieStatus(sql, env, { workspaceId: numericWid });
       return jsonResponse({
         success: true,
+        workspace_id: numericWid,
         ...status
       }, 200, -1);
     }
 
     if (method === 'POST' || method === 'PUT') {
-      const body = await request.json();
-      const rawCookie = typeof body?.cookie === 'string'
-        ? body.cookie
-        : (typeof body?.pinterest_cookie === 'string' ? body.pinterest_cookie : '');
-      const status = await saveNewbornCookie(sql, rawCookie, {
-        alsoUpdateShared: Boolean(body?.also_update_shared)
-      });
-      await invalidateEdgeCache('newborn');
-      return jsonResponse({
-        success: true,
-        ...status
-      }, 200, -1);
+      try {
+        const body = await request.json().catch(() => ({}));
+        const rawCookie = typeof body?.cookie === 'string'
+          ? body.cookie
+          : (typeof body?.pinterest_cookie === 'string' ? body.pinterest_cookie : '');
+        if (!isDefaultWorkspace) {
+          const wsStatus = await saveWorkspaceCookie(sql, numericWid, rawCookie);
+          if (typeof invalidateEdgeCache === 'function') {
+            await invalidateEdgeCache(`ws:${numericWid}:`);
+          }
+          return jsonResponse({
+            success: true,
+            workspace_id: numericWid,
+            has_cookie: Boolean(wsStatus.has_cookie),
+            is_configured: Boolean(wsStatus.is_configured),
+            preview: '[CONFIGURED]',
+            zone_routing_mode: 'two_zone_auth_plus_zero_cookie'
+          }, 200, -1);
+        }
+        if (rawCookie.trim().length > 10) {
+          await saveWorkspaceCookie(sql, numericWid, rawCookie).catch(() => null);
+        }
+        const status = await saveNewbornCookie(sql, rawCookie, {
+          alsoUpdateShared: Boolean(body?.also_update_shared)
+        });
+        if (typeof invalidateEdgeCache === 'function') {
+          await invalidateEdgeCache(`ws:${numericWid}:`);
+          await invalidateEdgeCache('newborn');
+        }
+        return jsonResponse({
+          success: true,
+          workspace_id: numericWid,
+          ...status
+        }, 200, -1);
+      } catch (err) {
+        return jsonResponse({ success: false, error: err.message }, err.status || 400, -1);
+      }
     }
 
     if (method === 'DELETE') {
+      if (!isDefaultWorkspace) {
+        await clearWorkspaceCookie(sql, numericWid);
+        if (typeof invalidateEdgeCache === 'function') {
+          await invalidateEdgeCache(`ws:${numericWid}:`);
+        }
+        return jsonResponse({
+          success: true,
+          workspace_id: numericWid,
+          has_cookie: false,
+          is_configured: false,
+          preview: '',
+          zone_routing_mode: 'guest_zero_cookie_fallback'
+        }, 200, -1);
+      }
+      await clearWorkspaceCookie(sql, numericWid).catch(() => null);
       const status = await clearNewbornCookie(sql);
-      await invalidateEdgeCache('newborn');
+      if (typeof invalidateEdgeCache === 'function') {
+        await invalidateEdgeCache(`ws:${numericWid}:`);
+        await invalidateEdgeCache('newborn');
+      }
       return jsonResponse({
         success: true,
+        workspace_id: numericWid,
         ...status
       }, 200, -1);
     }
@@ -812,10 +864,26 @@ export async function handleNewbornRoutes({
     const country = searchParams.get('country') || null;
     const trendType = searchParams.get('trend_type') || searchParams.get('type') || 'growing';
     const l1Interest = searchParams.get('l1_interest') || searchParams.get('interest') || 'all';
+    const moments = searchParams.get('moments') || '';
+    const age = searchParams.get('age') || '';
+    const gender = searchParams.get('gender') || '';
+    const includeTerms = searchParams.get('include_terms') || searchParams.get('includeTerms') || '';
+    const excludeTerms = searchParams.get('exclude_terms') || searchParams.get('excludeTerms') || '';
+    const limit = clampLimit(searchParams.get('limit'), 50, 100);
     const cacheKey = buildCanonicalCacheKey('newborn:launchpad', searchParams);
     const feed = await getCachedOrFetch(
       cacheKey,
-      () => getNewbornLaunchpadFeed(sql, { country, trendType, l1Interest }),
+      () => getNewbornLaunchpadFeed(sql, {
+        country,
+        trendType,
+        l1Interest,
+        moments,
+        age,
+        gender,
+        includeTerms,
+        excludeTerms,
+        limit
+      }),
       15_000
     );
     return jsonResponse({ success: true, ...feed }, 200, -1);
@@ -1059,7 +1127,13 @@ export async function handleNewbornRoutes({
           country: body?.country || null,
           trendType: body?.trend_type || body?.type || 'growing',
           l1Interest: body?.l1_interest || body?.interest || 'all',
-          limit: body?.limit || 25,
+          moments: body?.moments || '',
+          age: body?.age || '',
+          gender: body?.gender || '',
+          includeTerms: body?.include_terms ?? body?.includeTerms ?? '',
+          excludeTerms: body?.exclude_terms ?? body?.excludeTerms ?? '',
+          limit: Math.max(5, Math.min(100, Number(body?.limit) || 50)),
+          workspaceId,
           routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
           env
         });

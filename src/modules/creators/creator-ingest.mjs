@@ -8,6 +8,7 @@
 
 import crypto from 'node:crypto';
 import { formatPinterestCookie } from '../../utils.mjs';
+import { redactSecrets } from '../../http/security-and-response.mjs';
 import { fetchUserActivityPinsResource, fetchPinFromPinResource, fetchPinsBatchFromPidgets, sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import { syncPinAcrossAllFourPillars, ingestPinsBatch as repoIngestPinsBatch } from '../pins/repository.mjs';
 import {
@@ -301,7 +302,7 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
  * Harvest winning pins for a competitor into PinArchive using Early-Stop (daily) or Deep Sweep (audit)
  * Evaluates all pins against active Pin Qualification Rules (Tier 1/2/3 OR Criteria).
  */
-export async function syncCompetitorPins(sql, competitorId, username, { mode = 'daily', maxPages = null, cookie = '', fastJitter = false } = {}) {
+export async function syncCompetitorPins(sql, competitorId, username, { mode = 'daily', maxPages = null, cookie = '', fastJitter = false, disableEarlyStop = false } = {}) {
   let cleanUsername = normalizePinterestUsername(username);
   let numericId = parseInt(competitorId, 10);
 
@@ -350,15 +351,15 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
   }
   const shouldAutoArchive = profile?.metadata?.auto_archive_winning !== false;
 
-  // Determine pagination depth based on mode (strictly bounds daily mode to rules.early_stop_pages, discovery/full to rules.max_pages)
+  // Determine pagination depth: full/all/deep/discovery or disableEarlyStop bypasses the legacy early_stop_pages=3 cap
   const numMaxPages = (maxPages !== null && maxPages !== undefined && !isNaN(Number(maxPages)) && Number(maxPages) > 0)
     ? Number(maxPages)
     : null;
   const accountMaxPages = Number(rules.max_pages) || 500;
   const accountEarlyStop = Number(rules.early_stop_pages) || 3;
-  let pageLimit = accountEarlyStop;
+  let pageLimit = disableEarlyStop ? (numMaxPages ? Math.min(numMaxPages, 2000) : accountMaxPages) : accountEarlyStop;
   if (mode === 'all' || mode === 'full') {
-    pageLimit = numMaxPages ? Math.min(numMaxPages, 1000) : accountMaxPages;
+    pageLimit = numMaxPages ? Math.min(numMaxPages, 2000) : accountMaxPages;
   } else if (mode === 'deep' || mode === 'discovery') {
     pageLimit = numMaxPages ? Math.min(numMaxPages, 2000) : (Number(rules.max_pages) || Number(rules.discovery_max_pages) || 500);
   } else if (numMaxPages) {
@@ -372,13 +373,17 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
   let totalFetched = 0;
   let allQualifiedCount = 0;
   let pagesCrawled = 0;
+  const errors = [];
 
   for (let page = 1; page <= pageLimit; page++) {
     pagesCrawled++;
     const res = await fetchUserActivityPinsResource(cleanUsername, currentBookmark, formattedCookie);
     if (!res.ok) {
-      if (page === 1) return { ok: false, error: res.error || `Pinterest API returned error ${res.status}` };
-      break; // Stop pagination on error for later pages
+      const errMsg = redactSecrets(res.error || `Pinterest API returned error ${res.status}`);
+      errors.push({ stage: 'created_feed', page, message: errMsg });
+      if (page === 1) return { ok: false, error: errMsg, errors };
+      console.warn(`[syncCompetitorPins] @${cleanUsername} stopped on page ${page}: ${errMsg}`);
+      break;
     }
 
     const pins = res.pins || [];
@@ -444,7 +449,11 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
         GROUP BY trim(cp.board_name)
         ON CONFLICT (competitor_id, board_id) DO NOTHING;
       `;
-    } catch (_) {}
+    } catch (err) {
+      const safeMsg = redactSecrets(err.message);
+      console.warn(`[syncCompetitorPins] Board backfill warning for @${cleanUsername}:`, safeMsg);
+      errors.push({ stage: 'board_backfill', message: safeMsg });
+    }
   }
 
   // Update harvest metadata on competitor profile without clobbering total_pins published catalog
@@ -473,6 +482,7 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
     qualified: allQualifiedCount,
     inserted: allQualifiedCount,
     qualified_archived: allQualifiedCount,
+    errors,
     metadata: harvestMeta
   };
 }

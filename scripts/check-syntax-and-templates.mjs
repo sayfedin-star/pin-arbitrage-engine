@@ -25,6 +25,9 @@ import { getCampaignFoldersPageHtml } from '../src/ui/folders/index.mjs';
 import { getDomainsPageHtml } from '../src/ui/domains/index.mjs';
 import { getPulsePageHtml } from '../src/ui/pulse/index.mjs';
 import { getNewbornPageHtml } from '../src/ui/newborn/index.mjs';
+import { getRadarPageHtml } from '../src/ui/radar/index.mjs';
+import { getWatchlistPageHtml } from '../src/ui/watchlist/index.mjs';
+import { getSettingsPageHtml } from '../src/ui/settings/index.mjs';
 import { getClientJsAsset, listClientJsAssets } from '../src/ui/client-assets.mjs';
 
 const VOID_HTML_TAGS = new Set([
@@ -297,7 +300,10 @@ export function runSyntaxAndTemplateChecks(rootDir = process.cwd()) {
     ['pulse-ui', getPulsePageHtml()],
     ['newborn-ui', getNewbornPageHtml()],
     ['newborn-ui (folder-scoped)', getNewbornPageHtml('test_folder_123')],
-    ['newborn-ui (settings)', getNewbornPageHtml('', 'settings')]
+    ['newborn-ui (settings)', getNewbornPageHtml('', 'settings')],
+    ['radar-ui', getRadarPageHtml()],
+    ['watchlist-ui', getWatchlistPageHtml()],
+    ['settings-ui', getSettingsPageHtml()]
   ];
 
   // 3. Compile inline <script> blocks via vm.Script, verify extracted asset refs & DOM tag balance + <template x-if> single-root nesting

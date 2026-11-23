@@ -5,9 +5,20 @@
 
 import { formatPinterestCookie, escapeSqlWildcards, chunkArray } from '../../utils.mjs';
 import { fetchBoardsResource, fetchBoardDetailUnauth, fetchBoardFeedResource, sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
+import {
+  redactSecrets,
+  checkPinterestCircuitBreaker,
+  tripPinterestCircuitBreaker
+} from '../../http/security-and-response.mjs';
 import crypto from 'node:crypto';
 import { normalizePinterestUsername, resolveLocalCompetitorId, getCompetitorRules, getQualificationRules, qualifyPin } from './competitors-crud.mjs';
 import { upsertCompetitorPins } from './creator-ingest.mjs';
+
+function isRateLimitOrForbidden(status, errorMsg = '') {
+  const numericStatus = Number(status || 0);
+  if (numericStatus === 429 || numericStatus === 403) return true;
+  return /\b(429|403)\b|rate\s*limit|access\s*denied/i.test(String(errorMsg || ''));
+}
 
 /**
  * Deterministic Synthetic Board ID Generator
@@ -555,7 +566,21 @@ export async function getOrSyncBoardDetail(sql, username, boardNameOrSlug, optio
 /**
  * Harvest pins from a specific board of a competitor into universal_master_pins and competitor_board_pins (board-level crawling).
  */
-export async function syncCompetitorBoardPins(sql, competitorId, username, board, { mode = 'daily', maxPages = 50, cookie = '' } = {}) {
+export async function syncCompetitorBoardPins(
+  sql,
+  competitorId,
+  username,
+  board,
+  {
+    mode = 'daily',
+    maxPages = 50,
+    cookie = '',
+    env = null,
+    deadlineMs = 0,
+    signal = null,
+    fetchBoardFeedFn = fetchBoardFeedResource
+  } = {}
+) {
   let cleanUsername = normalizePinterestUsername(username);
   let numericId = parseInt(competitorId, 10);
 
@@ -609,12 +634,58 @@ export async function syncCompetitorBoardPins(sql, competitorId, username, board
   let allQualifiedCount = 0;
   let pagesCrawled = 0;
   const pageLimit = Math.max(1, Math.min(Number(maxPages) || 50, 200));
+  let stoppedReason = null;
+  let truncatedByBudget = false;
+  let rateLimited = false;
 
   for (let page = 1; page <= pageLimit; page++) {
+    if (signal?.aborted) {
+      stoppedReason = 'aborted';
+      truncatedByBudget = true;
+      break;
+    }
+    if (deadlineMs > 0 && Date.now() >= deadlineMs) {
+      stoppedReason = 'max_duration';
+      truncatedByBudget = true;
+      break;
+    }
+    const cbState = await checkPinterestCircuitBreaker(env).catch(() => null);
+    if (cbState?.active) {
+      stoppedReason = 'circuit_breaker_open';
+      truncatedByBudget = true;
+      const msg = redactSecrets(`Circuit breaker open (${cbState.remaining_seconds || 60}s remaining): ${cbState.reason || 'rate limit'}`);
+      if (page === 1) {
+        return { ok: false, error: msg, stopped_reason: stoppedReason, truncated_by_budget: true, circuit_breaker_open: true };
+      }
+      break;
+    }
+
     pagesCrawled++;
-    const res = await fetchBoardFeedResource(boardId, boardUrl, currentBookmark, formattedCookie);
+    const res = await fetchBoardFeedFn(boardId, boardUrl, currentBookmark, formattedCookie);
     if (!res.ok) {
-      if (page === 1) return { ok: false, error: res.error || `BoardFeedResource error ${res.status}` };
+      const safeErr = redactSecrets(res.error || `BoardFeedResource error ${res.status}`);
+      if (isRateLimitOrForbidden(res.status, res.error)) {
+        rateLimited = true;
+        stoppedReason = 'rate_limited';
+        truncatedByBudget = true;
+        await tripPinterestCircuitBreaker(env, `HTTP ${res.status || '429/403'} in BoardFeedResource (@${cleanUsername}): ${safeErr}`, 900).catch(() => {});
+        return {
+          ok: totalFetched > 0,
+          board_id: boardId,
+          board_name: boardName,
+          pages_crawled: pagesCrawled,
+          total_fetched: totalFetched,
+          crawled: totalFetched,
+          qualified: allQualifiedCount,
+          inserted: allQualifiedCount,
+          error: safeErr,
+          status: res.status || 429,
+          rate_limited: true,
+          stopped_reason: stoppedReason,
+          truncated_by_budget: true
+        };
+      }
+      if (page === 1) return { ok: false, error: safeErr, status: res.status };
       break;
     }
 
@@ -658,6 +729,16 @@ export async function syncCompetitorBoardPins(sql, competitorId, username, board
     lastSeenBookmark = currentBookmark;
 
     if (page < pageLimit) {
+      if (signal?.aborted) {
+        stoppedReason = 'aborted';
+        truncatedByBudget = true;
+        break;
+      }
+      if (deadlineMs > 0 && Date.now() >= deadlineMs) {
+        stoppedReason = 'max_duration';
+        truncatedByBudget = true;
+        break;
+      }
       const delay = (mode === 'discovery') ? randomJitterMs(250, 450) : randomJitterMs(1500, 2500);
       await sleep(delay);
     }
@@ -684,6 +765,240 @@ export async function syncCompetitorBoardPins(sql, competitorId, username, board
     total_fetched: totalFetched,
     crawled: totalFetched,
     qualified: allQualifiedCount,
-    inserted: allQualifiedCount
+    inserted: allQualifiedCount,
+    rate_limited: rateLimited,
+    truncated_by_budget: truncatedByBudget,
+    stopped_reason: stoppedReason
   };
 }
+
+/**
+ * Primary Creator Catalog Ingestion via BoardFeedResource across ALL creator boards.
+ * Eliminates /_created/ truncation (e.g., 694-pin catalogs returning only 126 pins)
+ * and surfaces structured errors instead of swallowing exceptions.
+ */
+export async function syncAllCompetitorBoardPins(
+  sql,
+  competitorId,
+  username,
+  {
+    maxPagesPerBoard = 50,
+    maxBoards = 0,
+    maxDurationMs = 0,
+    signal = null,
+    env = null,
+    cookie = '',
+    mode = 'full',
+    syncBoardsFirst = true,
+    personalBoardsOnly = false,
+    fetchBoardFeedFn = fetchBoardFeedResource
+  } = {}
+) {
+  let cleanUsername = normalizePinterestUsername(username);
+  let numericId = parseInt(competitorId, 10);
+  const errors = [];
+  const deadlineMs = Number(maxDurationMs) > 0 ? Date.now() + Number(maxDurationMs) : 0;
+  const boardCap = Number(maxBoards) > 0 ? Math.max(1, Math.floor(Number(maxBoards))) : 0;
+  let truncatedByBudget = false;
+  let stoppedReason = null;
+
+  if (cleanUsername && isNaN(numericId)) {
+    numericId = await resolveLocalCompetitorId(sql, cleanUsername, { expectedUsername: cleanUsername });
+  } else if (!cleanUsername && !isNaN(numericId)) {
+    try {
+      const [c] = await sql`SELECT id, username FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
+      if (c?.username) cleanUsername = normalizePinterestUsername(c.username);
+    } catch (err) {
+      errors.push({ stage: 'resolve_profile', message: redactSecrets(err.message) });
+    }
+  }
+
+  if (!cleanUsername) {
+    return {
+      ok: false,
+      primary_source: 'board_feed_resource',
+      boards_synced: 0,
+      boards_found: 0,
+      boards_crawled: 0,
+      total_pins_ingested: 0,
+      qualified: 0,
+      truncated_by_budget: false,
+      stopped_reason: 'invalid_username',
+      errors: [...errors, { stage: 'validate', message: 'Username is required to crawl creator boards.' }]
+    };
+  }
+
+  const initialCb = await checkPinterestCircuitBreaker(env).catch(() => null);
+  if (initialCb?.active) {
+    const safeMsg = redactSecrets(`Circuit breaker open (${initialCb.remaining_seconds || 60}s remaining): ${initialCb.reason || 'rate limit'}`);
+    return {
+      ok: false,
+      primary_source: 'board_feed_resource',
+      competitor_id: numericId,
+      username: cleanUsername,
+      boards_synced: 0,
+      boards_found: 0,
+      boards_crawled: 0,
+      total_pins_ingested: 0,
+      qualified: 0,
+      truncated_by_budget: true,
+      stopped_reason: 'circuit_breaker_open',
+      boards: [],
+      errors: [...errors, { stage: 'circuit_breaker', message: safeMsg }]
+    };
+  }
+
+  let boardsSynced = 0;
+  let syncedBoardList = [];
+  if (syncBoardsFirst) {
+    try {
+      const boardsRes = await syncCompetitorBoards(sql, numericId, cleanUsername, cookie);
+      boardsSynced = Number(boardsRes?.synced_boards_count || boardsRes?.synced || 0);
+      if (Array.isArray(boardsRes?.boards)) {
+        syncedBoardList = boardsRes.boards;
+      }
+      if (boardsRes && boardsRes.ok === false && boardsRes.error) {
+        errors.push({ stage: 'sync_boards', message: redactSecrets(boardsRes.error) });
+      }
+    } catch (err) {
+      const safeMsg = redactSecrets(err.message);
+      console.warn(`[syncAllCompetitorBoardPins] Board list sync failed for @${cleanUsername}:`, safeMsg);
+      errors.push({ stage: 'sync_boards', message: safeMsg });
+    }
+  }
+
+  let dbBoards = [];
+  if (numericId && !isNaN(numericId)) {
+    try {
+      dbBoards = await sql`
+        SELECT board_id, name, url, pin_count, metadata
+        FROM competitor_boards
+        WHERE competitor_id = ${numericId}
+        ORDER BY COALESCE(pin_count, 0) DESC, name ASC;
+      `;
+    } catch (err) {
+      const safeMsg = redactSecrets(err.message);
+      console.warn(`[syncAllCompetitorBoardPins] Failed querying competitor_boards for @${cleanUsername}:`, safeMsg);
+      errors.push({ stage: 'load_boards', message: safeMsg });
+    }
+  }
+
+  const allCandidateBoards = (Array.isArray(dbBoards) && dbBoards.length > 0 ? dbBoards : syncedBoardList)
+    .filter((b) => {
+      if (!b) return false;
+      const isCollaborative = Boolean(
+        b.is_collaborative ||
+        b.metadata?.is_collaborative ||
+        b.metadata?.is_group_board
+      );
+      if (personalBoardsOnly && isCollaborative) return false;
+      const bid = String(b.board_id || b.id || '').trim();
+      const bname = String(b.name || '').trim();
+      return Boolean(bid || bname);
+    });
+
+  let candidateBoards = allCandidateBoards;
+  if (boardCap > 0 && allCandidateBoards.length > boardCap) {
+    candidateBoards = allCandidateBoards.slice(0, boardCap);
+    truncatedByBudget = true;
+    stoppedReason = 'max_boards';
+  }
+
+  let boardsCrawled = 0;
+  let totalPinsIngested = 0;
+  let totalQualified = 0;
+  const perBoard = [];
+
+  for (const board of candidateBoards) {
+    if (signal?.aborted) {
+      truncatedByBudget = true;
+      stoppedReason = 'aborted';
+      break;
+    }
+    if (deadlineMs > 0 && Date.now() >= deadlineMs) {
+      truncatedByBudget = true;
+      stoppedReason = 'max_duration';
+      break;
+    }
+    const cbState = await checkPinterestCircuitBreaker(env).catch(() => null);
+    if (cbState?.active) {
+      truncatedByBudget = true;
+      stoppedReason = 'circuit_breaker_open';
+      errors.push({
+        stage: 'circuit_breaker',
+        message: redactSecrets(`Circuit breaker open (${cbState.remaining_seconds || 60}s remaining): ${cbState.reason || 'rate limit'}`)
+      });
+      break;
+    }
+
+    const bName = String(board.name || 'Untitled Board').trim();
+    const bId = String(board.board_id || board.id || '').trim();
+    try {
+      const res = await syncCompetitorBoardPins(sql, numericId, cleanUsername, board, {
+        mode,
+        maxPages: maxPagesPerBoard,
+        cookie,
+        env,
+        deadlineMs,
+        signal,
+        fetchBoardFeedFn
+      });
+      if (res?.ok) {
+        boardsCrawled++;
+        const fetched = Number(res.total_fetched || res.crawled || 0);
+        const qual = Number(res.qualified || 0);
+        totalPinsIngested += fetched;
+        totalQualified += qual;
+        perBoard.push({ board_id: bId, board_name: bName, pins: fetched, pages: Number(res.pages_crawled || 0) });
+      }
+      if (res?.rate_limited || res?.stopped_reason === 'rate_limited') {
+        const msg = redactSecrets(res?.error || 'Pinterest HTTP 429/403 rate limit');
+        console.warn(`[syncAllCompetitorBoardPins] Rate limited on board "${bName}" (@${cleanUsername}):`, msg);
+        errors.push({ stage: 'board_feed', board_id: bId, board_name: bName, message: msg });
+        truncatedByBudget = true;
+        stoppedReason = 'rate_limited';
+        break;
+      }
+      if (res?.stopped_reason === 'circuit_breaker_open' || res?.stopped_reason === 'max_duration' || res?.stopped_reason === 'aborted') {
+        truncatedByBudget = true;
+        stoppedReason = res.stopped_reason;
+        if (res?.error) {
+          errors.push({ stage: 'board_feed', board_id: bId, board_name: bName, message: redactSecrets(res.error) });
+        }
+        break;
+      }
+      if (!res?.ok) {
+        const msg = redactSecrets(res?.error || 'BoardFeedResource returned non-ok status');
+        console.warn(`[syncAllCompetitorBoardPins] Board "${bName}" (@${cleanUsername}) warning:`, msg);
+        errors.push({ stage: 'board_feed', board_id: bId, board_name: bName, message: msg });
+      }
+    } catch (err) {
+      const safeMsg = redactSecrets(err.message);
+      console.warn(`[syncAllCompetitorBoardPins] Board "${bName}" (@${cleanUsername}) exception:`, safeMsg);
+      errors.push({ stage: 'board_feed', board_id: bId, board_name: bName, message: safeMsg });
+      if (isRateLimitOrForbidden(err?.status, err?.message)) {
+        await tripPinterestCircuitBreaker(env, `BoardFeedResource exception (@${cleanUsername}): ${safeMsg}`, 900).catch(() => {});
+        truncatedByBudget = true;
+        stoppedReason = 'rate_limited';
+        break;
+      }
+    }
+  }
+
+  return {
+    ok: errors.length === 0 || totalPinsIngested > 0 || boardsCrawled > 0,
+    primary_source: 'board_feed_resource',
+    competitor_id: numericId,
+    username: cleanUsername,
+    boards_synced: boardsSynced,
+    boards_found: allCandidateBoards.length,
+    boards_crawled: boardsCrawled,
+    total_pins_ingested: totalPinsIngested,
+    qualified: totalQualified,
+    truncated_by_budget: truncatedByBudget,
+    stopped_reason: stoppedReason,
+    boards: perBoard,
+    errors
+  };
+}
+

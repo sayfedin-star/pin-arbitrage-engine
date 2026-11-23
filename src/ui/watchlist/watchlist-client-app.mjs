@@ -1,0 +1,434 @@
+/**
+ * src/ui/watchlist/watchlist-client-app.mjs
+ *
+ * Leaf Alpine.js client controller for the dedicated Workspace Watchlist page (/watchlist).
+ * 0 imports — guaranteed cycle-free.
+ * Supports:
+ * - 3 workspace-isolated tabs: Creators, Domains, Saved Pins
+ * - Manual + Add Creator (with Metrics Only vs Metrics + Full Catalog mode) & + Add Domain
+ * - Per-creator Tracking Mode toggle (`metrics_only` <-> `metrics_full_catalog`)
+ * - Full Catalog Sync trigger (`POST /api/creators/deep-harvest`)
+ * - Inline Creator Catalog Pin Explorer with instant client-side filters (Saves >= 300, Re-pins, Max Age)
+ */
+
+export function getWatchlistClientAppJs() {
+  return `
+function decodeHtmlEntitiesClient(str) {
+  if (!str || typeof str !== 'string') return '';
+  if (!str.includes('&')) return str;
+  const el = document.createElement('textarea');
+  el.innerHTML = str;
+  return el.value;
+}
+
+window.watchlistApp = function watchlistApp() {
+  const boot = window.__PAE_PAGE_DATA__ || window.__PAE_PAGE_BOOTSTRAP__ || {};
+  const initTab = ['creator', 'domain', 'pin'].includes(String(boot.initialTab || '')) ? String(boot.initialTab) : 'creator';
+
+  return {
+    isDark: false,
+    isSidebarCollapsed: false,
+    isMobileMenuOpen: false,
+
+    activeTab: initTab,
+    isLoading: false,
+    errorMessage: '',
+    toastMsg: '',
+    _toastTimer: null,
+
+    items: [],
+    counts: { all: 0, creator: 0, domain: 0, pin: 0 },
+    searchQuery: '',
+
+    // Add Creator Form
+    showAddCreatorModal: false,
+    newCreatorInput: '',
+    newCreatorMode: 'metrics_only',
+    newCreatorNotes: '',
+    isSubmittingCreator: false,
+
+    // Add Domain Form
+    showAddDomainModal: false,
+    newDomainInput: '',
+    newDomainNotes: '',
+    isSubmittingDomain: false,
+
+    // Per-row syncing / toggling states
+    togglingModeIds: {},
+    syncingCreatorKeys: {},
+    removingIds: {},
+
+    // Inline Creator Catalog Explorer (Instant Client-Side Filtering)
+    selectedCreatorKey: '',
+    selectedCreatorName: '',
+    catalogPins: [],
+    catalogTotal: 0,
+    catalogLoading: false,
+    catalogError: '',
+    pinFilterMinSaves: 0,
+    pinFilterMinRepins: 0,
+    pinFilterMaxAgeDays: 0,
+    pinFilterSearch: '',
+    pinSortBy: 'saves_desc',
+
+    async init() {
+      this.isDark = document.documentElement.classList.contains('dark');
+      try {
+        this.isSidebarCollapsed = (
+          localStorage.getItem('pae_sidebar_collapsed') === 'true' ||
+          localStorage.getItem('pa_sidebar_collapsed') === 'true'
+        );
+      } catch (_) {}
+
+      await this.loadWatchlist();
+      this.$nextTick(() => {
+        if (window.lucide && typeof window.lucide.createIcons === 'function') {
+          window.lucide.createIcons();
+        }
+      });
+    },
+
+    _reqFetch(url, opts) {
+      return (typeof window !== 'undefined' && typeof window.apiFetch === 'function')
+        ? window.apiFetch(url, opts)
+        : fetch(url, opts);
+    },
+
+    toggleTheme() {
+      if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.toggleTheme === 'function') {
+        this.isDark = window.PAE.toggleTheme();
+      } else {
+        this.isDark = !this.isDark;
+        document.documentElement.classList.toggle('dark', this.isDark);
+        try { localStorage.setItem('pa_theme', this.isDark ? 'dark' : 'light'); } catch (_) {}
+      }
+      this.$nextTick(() => {
+        if (window.lucide && typeof window.lucide.createIcons === 'function') window.lucide.createIcons();
+      });
+    },
+
+    toggleSidebar() {
+      if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.toggleSidebar === 'function') {
+        this.isSidebarCollapsed = window.PAE.toggleSidebar();
+        return;
+      }
+      this.isSidebarCollapsed = !this.isSidebarCollapsed;
+      try { localStorage.setItem('pae_sidebar_collapsed', String(this.isSidebarCollapsed)); } catch (_) {}
+    },
+
+    showToast(msg) {
+      this.toastMsg = String(msg || '');
+      if (this._toastTimer) clearTimeout(this._toastTimer);
+      this._toastTimer = setTimeout(() => { this.toastMsg = ''; }, 3400);
+    },
+
+    fmtNum(n) {
+      const v = Number(n || 0);
+      if (!Number.isFinite(v)) return '0';
+      if (Math.abs(v) >= 1_000_000) return (v / 1_000_000).toFixed(1) + 'M';
+      if (Math.abs(v) >= 1_000) return (v / 1_000).toFixed(1) + 'K';
+      return Math.round(v).toLocaleString('en-US');
+    },
+
+    safeImg(url) {
+      if (!url || typeof url !== 'string') return '';
+      const clean = url.trim();
+      return /^https?:\\/\\//i.test(clean) ? clean : '';
+    },
+
+    decodeTitle(t) {
+      return decodeHtmlEntitiesClient(t || '');
+    },
+
+    async loadWatchlist() {
+      this.isLoading = true;
+      this.errorMessage = '';
+      try {
+        const res = await this._reqFetch('/api/watchlist?limit=500', { headers: { Accept: 'application/json' } });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false) {
+          throw new Error(data.error || data.message || ('HTTP ' + res.status));
+        }
+        this.items = Array.isArray(data.items) ? data.items : [];
+        this.counts = data.counts || { all: this.items.length, creator: 0, domain: 0, pin: 0 };
+      } catch (err) {
+        this.errorMessage = err.message || 'Failed to load workspace watchlist.';
+      } finally {
+        this.isLoading = false;
+        this.$nextTick(() => {
+          if (window.lucide && typeof window.lucide.createIcons === 'function') window.lucide.createIcons();
+        });
+      }
+    },
+
+    get filteredCreators() {
+      const q = String(this.searchQuery || '').trim().toLowerCase();
+      return this.items.filter((item) => {
+        if (item.entity_type !== 'creator') return false;
+        if (!q) return true;
+        return String(item.entity_key || '').toLowerCase().includes(q)
+          || String(item.display_label || '').toLowerCase().includes(q)
+          || String(item.notes || '').toLowerCase().includes(q);
+      });
+    },
+
+    get filteredDomains() {
+      const q = String(this.searchQuery || '').trim().toLowerCase();
+      return this.items.filter((item) => {
+        if (item.entity_type !== 'domain') return false;
+        if (!q) return true;
+        return String(item.entity_key || '').toLowerCase().includes(q)
+          || String(item.notes || '').toLowerCase().includes(q);
+      });
+    },
+
+    get filteredPins() {
+      const q = String(this.searchQuery || '').trim().toLowerCase();
+      return this.items.filter((item) => {
+        if (item.entity_type !== 'pin') return false;
+        if (!q) return true;
+        return String(item.entity_key || '').toLowerCase().includes(q)
+          || String(item.pin_title || '').toLowerCase().includes(q)
+          || String(item.pin_domain || '').toLowerCase().includes(q);
+      });
+    },
+
+    async submitAddCreator() {
+      const raw = String(this.newCreatorInput || '').trim();
+      if (!raw || this.isSubmittingCreator) return;
+      this.isSubmittingCreator = true;
+      try {
+        const res = await this._reqFetch('/api/watchlist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({
+            entity_type: 'creator',
+            entity_key: raw,
+            creator_tracking_mode: this.newCreatorMode,
+            notes: String(this.newCreatorNotes || '').trim()
+          })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false) {
+          throw new Error(data.error || 'Failed to add creator to watchlist');
+        }
+        const cleanKey = data.item?.entity_key || raw.replace(/^@+/, '').trim();
+        // Ensure creator profile exists in competitor_profiles before returning so Sync Full Catalog cannot race
+        await this._reqFetch('/api/creators', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({
+            username: cleanKey,
+            tracking_mode: this.newCreatorMode === 'metrics_full_catalog' ? 'full' : 'pulse_only'
+          })
+        }).catch(() => {});
+
+        this.newCreatorInput = '';
+        this.newCreatorNotes = '';
+        this.showAddCreatorModal = false;
+        this.activeTab = 'creator';
+        await this.loadWatchlist();
+        this.showToast('Added @' + cleanKey + ' to Watchlist');
+      } catch (err) {
+        this.showToast(err.message || 'Could not add creator');
+      } finally {
+        this.isSubmittingCreator = false;
+      }
+    },
+
+    async submitAddDomain() {
+      const raw = String(this.newDomainInput || '').trim();
+      if (!raw || this.isSubmittingDomain) return;
+      this.isSubmittingDomain = true;
+      try {
+        const res = await this._reqFetch('/api/watchlist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({
+            entity_type: 'domain',
+            entity_key: raw,
+            notes: String(this.newDomainNotes || '').trim()
+          })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false) {
+          throw new Error(data.error || 'Failed to add domain to watchlist');
+        }
+        const cleanKey = data.item?.entity_key || raw;
+        this.newDomainInput = '';
+        this.newDomainNotes = '';
+        this.showAddDomainModal = false;
+        this.activeTab = 'domain';
+        await this.loadWatchlist();
+        this.showToast('Added ' + cleanKey + ' to Watchlist');
+      } catch (err) {
+        this.showToast(err.message || 'Could not add domain');
+      } finally {
+        this.isSubmittingDomain = false;
+      }
+    },
+
+    async toggleCreatorMode(item) {
+      if (!item || !item.id || this.togglingModeIds[item.id]) return;
+      const nextMode = item.creator_tracking_mode === 'metrics_full_catalog'
+        ? 'metrics_only'
+        : 'metrics_full_catalog';
+      this.togglingModeIds[item.id] = true;
+      try {
+        const res = await this._reqFetch('/api/watchlist/' + encodeURIComponent(item.id), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ creator_tracking_mode: nextMode })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false) {
+          throw new Error(data.error || 'Failed to update tracking mode');
+        }
+        item.creator_tracking_mode = nextMode;
+        this.showToast(
+          '@' + item.entity_key + ' set to ' + (nextMode === 'metrics_full_catalog' ? 'Metrics + Full Catalog' : 'Metrics Only')
+        );
+      } catch (err) {
+        this.showToast(err.message || 'Failed to switch mode');
+      } finally {
+        this.togglingModeIds[item.id] = false;
+      }
+    },
+
+    async syncCreatorFullCatalog(item) {
+      const username = String(item?.entity_key || '').trim();
+      if (!username || this.syncingCreatorKeys[username]) return;
+      this.syncingCreatorKeys[username] = true;
+      try {
+        const res = await this._reqFetch('/api/creators/deep-harvest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ username })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false) {
+          throw new Error(data.error || 'Full catalog sync failed');
+        }
+        const ingested = Number(data.total_pins_ingested || data.new_pins_discovered || 0);
+        const boards = Number(data.boards_crawled || data.boards_synced || 0);
+        this.showToast('Synced @' + username + ': ' + ingested + ' pins across ' + boards + ' boards');
+        await this.loadWatchlist();
+        if (this.selectedCreatorKey === username) {
+          await this.openCreatorCatalog(item);
+        }
+      } catch (err) {
+        this.showToast(err.message || 'Catalog sync failed');
+      } finally {
+        this.syncingCreatorKeys[username] = false;
+      }
+    },
+
+    async removeWatchlistItem(item) {
+      if (!item || !item.id || this.removingIds[item.id]) return;
+      this.removingIds[item.id] = true;
+      try {
+        const res = await this._reqFetch('/api/watchlist/' + encodeURIComponent(item.id), {
+          method: 'DELETE',
+          headers: { Accept: 'application/json' }
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false) {
+          throw new Error(data.error || 'Failed to remove item');
+        }
+        if (this.selectedCreatorKey && item.entity_type === 'creator' && this.selectedCreatorKey === item.entity_key) {
+          this.selectedCreatorKey = '';
+          this.catalogPins = [];
+        }
+        await this.loadWatchlist();
+        this.showToast('Removed from Watchlist');
+      } catch (err) {
+        this.showToast(err.message || 'Could not remove item');
+      } finally {
+        this.removingIds[item.id] = false;
+      }
+    },
+
+    async openCreatorCatalog(item) {
+      const username = String(item?.entity_key || '').trim();
+      if (!username) return;
+      this.selectedCreatorKey = username;
+      this.selectedCreatorName = item.display_label || ('@' + username);
+      this.catalogLoading = true;
+      this.catalogError = '';
+      this.catalogPins = [];
+      try {
+        const res = await this._reqFetch('/api/creators/all-pins?username=' + encodeURIComponent(username) + '&scope=all&limit=500&sort=saves_desc', {
+          headers: { Accept: 'application/json' }
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || ('HTTP ' + res.status));
+        }
+        this.catalogPins = Array.isArray(data.pins) ? data.pins : [];
+        this.catalogTotal = Number(data.catalog_total ?? data.total ?? this.catalogPins.length);
+      } catch (err) {
+        this.catalogError = err.message || 'Failed to load creator catalog pins.';
+      } finally {
+        this.catalogLoading = false;
+        this.$nextTick(() => {
+          if (window.lucide && typeof window.lucide.createIcons === 'function') window.lucide.createIcons();
+        });
+      }
+    },
+
+    closeCreatorCatalog() {
+      this.selectedCreatorKey = '';
+      this.selectedCreatorName = '';
+      this.catalogPins = [];
+      this.catalogError = '';
+    },
+
+    applySaves300Preset() {
+      this.pinFilterMinSaves = Number(this.pinFilterMinSaves) === 300 ? 0 : 300;
+    },
+
+    resetCatalogFilters() {
+      this.pinFilterMinSaves = 0;
+      this.pinFilterMinRepins = 0;
+      this.pinFilterMaxAgeDays = 0;
+      this.pinFilterSearch = '';
+      this.pinSortBy = 'saves_desc';
+    },
+
+    get filteredCatalogPins() {
+      const minSaves = Math.max(0, Number(this.pinFilterMinSaves) || 0);
+      const minRepins = Math.max(0, Number(this.pinFilterMinRepins) || 0);
+      const maxAge = Math.max(0, Number(this.pinFilterMaxAgeDays) || 0);
+      const q = String(this.pinFilterSearch || '').trim().toLowerCase();
+
+      const out = this.catalogPins.filter((p) => {
+        const saves = Number(p.saves ?? p.save_count ?? 0);
+        const repins = Number(p.repins ?? p.repin_count ?? 0);
+        const ageDays = Number(p.age_days ?? 0);
+        if (minSaves > 0 && saves < minSaves) return false;
+        if (minRepins > 0 && repins < minRepins) return false;
+        if (maxAge > 0 && ageDays > maxAge) return false;
+        if (q) {
+          const hay = (
+            String(p.title || '') + ' ' +
+            String(p.board_name || '') + ' ' +
+            String(p.link_domain || '') + ' ' +
+            String(p.pin_id || '')
+          ).toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+
+      const sortBy = this.pinSortBy;
+      return out.slice().sort((a, b) => {
+        if (sortBy === 'repins_desc') return Number(b.repins ?? b.repin_count ?? 0) - Number(a.repins ?? a.repin_count ?? 0);
+        if (sortBy === 'newest') return Number(a.age_days ?? 99999) - Number(b.age_days ?? 99999);
+        if (sortBy === 'velocity_desc') return Number(b.velocity ?? 0) - Number(a.velocity ?? 0);
+        return Number(b.saves ?? b.save_count ?? 0) - Number(a.saves ?? a.save_count ?? 0);
+      });
+    }
+  };
+};
+`;
+}

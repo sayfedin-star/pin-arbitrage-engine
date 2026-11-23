@@ -736,6 +736,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
     profileId = null,
     folderId = null,
     clusterId = null,
+    workspaceId = null,
     existingRunId = null,
     settingsOverrides = null,
     rawCookieOverride = null,
@@ -765,7 +766,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
 
   const resolvedCookie = rawCookieOverride !== null && rawCookieOverride !== undefined
     ? { rawCookie: String(rawCookieOverride).trim(), source: 'override' }
-    : await resolveNewbornRawCookie(sql, routerOptions.env || {});
+    : await resolveNewbornRawCookie(sql, routerOptions.env || {}, { workspaceId });
 
   const router = new NewbornCookieRouter({
     rawCookie: resolvedCookie.rawCookie,

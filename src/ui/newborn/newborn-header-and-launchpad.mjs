@@ -13,59 +13,44 @@
 
 export function getNewbornHeaderAndLaunchpadHtml() {
   return `
-    <!-- Clean Studio Header -->
+    <!-- Clean Discover Header -->
     <header class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
       <div class="min-w-0">
         <div class="flex items-center gap-2.5 flex-wrap">
           <div class="w-9 h-9 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 flex items-center justify-center text-rose-600 dark:text-rose-400 shrink-0">
             <i data-lucide="sparkles" class="w-4 h-4" aria-hidden="true"></i>
           </div>
-          <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-[#FAFAFA]">Newborn Pin Hunter</h1>
-          <button type="button"
-                  @click="openSettingsDrawer('cookie')"
-                  class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
-                  :class="cookieStatus?.has_cookie ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/50 text-emerald-700 dark:text-emerald-300' : 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800/50 text-amber-700 dark:text-amber-300'"
-                  title="Manage Pinterest Zone-A Session Cookie">
-            <span class="w-1.5 h-1.5 rounded-full" :class="cookieStatus?.has_cookie ? 'bg-emerald-500' : 'bg-amber-500'"></span>
-            <span x-text="cookieStatus?.has_cookie ? 'Session Cookie Active (Deep Scroll)' : 'Set Up Session Cookie'"></span>
-          </button>
+          <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-[#FAFAFA]">Discover</h1>
         </div>
         <p class="text-xs sm:text-sm text-slate-500 dark:text-[#A1A1AA] mt-1">
-          Deep-scroll Pinterest for young Golden Pins using
-          <span x-text="settingsDraft?.qualification?.resolve_root_pin ? 'verified Root Age' : 'direct Pin Age'"></span>,
-          Re-pins, Pin Annotations, and Keyword Clusters.
+          Explore 50–100 Pinterest Trends, select Related Interests &amp; Keyword Clusters into your Cluster Basket, or launch deep-scroll Newborn Hunts.
         </p>
       </div>
 
       <div class="flex items-center gap-2 shrink-0">
-        <button type="button"
-                @click="openSettingsDrawer('filters')"
-                class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-50 dark:hover:bg-[#27272A] text-xs font-semibold text-slate-700 dark:text-[#FAFAFA] shadow-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
+        <a href="/settings"
+           class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-50 dark:hover:bg-[#27272A] text-xs font-semibold text-slate-700 dark:text-[#FAFAFA] shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
           <i data-lucide="sliders-horizontal" class="w-4 h-4 text-slate-500 dark:text-[#A1A1AA]" aria-hidden="true"></i>
-          <span>Settings</span>
-          <template x-if="settingsDraft?.automation?.auto_track_enabled">
-            <span class="px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">Auto</span>
-          </template>
-        </button>
+          <span>Workspace Settings</span>
+        </a>
       </div>
     </header>
 
-    <!-- One-Click Session Cookie Setup Banner (shown when Zone-A cookie is missing) -->
+    <!-- Centralized Settings Link Banner when Zone-A Cookie is missing -->
     <template x-if="!cookieStatus?.has_cookie">
       <div class="rounded-2xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/20 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div class="flex items-start gap-2.5 min-w-0">
           <i data-lucide="key-round" class="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" aria-hidden="true"></i>
           <div class="text-xs text-amber-900 dark:text-amber-200 leading-relaxed">
             <strong class="font-semibold">Zone-A Session Cookie not configured.</strong>
-            Deep scrolling (<span class="font-mono tabular-nums">1,000–5,000</span> pins in Search, Home Feed, Idea Page &amp; Related) requires an authenticated <code class="px-1 py-0.5 rounded bg-amber-100/80 dark:bg-amber-900/40 font-mono text-[11px]">_auth=1</code> cookie to avoid encrypted IDs and <code class="font-mono text-[11px]">412</code> gates. Pidgets &amp; PinResource hydration remain <strong>100% Zero-Cookie</strong>.
+            Deep scrolling (<span class="font-mono tabular-nums">1,000–5,000</span> pins in Search, Home Feed, Idea Page &amp; Related) requires an authenticated <code class="px-1 py-0.5 rounded bg-amber-100/80 dark:bg-amber-900/40 font-mono text-[11px]">_auth=1</code> cookie. Manage it centrally in Settings.
           </div>
         </div>
-        <button type="button"
-                @click="openSettingsDrawer('cookie')"
-                class="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shrink-0 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500">
-          <i data-lucide="shield-check" class="w-3.5 h-3.5" aria-hidden="true"></i>
-          <span>Session Cookie Setup</span>
-        </button>
+        <a href="/settings#cookie"
+           class="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500">
+          <i data-lucide="settings" class="w-3.5 h-3.5" aria-hidden="true"></i>
+          <span>Configure in Settings</span>
+        </a>
       </div>
     </template>
 
@@ -166,14 +151,35 @@ export function getNewbornHeaderAndLaunchpadHtml() {
           </div>
 
           <template x-if="Array.isArray(activeIdeaPage.related_interests) && activeIdeaPage.related_interests.length > 0">
-            <div class="flex items-center gap-1.5 flex-wrap pt-1 border-t border-indigo-200/50 dark:border-indigo-900/40">
-              <span class="text-[11px] font-medium text-slate-500 dark:text-[#A1A1AA] mr-1">Related Interests:</span>
-              <template x-for="rel in activeIdeaPage.related_interests.slice(0, 8)" :key="rel.name">
+            <div class="space-y-2 pt-2 border-t border-indigo-200/50 dark:border-indigo-900/40">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-[11px] font-semibold text-slate-600 dark:text-[#A1A1AA]">Related Interests (Check to add to Cluster Basket):</span>
                 <button type="button"
-                        @click="huntInput = rel.name; lookupIdeaPage(rel.name)"
-                        class="px-2 py-0.5 rounded-md bg-white dark:bg-[#18181B] border border-indigo-200/70 dark:border-[#27272A] hover:border-rose-400 text-[11px] text-slate-700 dark:text-[#E4E4E7] transition-colors cursor-pointer"
-                        x-text="rel.name"></button>
-              </template>
+                        @click="addKeywordsToBasket((activeIdeaPage.related_interests || []).map((r) => r.name))"
+                        class="text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 hover:underline cursor-pointer">
+                  + Add All to Basket
+                </button>
+              </div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <template x-for="rel in activeIdeaPage.related_interests.slice(0, 16)" :key="rel.name">
+                  <label class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] transition-colors cursor-pointer select-none"
+                         :class="isInBasket(rel.name) ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-700 text-rose-700 dark:text-rose-200 font-semibold' : 'bg-white dark:bg-[#18181B] border-indigo-200/70 dark:border-[#27272A] hover:border-rose-400 text-slate-700 dark:text-[#E4E4E7]'">
+                    <input type="checkbox"
+                           :checked="isInBasket(rel.name)"
+                           @change="toggleBasketKeyword(rel.name)"
+                           :aria-label="'Select related interest ' + rel.name"
+                           class="rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer" />
+                    <span x-text="rel.name"></span>
+                    <button type="button"
+                            @click.stop="huntInput = rel.name; lookupIdeaPage(rel.name)"
+                            title="Inspect Idea Page"
+                            aria-label="Inspect Idea Page"
+                            class="ml-0.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 cursor-pointer">
+                      <i data-lucide="arrow-up-right" class="w-3 h-3" aria-hidden="true"></i>
+                    </button>
+                  </label>
+                </template>
+              </div>
             </div>
           </template>
         </div>
@@ -421,74 +427,157 @@ export function getNewbornHeaderAndLaunchpadHtml() {
         </div>
       </div>
 
-      <!-- Collapsible Rising Trends Picker -->
+      <!-- Full Pinterest Trends Explorer (50–100 Trends + All 8 Filters + Cluster Basket Checkboxes) -->
       <template x-if="showTrendsDrawer">
-        <div id="newborn-rising-trends-panel" class="pt-3.5 border-t border-slate-200 dark:border-[#27272A] space-y-3.5">
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <div class="flex flex-wrap items-center gap-2">
-              <select x-model="launchpadCountry"
-                      @change="loadLaunchpadFeed()"
-                      aria-label="Trend country"
-                      class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs font-medium text-slate-700 dark:text-[#FAFAFA]">
-                <template x-for="c in supportedCountries" :key="c.code">
-                  <option :value="c.code" x-text="c.label"></option>
-                </template>
-              </select>
+        <div id="newborn-rising-trends-panel" class="pt-4 border-t border-slate-200 dark:border-[#27272A] space-y-4">
+          <div class="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2">
+            <select x-model="launchpadTrendType"
+                    @change="loadLaunchpadFeed()"
+                    aria-label="Trend type filter"
+                    class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs font-medium text-slate-700 dark:text-[#FAFAFA]">
+              <option value="growing">Growing</option>
+              <option value="seasonal">Seasonal</option>
+              <option value="monthly">Monthly</option>
+              <option value="yearly">Yearly</option>
+            </select>
 
-              <select x-model="launchpadTrendType"
-                      @change="loadLaunchpadFeed()"
-                      aria-label="Trend window"
-                      class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs font-medium text-slate-700 dark:text-[#FAFAFA]">
-                <option value="growing">Growing Trends</option>
-                <option value="seasonal">Seasonal</option>
-                <option value="monthly">Monthly</option>
-                <option value="yearly">Yearly</option>
-              </select>
+            <select x-model="launchpadInterest"
+                    @change="loadLaunchpadFeed()"
+                    aria-label="Interest category filter"
+                    class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs font-medium text-slate-700 dark:text-[#FAFAFA]">
+              <option value="all">All 22 Interests</option>
+              <template x-for="cat in l1InterestsCatalog" :key="cat.slug">
+                <option :value="cat.slug" x-text="cat.label"></option>
+              </template>
+            </select>
 
-              <select x-model="launchpadInterest"
-                      @change="loadLaunchpadFeed()"
-                      aria-label="Category filter"
-                      class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs font-medium text-slate-700 dark:text-[#FAFAFA]">
-                <option value="all">All 22 Categories</option>
-                <template x-for="cat in l1InterestsCatalog" :key="cat.slug">
-                  <option :value="cat.slug" x-text="cat.label"></option>
-                </template>
-              </select>
-            </div>
+            <select x-model="launchpadMoments"
+                    @change="loadLaunchpadFeed()"
+                    aria-label="Moments filter"
+                    class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs font-medium text-slate-700 dark:text-[#FAFAFA]">
+              <option value="">All Moments</option>
+              <option value="christmas">Christmas</option>
+              <option value="halloween">Halloween</option>
+              <option value="thanksgiving">Thanksgiving</option>
+              <option value="valentines_day">Valentine's Day</option>
+              <option value="easter">Easter</option>
+              <option value="mothers_day">Mother's Day</option>
+              <option value="back_to_school">Back to School</option>
+              <option value="summer">Summer</option>
+              <option value="fall">Fall</option>
+              <option value="spring">Spring</option>
+              <option value="winter">Winter</option>
+              <option value="wedding">Wedding</option>
+            </select>
+
+            <select x-model="launchpadAge"
+                    @change="loadLaunchpadFeed()"
+                    aria-label="Age group filter"
+                    class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs font-medium text-slate-700 dark:text-[#FAFAFA]">
+              <option value="">All Ages</option>
+              <option value="18-24">18–24</option>
+              <option value="25-34">25–34</option>
+              <option value="35-44">35–44</option>
+              <option value="45-54">45–54</option>
+              <option value="55+">55+</option>
+            </select>
+
+            <select x-model="launchpadGender"
+                    @change="loadLaunchpadFeed()"
+                    aria-label="Gender filter"
+                    class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs font-medium text-slate-700 dark:text-[#FAFAFA]">
+              <option value="">All Genders</option>
+              <option value="female">Female</option>
+              <option value="male">Male</option>
+              <option value="unspecified">Unspecified</option>
+            </select>
+
+            <select x-model="launchpadCountry"
+                    @change="loadLaunchpadFeed()"
+                    aria-label="Country filter"
+                    class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs font-medium text-slate-700 dark:text-[#FAFAFA]">
+              <template x-for="c in supportedCountries" :key="c.code">
+                <option :value="c.code" x-text="c.label"></option>
+              </template>
+            </select>
+
+            <select x-model.number="launchpadLimit"
+                    @change="loadLaunchpadFeed()"
+                    aria-label="Trends count limit"
+                    class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs font-mono font-medium text-slate-700 dark:text-[#FAFAFA]">
+              <option value="50">50 Trends</option>
+              <option value="75">75 Trends</option>
+              <option value="100">100 Trends</option>
+            </select>
 
             <button type="button"
                     @click="refreshLaunchpadLive()"
                     :disabled="isRefreshingLaunchpad"
-                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 dark:bg-[#FAFAFA] text-white dark:text-[#09090B] hover:opacity-90 disabled:opacity-60 text-xs font-semibold transition-opacity cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
+                    class="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 dark:bg-[#FAFAFA] text-white dark:text-[#09090B] hover:opacity-90 disabled:opacity-60 text-xs font-semibold transition-opacity cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
               <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isRefreshingLaunchpad ? 'animate-spin' : ''" aria-hidden="true"></i>
-              <span x-text="isRefreshingLaunchpad ? 'Fetching Trends...' : 'Refresh Live Trends'"></span>
+              <span x-text="isRefreshingLaunchpad ? 'Loading...' : 'Fetch Trends'"></span>
             </button>
+          </div>
+
+          <!-- Include / Exclude Keyword Filters -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <input type="text"
+                   x-model="launchpadIncludeTerms"
+                   @keydown.enter.prevent="refreshLaunchpadLive()"
+                   aria-label="Include keyword filter"
+                   placeholder="Include keyword (e.g. recipe, pasta, easy)..."
+                   class="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs text-slate-800 dark:text-[#FAFAFA] focus:outline-none focus:ring-2 focus:ring-rose-500" />
+            <input type="text"
+                   x-model="launchpadExcludeTerms"
+                   @keydown.enter.prevent="refreshLaunchpadLive()"
+                   aria-label="Exclude keyword filter"
+                   placeholder="Exclude keyword (e.g. vegan, tattoo, anime)..."
+                   class="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs text-slate-800 dark:text-[#FAFAFA] focus:outline-none focus:ring-2 focus:ring-rose-500" />
           </div>
 
           <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div class="lg:col-span-2 space-y-2">
-              <div class="flex items-center justify-between">
+              <div class="flex items-center justify-between gap-2 flex-wrap">
                 <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-[#A1A1AA]">
-                  Rising Pinterest Trends <span class="font-mono tabular-nums" x-text="'(' + launchpadTrends.length + ')'"></span>
+                  Pinterest Trends <span class="font-mono tabular-nums" x-text="'(' + launchpadTrends.length + ')'"></span>
                 </h2>
-                <span class="text-[11px] text-slate-400">Click any trend to populate &amp; hunt</span>
+                <div class="flex items-center gap-3 text-[11px]">
+                  <button type="button"
+                          x-show="launchpadTrends.length > 0"
+                          @click="addKeywordsToBasket(launchpadTrends.slice(0, 100).map((t) => t.term))"
+                          class="font-semibold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer">
+                    + Select All Visible
+                  </button>
+                  <span class="text-slate-400">Check terms to add to Cluster Basket</span>
+                </div>
               </div>
               <template x-if="launchpadTrends.length === 0">
                 <div class="p-4 rounded-xl border border-dashed border-slate-200 dark:border-[#27272A] text-xs text-slate-500 dark:text-[#A1A1AA] text-center">
-                  No cached trends for this filter yet. Click <strong>Refresh Live Trends</strong> to pull fresh rising topics.
+                  No cached trends for this filter yet. Click <strong>Fetch Trends</strong> to pull 50–100 live Pinterest Trends.
                 </div>
               </template>
               <template x-if="launchpadTrends.length > 0">
-                <div class="flex flex-wrap gap-2">
-                  <template x-for="tr in launchpadTrends.slice(0, 24)" :key="tr.term">
-                    <button type="button"
-                            @click="selectTrendAndHunt(tr.term)"
-                            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] hover:border-rose-300 dark:hover:border-rose-700 hover:bg-rose-50/60 dark:hover:bg-rose-950/30 text-xs font-medium text-slate-800 dark:text-[#FAFAFA] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
+                <div class="flex flex-wrap gap-2 max-h-72 overflow-y-auto pr-1">
+                  <template x-for="tr in launchpadTrends.slice(0, 100)" :key="tr.term">
+                    <label class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition-colors cursor-pointer select-none"
+                           :class="isInBasket(tr.term) ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-700 text-rose-700 dark:text-rose-200 font-semibold' : 'border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] hover:border-rose-300 dark:hover:border-rose-700 text-slate-800 dark:text-[#FAFAFA]'">
+                      <input type="checkbox"
+                             :checked="isInBasket(tr.term)"
+                             @change="toggleBasketKeyword(tr.term)"
+                             :aria-label="'Add trend ' + tr.term + ' to Cluster Basket'"
+                             class="rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer" />
                       <span x-text="tr.term"></span>
                       <template x-if="tr.weekly_growth_pct != null">
                         <span class="text-[10px] font-mono tabular-nums font-semibold text-emerald-600 dark:text-emerald-400" x-text="'+' + Math.round(tr.weekly_growth_pct) + '%'"></span>
                       </template>
-                    </button>
+                      <button type="button"
+                              @click.stop="huntInput = tr.term; lookupIdeaPage(tr.term)"
+                              title="Inspect Idea Page"
+                              aria-label="Inspect Idea Page"
+                              class="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 cursor-pointer">
+                        <i data-lucide="arrow-up-right" class="w-3 h-3" aria-hidden="true"></i>
+                      </button>
+                    </label>
                   </template>
                 </div>
               </template>
@@ -499,15 +588,19 @@ export function getNewbornHeaderAndLaunchpadHtml() {
                 Popular &amp; Ideas for You
               </h2>
               <template x-if="launchpadPopularTerms.length === 0 && launchpadIdeasForYou.length === 0">
-                <p class="text-xs text-slate-400">Refresh trends to load Popular &amp; Ideas for you terms.</p>
+                <p class="text-xs text-slate-400">Fetch trends to load Popular &amp; Ideas for you terms.</p>
               </template>
               <template x-if="launchpadPopularTerms.length > 0 || launchpadIdeasForYou.length > 0">
                 <div class="flex flex-wrap gap-1.5">
-                  <template x-for="term in [...launchpadPopularTerms, ...launchpadIdeasForYou].slice(0, 16)" :key="term">
-                    <button type="button"
-                            @click="selectTrendAndHunt(term)"
-                            class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:border-rose-300 dark:hover:border-rose-700 text-xs text-slate-700 dark:text-[#E4E4E7] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
-                            x-text="term"></button>
+                  <template x-for="term in [...launchpadPopularTerms, ...launchpadIdeasForYou].slice(0, 24)" :key="term">
+                    <label class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs transition-colors cursor-pointer select-none"
+                           :class="isInBasket(term) ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-700 text-rose-700 dark:text-rose-200 font-semibold' : 'border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:border-rose-300 text-slate-700 dark:text-[#E4E4E7]'">
+                      <input type="checkbox"
+                             :checked="isInBasket(term)"
+                             @change="toggleBasketKeyword(term)"
+                             class="rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer" />
+                      <span x-text="term"></span>
+                    </label>
                   </template>
                 </div>
               </template>

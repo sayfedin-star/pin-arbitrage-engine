@@ -81,6 +81,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     env,
     ctx,
     sql,
+    workspaceId = 1,
     jsonResponse,
     clampLimit,
     buildCanonicalCacheKey,
@@ -194,8 +195,19 @@ export async function handleCreatorsRoutes(routeCtx) {
     const targetId = body.id || body.username || searchParams.get('id') || searchParams.get('username');
     if (!targetId) return jsonResponse({ error: 'Creator ID or username is required' }, 400);
     const cookie = body.cookie || env?.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env?.PINTEREST_COOKIE : null);
+    const maxBoards = Math.max(1, Math.min(Number(body.max_boards || 12), 25));
+    const maxPagesPerBoard = Math.max(1, Math.min(Number(body.max_pages_per_board || 10), 25));
+    const maxPages = Math.max(1, Math.min(Number(body.max_pages || 30), 60));
+    const maxDurationMs = Math.max(5_000, Math.min(Number(body.max_duration_ms || 45_000), 90_000));
     try {
-      const result = await deepHarvestCreator(sql, targetId, { cookie, env });
+      const result = await deepHarvestCreator(sql, targetId, {
+        cookie,
+        env,
+        maxBoards,
+        maxPagesPerBoard,
+        maxPages,
+        maxDurationMs
+      });
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       if (err.message && (err.message.includes('429') || err.message.includes('403')) && typeof tripPinterestCircuitBreaker === 'function') {
@@ -771,8 +783,13 @@ export async function handleCreatorsRoutes(routeCtx) {
     const search = searchParams.get('search') || '';
     const limit = clampLimit(searchParams.get('limit'), 5000, 5000);
     const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
+    const numericWid = Number(workspaceId) || 1;
+    const explicitWsScope = searchParams.get('workspace_scope') === '1' || searchParams.get('workspace_scope') === 'true';
+    const enforceWorkspaceScope = numericWid !== 1 || explicitWsScope;
 
     const cacheKey = buildCanonicalCacheKey('creators', {
+      workspaceId: numericWid,
+      workspace_scope: enforceWorkspaceScope ? 1 : 0,
       account_type,
       search,
       limit,
@@ -793,7 +810,67 @@ export async function handleCreatorsRoutes(routeCtx) {
           degradedErr.status = 503;
           throw degradedErr;
         }
-        return { overview, competitors };
+        if (!enforceWorkspaceScope) {
+          return { overview, competitors, workspace_id: numericWid };
+        }
+
+        // Workspace-scoped filter via workspace_watchlist + folder_competitor_items for this workspace
+        const [watchRows, folderRows] = await Promise.all([
+          sql`
+            SELECT LOWER(TRIM(entity_key)) AS handle
+            FROM workspace_watchlist
+            WHERE workspace_id = ${numericWid}
+              AND entity_type = 'creator'
+              AND entity_key IS NOT NULL;
+          `.catch(() => []),
+          sql`
+            SELECT DISTINCT fci.competitor_id, LOWER(TRIM(cp.username)) AS handle
+            FROM folder_competitor_items fci
+            JOIN keyword_folders kf ON kf.id = fci.folder_id
+            JOIN competitor_profiles cp ON cp.id = fci.competitor_id
+            WHERE kf.workspace_id = ${numericWid};
+          `.catch(() => [])
+        ]);
+
+        const allowedHandles = new Set();
+        const allowedIds = new Set();
+        for (const r of (watchRows || [])) {
+          const h = String(r?.handle || '').replace(/^@/, '').trim().toLowerCase();
+          if (h) allowedHandles.add(h);
+        }
+        for (const r of (folderRows || [])) {
+          if (r?.competitor_id) allowedIds.add(Number(r.competitor_id));
+          const h = String(r?.handle || '').replace(/^@/, '').trim().toLowerCase();
+          if (h) allowedHandles.add(h);
+        }
+
+        // Default workspace with explicit ?workspace_scope=1 falls back to all tracked profiles only if empty? No:
+        // If workspace 1 has watchlist/folder links, scope to them; if workspace 1 has 0 links on Radar, show global legacy profiles.
+        // Non-default workspaces (id !== 1) ALWAYS stay strictly isolated (empty if 0 linked/watchlisted creators).
+        const hasScopedTargets = allowedHandles.size > 0 || allowedIds.size > 0;
+        const scopedCompetitors = (!hasScopedTargets && numericWid === 1)
+          ? competitors
+          : (competitors || []).filter((c) => {
+              const handle = String(c?.username || '').replace(/^@/, '').trim().toLowerCase();
+              return allowedIds.has(Number(c?.id)) || (handle && allowedHandles.has(handle));
+            });
+
+        const scopedOverview = {
+          ...overview,
+          tracked_profiles: scopedCompetitors.length,
+          active_count: scopedCompetitors.filter((c) => c?.is_active !== false).length,
+          paused_count: scopedCompetitors.filter((c) => c?.is_active === false).length,
+          total_audience: scopedCompetitors.reduce((sum, c) => sum + Number(c?.monthly_reach || 0), 0),
+          total_impressions: scopedCompetitors.reduce((sum, c) => sum + Number(c?.profile_views || 0), 0),
+          combined_reach: scopedCompetitors.reduce((sum, c) => sum + Number(c?.monthly_reach || 0), 0),
+          pins_tracked: scopedCompetitors.reduce((sum, c) => sum + Number(c?.total_pins || 0), 0)
+        };
+        return {
+          overview: scopedOverview,
+          competitors: scopedCompetitors,
+          workspace_id: numericWid,
+          workspace_scoped: true
+        };
       }, 8000, 30000, {
         forceRefresh: Boolean(verifyApiAuthentication(request, env)?.authorized) && (
           searchParams.get('refresh') === 'true' || searchParams.has('_t')

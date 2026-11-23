@@ -207,10 +207,10 @@ test('Wave 4A.2: Extracted /assets/js/*.js routes enforce SHA-256 ETag, 304 Not 
     await app.close();
   });
 
-  // 1. Static verifier validates all 9 extracted client JS assets cleanly
+  // 1. Static verifier validates all 12 extracted client JS assets cleanly (9 legacy + radar, watchlist, settings)
   const validatedCount = validateExtractedClientJsAssets();
   assert.equal(validatedCount, CLIENT_JS_ASSET_NAMES.length);
-  assert.equal(CLIENT_JS_ASSET_NAMES.length, 9);
+  assert.equal(CLIENT_JS_ASSET_NAMES.length, 12);
 
   // 2. Every /assets/js/<name>.js route supports strong ETag, 304 (strong + weak W/), immutable ?v=, HEAD, and 405 POST
   for (const asset of listClientJsAssets()) {
@@ -260,16 +260,22 @@ test('Wave 4A.2: Extracted /assets/js/*.js routes enforce SHA-256 ETag, 304 Not 
   assert.equal(missingJs.statusCode, 404);
   assert.equal(missingJs.body, 'Asset Not Found');
 
-  // 3. All 8 SSR routes drop inline JS to tiny bootstrap (< 2.5 KB) and reference versioned assets
+  // 3. All V4 Wave 3 & deep SSR routes drop inline JS to tiny bootstrap (< 2.5 KB) and reference versioned assets
   const ssrExpectations = [
-    { route: '/', expectedAssets: ['command-palette', 'dashboard'], maxRawKb: 640 },
+    { route: '/', expectedAssets: ['command-palette', 'radar'], maxRawKb: 100 },
+    { route: '/radar', expectedAssets: ['command-palette', 'radar'], maxRawKb: 100 },
+    { route: '/accounts', expectedAssets: ['command-palette', 'dashboard'], maxRawKb: 640 },
     { route: '/keywords', expectedAssets: ['command-palette', 'keywords'], maxRawKb: 370 },
+    { route: '/campaigns', expectedAssets: ['command-palette', 'folders'], maxRawKb: 215 },
     { route: '/folders', expectedAssets: ['command-palette', 'folders'], maxRawKb: 215 },
+    { route: '/discover', expectedAssets: ['command-palette', 'newborn'], maxRawKb: 225 },
     { route: '/newborn', expectedAssets: ['command-palette', 'newborn'], maxRawKb: 225 },
+    { route: '/discovery', expectedAssets: ['command-palette', 'newborn'], maxRawKb: 225 },
+    { route: '/watchlist', expectedAssets: ['command-palette', 'watchlist'], maxRawKb: 110 },
+    { route: '/settings', expectedAssets: ['command-palette', 'settings'], maxRawKb: 110 },
     { route: '/domains', expectedAssets: ['command-palette', 'domains'], maxRawKb: 210 },
     { route: '/pin/1098245059167667976', expectedAssets: ['command-palette', 'pin-details'], maxRawKb: 185 },
-    { route: '/pulse', expectedAssets: ['command-palette', 'pulse'], maxRawKb: 145 },
-    { route: '/discovery', expectedAssets: ['command-palette', 'discovery'], maxRawKb: 120 }
+    { route: '/pulse', expectedAssets: ['command-palette', 'radar'], maxRawKb: 100 }
   ];
 
   for (const { route, expectedAssets, maxRawKb } of ssrExpectations) {
@@ -584,8 +590,8 @@ test('Wave 4A.5: Fetch hygiene, AbortController cancellation, discovery safeUrl 
     assert.match(String(btns[0].attrs['@click'] || ''), expectedPattern, `${route} Refresh handler mismatch`);
   }
 
-  // 2. Pinterest 2026 labels fixed on / (no 'Total Profile Views', no 'monthly reach'; preserves isSettingsModalOpen on /folders)
-  const dashHtmlRes = await app.inject({ method: 'GET', url: '/' });
+  // 2. Pinterest 2026 labels fixed on /accounts (Creator Dashboard) and / (V4 Radar)
+  const dashHtmlRes = await app.inject({ method: 'GET', url: '/accounts' });
   assert.equal(dashHtmlRes.statusCode, 200);
   assert.equal(dashHtmlRes.body.includes('Total Profile Views'), false, 'Deprecated Total Profile Views label must be replaced with Impressions');
   assert.equal(/monthly reach/i.test(dashHtmlRes.body), false, 'Deprecated monthly reach label must be replaced with Total audience');

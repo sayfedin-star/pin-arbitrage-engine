@@ -9,7 +9,7 @@
  */
 
 export const DEFAULT_CREATOR_HUB_SETTINGS = {
-  auto_promote_enabled: true,
+  auto_promote_enabled: false,
   auto_promote_delta_24h: 25000,
   auto_promote_delta_7d: 100000,
   auto_harvest_pins: true,
@@ -31,7 +31,7 @@ const cleanNum = (val, fallback, min = 0, max = Infinity) => {
 };
 
 /**
- * Fetch Creator Hub auto-promote and breakout settings from app_settings
+ * Fetch Creator Hub settings from app_settings
  */
 export async function getCreatorHubSettings(sql) {
   if (!sql) return { ...DEFAULT_CREATOR_HUB_SETTINGS };
@@ -45,7 +45,7 @@ export async function getCreatorHubSettings(sql) {
     if (rows && rows.length > 0 && rows[0].value) {
       const v = typeof rows[0].value === 'string' ? JSON.parse(rows[0].value) : rows[0].value;
       return {
-        auto_promote_enabled: v.auto_promote_enabled !== false,
+        auto_promote_enabled: v.auto_promote_enabled === true,
         auto_promote_delta_24h: cleanNum(v.auto_promote_delta_24h, DEFAULT_CREATOR_HUB_SETTINGS.auto_promote_delta_24h, 0),
         auto_promote_delta_7d: cleanNum(v.auto_promote_delta_7d, DEFAULT_CREATOR_HUB_SETTINGS.auto_promote_delta_7d, 0),
         auto_harvest_pins: v.auto_harvest_pins !== false,

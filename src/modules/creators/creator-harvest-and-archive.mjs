@@ -4,13 +4,14 @@
  */
 
 import { escapeSqlWildcards } from '../../utils.mjs';
+import { redactSecrets } from '../../http/security-and-response.mjs';
 import { fetchPinFromPinResource, fetchPinFromPinterest, sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import { fetchRelatedModulesWithZoneA } from '../newborn/cookie-router.mjs';
 import { extractCreatorAndLinkMeta, upsertCandidateGraphEdges } from '../related-pins/graph-writer.mjs';
 import { syncPinAcrossAllFourPillars, fetchPinTrajectory, fetchUniversalPinDossier } from '../pins/repository.mjs';
 import { normalizePinterestUsername, syncCompetitorProfile, resolveNumericCompetitorId } from './competitors-crud.mjs';
 import { syncCompetitorPins, reEvaluateCompetitorPins } from './creator-ingest.mjs';
-import { syncCompetitorBoards } from './boards-service.mjs';
+import { syncCompetitorBoards, syncAllCompetitorBoardPins } from './boards-service.mjs';
 
 /**
  * Top Destination URLs Intelligence:
@@ -649,29 +650,167 @@ export async function quickPulseCreator(sql, idOrUsername, cookie = '') {
 }
 
 /**
- * 🌊 Deep Harvest (~30s):
- * Full profile + board sync, catalog sweep into 4-table SSOT,
- * qualification evaluation, and an in-process 4-worker pool
- * live metric refresh with deterministic shard snapshots on pins_daily_metrics.
+ * Full Creator Catalog Pull (V4 Wave 3 SSOT):
+ * 1. Primary path: BoardFeedResource across ALL creator boards (`syncAllCompetitorBoardPins`)
+ * 2. Secondary merge: `/_created/` activity feed (`syncCompetitorPins` with `mode: 'full'`, `disableEarlyStop: true`)
+ * Eliminates the legacy `early_stop_pages = 3` cap and returns structured errors without silent catch swallowing.
  */
-export async function deepHarvestCreator(sql, idOrUsername, { cookie = '', env = null, maxPinRefresh = 20 } = {}) {
+export async function syncFullCreatorCatalog(
+  sql,
+  competitorId,
+  username,
+  {
+    maxPages = 500,
+    maxPagesPerBoard = 50,
+    maxBoards = 0,
+    maxDurationMs = 0,
+    signal = null,
+    env = null,
+    cookie = '',
+    fastJitter = false,
+    syncBoardsFirst = true,
+    personalBoardsOnly = false
+  } = {}
+) {
+  const cleanUsername = normalizePinterestUsername(username);
+  const errors = [];
+  const startedAt = Date.now();
+  const hasDurationBudget = Number(maxDurationMs) > 0;
+
+  // 1. PRIMARY: Crawl all boards via BoardFeedResource
+  let boardsResult = null;
+  try {
+    boardsResult = await syncAllCompetitorBoardPins(sql, competitorId, cleanUsername, {
+      maxPagesPerBoard,
+      maxBoards,
+      maxDurationMs,
+      signal,
+      env,
+      cookie,
+      mode: 'full',
+      syncBoardsFirst,
+      personalBoardsOnly
+    });
+    if (Array.isArray(boardsResult?.errors) && boardsResult.errors.length > 0) {
+      errors.push(...boardsResult.errors.map((e) => ({
+        ...e,
+        message: redactSecrets(e?.message || '')
+      })));
+    }
+  } catch (err) {
+    const safeMsg = redactSecrets(err.message);
+    console.warn(`[syncFullCreatorCatalog] BoardFeedResource primary sync failed for @${cleanUsername}:`, safeMsg);
+    errors.push({ stage: 'board_feed_primary', message: safeMsg });
+  }
+
+  // 2. MERGE: Pull full /_created/ feed without early_stop_pages = 3 cap
+  // Skip if aborted, circuit breaker open, rate limited, or wall-clock budget exhausted
+  let createdResult = null;
+  const boardStopped = boardsResult?.stopped_reason || null;
+  const elapsedMs = Date.now() - startedAt;
+  const budgetExhausted = Boolean(
+    signal?.aborted ||
+    boardStopped === 'rate_limited' ||
+    boardStopped === 'circuit_breaker_open' ||
+    boardStopped === 'max_duration' ||
+    boardStopped === 'aborted' ||
+    (hasDurationBudget && elapsedMs >= Number(maxDurationMs))
+  );
+
+  if (!budgetExhausted) {
+    try {
+      createdResult = await syncCompetitorPins(sql, competitorId, cleanUsername, {
+        mode: 'full',
+        maxPages,
+        cookie,
+        fastJitter,
+        disableEarlyStop: true
+      });
+      if (createdResult?.ok === false && createdResult.error) {
+        errors.push({ stage: 'created_feed_merge', message: redactSecrets(createdResult.error) });
+      } else if (Array.isArray(createdResult?.errors) && createdResult.errors.length > 0) {
+        errors.push(...createdResult.errors.map((e) => ({
+          ...e,
+          message: redactSecrets(e?.message || '')
+        })));
+      }
+    } catch (err) {
+      const safeMsg = redactSecrets(err.message);
+      console.warn(`[syncFullCreatorCatalog] /_created/ merge failed for @${cleanUsername}:`, safeMsg);
+      errors.push({ stage: 'created_feed_merge', message: safeMsg });
+    }
+  }
+
+  const boardPinsIngested = Number(boardsResult?.total_pins_ingested || 0);
+  const createdPinsIngested = Number(createdResult?.total_fetched || createdResult?.crawled || 0);
+  const totalPinsIngested = boardPinsIngested + createdPinsIngested;
+  const qualifiedArchived = Number(boardsResult?.qualified || 0) + Number(createdResult?.qualified_archived || createdResult?.qualified || 0);
+  const truncatedByBudget = Boolean(boardsResult?.truncated_by_budget || budgetExhausted);
+  const stoppedReason = boardStopped || (budgetExhausted ? 'max_duration' : null);
+
+  return {
+    ok: Boolean(boardsResult?.ok || createdResult?.ok || totalPinsIngested > 0),
+    primary_source: 'board_feed_resource',
+    competitor_id: boardsResult?.competitor_id ?? competitorId,
+    username: cleanUsername,
+    boards_synced: Number(boardsResult?.boards_synced || 0),
+    boards_found: Number(boardsResult?.boards_found || 0),
+    boards_crawled: Number(boardsResult?.boards_crawled || 0),
+    board_pins_ingested: boardPinsIngested,
+    created_pins_ingested: createdPinsIngested,
+    total_pins_ingested: totalPinsIngested,
+    qualified_archived: qualifiedArchived,
+    qualified: qualifiedArchived,
+    inserted: totalPinsIngested,
+    truncated_by_budget: truncatedByBudget,
+    stopped_reason: stoppedReason,
+    errors
+  };
+}
+
+/**
+ * 🌊 Deep Harvest:
+ * Full profile + board sync, complete catalog pull (`BoardFeedResource` primary + `/_created/` merge)
+ * into 4-table SSOT, and live metric refresh on top pins.
+ */
+export async function deepHarvestCreator(
+  sql,
+  idOrUsername,
+  {
+    cookie = '',
+    env = null,
+    maxPinRefresh = 20,
+    maxPages = 500,
+    maxPagesPerBoard = 50,
+    maxBoards = 0,
+    maxDurationMs = 0,
+    signal = null
+  } = {}
+) {
   const pulse = await quickPulseCreator(sql, idOrUsername, cookie);
   const numericId = pulse.creator_id;
   const cleanUsername = pulse.username;
 
-  let pinsSyncRes = null;
+  let catalogSyncRes = null;
   if (numericId) {
-    try {
-      pinsSyncRes = await syncCompetitorPins(sql, numericId, cleanUsername, { mode: 'daily', maxPages: 3, fastJitter: true, cookie });
-    } catch (err) {
-      console.warn(`[deepHarvestCreator] syncCompetitorPins warning:`, err.message);
-    }
+    catalogSyncRes = await syncFullCreatorCatalog(sql, numericId, cleanUsername, {
+      maxPages,
+      maxPagesPerBoard,
+      maxBoards,
+      maxDurationMs,
+      signal,
+      env,
+      cookie,
+      fastJitter: true,
+      syncBoardsFirst: false
+    });
   }
 
-  // 4-Worker pool live metric refresh on winning pins (bounded to max 25 to avoid Pinterest rate-limiting)
+  // 4-Worker pool live metric refresh on top pins (bounded to max 25 to avoid Pinterest rate-limiting)
   let refreshedCount = 0;
+  const skipPinRefresh = catalogSyncRes?.stopped_reason === 'rate_limited' || catalogSyncRes?.stopped_reason === 'circuit_breaker_open';
   const limitPins = Math.max(1, Math.min(Number(maxPinRefresh) || 20, 25));
-  const archivedPins = await sql`
+  const archivedPins = skipPinRefresh ? [] : await sql`
     SELECT pin_id, title, save_count AS saves, repin_count AS repins, comment_count AS comments
     FROM universal_master_pins
     WHERE creator_username = ${cleanUsername.toLowerCase()}
@@ -698,29 +837,42 @@ export async function deepHarvestCreator(sql, idOrUsername, { cookie = '', env =
             });
             refreshedCount++;
           }
-        } catch (_) {}
+        } catch (err) {
+          console.warn(`[deepHarvestCreator] PinResource refresh warning for ${p.pin_id}:`, redactSecrets(err.message));
+        }
         await sleep(randomJitterMs(50, 120));
       }
     });
     await Promise.all(workers);
   }
 
-  const qualifiedCount = pinsSyncRes?.qualified_archived ?? pinsSyncRes?.qualified ?? pinsSyncRes?.inserted ?? 0;
+  const qualifiedCount = catalogSyncRes?.qualified_archived ?? catalogSyncRes?.qualified ?? 0;
 
   return {
     ok: true,
     mode: 'deep-harvest',
+    primary_source: 'board_feed_resource',
     creator_id: numericId,
     username: cleanUsername,
     monthly_reach: pulse.monthly_reach,
     profile_views: pulse.profile_views,
     follower_count: pulse.follower_count,
     boards_synced: pulse.boards_synced,
-    new_pins_discovered: pinsSyncRes?.new_pins_count || pinsSyncRes?.inserted || 0,
+    boards_crawled: catalogSyncRes?.boards_crawled || 0,
+    board_pins_ingested: catalogSyncRes?.board_pins_ingested || 0,
+    created_pins_ingested: catalogSyncRes?.created_pins_ingested || 0,
+    total_pins_ingested: catalogSyncRes?.total_pins_ingested || 0,
+    new_pins_discovered: catalogSyncRes?.total_pins_ingested || 0,
     qualified_promotions: qualifiedCount,
     promoted_count: qualifiedCount,
     qualified_count: qualifiedCount,
     refreshed_winning_pins: refreshedCount,
+    truncated_by_budget: Boolean(catalogSyncRes?.truncated_by_budget),
+    stopped_reason: catalogSyncRes?.stopped_reason || null,
+    errors: (catalogSyncRes?.errors || []).map((e) => ({
+      ...e,
+      message: redactSecrets(e?.message || '')
+    })),
     harvested_at: new Date().toISOString()
   };
 }

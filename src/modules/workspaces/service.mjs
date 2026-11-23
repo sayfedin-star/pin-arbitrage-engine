@@ -485,10 +485,74 @@ export async function assertFolderInWorkspace(sql, folderId, workspaceId) {
 /**
  * Reads unified workspace settings (falling back cleanly to V4 defaults).
  */
+function normalizeExtractionTargets(raw = {}, base = DEFAULT_WORKSPACE_SETTINGS.extraction_targets) {
+  const src = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
+  const fallback = (base && typeof base === 'object') ? base : DEFAULT_WORKSPACE_SETTINGS.extraction_targets;
+  const clampInt = (v, fb, min, max) => {
+    if (v === undefined || v === null || v === '') return fb;
+    const n = Math.round(Number(v));
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fb;
+  };
+  const normBool = (v, fb) => (typeof v === 'boolean' ? v : fb);
+
+  const mkTarget = (key, defaultObj, minPins, maxPins) => {
+    const baseSub = (fallback[key] && typeof fallback[key] === 'object') ? fallback[key] : defaultObj;
+    const patchSub = (src[key] && typeof src[key] === 'object') ? src[key] : {};
+    return {
+      enabled: normBool(patchSub.enabled, normBool(baseSub.enabled, defaultObj.enabled)),
+      target_pins: clampInt(patchSub.target_pins, baseSub.target_pins ?? defaultObj.target_pins, minPins, maxPins)
+    };
+  };
+
+  const baseBoards = (fallback.boards && typeof fallback.boards === 'object')
+    ? fallback.boards
+    : DEFAULT_WORKSPACE_SETTINGS.extraction_targets.boards;
+  const patchBoards = (src.boards && typeof src.boards === 'object') ? src.boards : {};
+
+  return {
+    search: mkTarget('search', DEFAULT_WORKSPACE_SETTINGS.extraction_targets.search, 10, 5000),
+    boards: {
+      enabled: normBool(patchBoards.enabled, normBool(baseBoards.enabled, true)),
+      max_boards: clampInt(patchBoards.max_boards, baseBoards.max_boards ?? 10, 1, 100),
+      target_pins_per_board: clampInt(patchBoards.target_pins_per_board, baseBoards.target_pins_per_board ?? 100, 10, 2000)
+    },
+    idea_page: mkTarget('idea_page', DEFAULT_WORKSPACE_SETTINGS.extraction_targets.idea_page, 10, 5000),
+    home_feed: mkTarget('home_feed', DEFAULT_WORKSPACE_SETTINGS.extraction_targets.home_feed, 10, 5000),
+    related_pins: mkTarget('related_pins', DEFAULT_WORKSPACE_SETTINGS.extraction_targets.related_pins, 10, 5000)
+  };
+}
+
+function normalizePinGraphRules(raw = {}, base = DEFAULT_WORKSPACE_SETTINGS.pin_graph_rules) {
+  const src = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
+  const fallback = (base && typeof base === 'object') ? base : DEFAULT_WORKSPACE_SETTINGS.pin_graph_rules;
+  const clampInt = (v, fb, min, max) => {
+    if (v === undefined || v === null || v === '') return fb;
+    const n = Math.round(Number(v));
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fb;
+  };
+  const autoTrigger = typeof src.auto_trigger_enabled === 'boolean'
+    ? src.auto_trigger_enabled
+    : (typeof fallback.auto_trigger_enabled === 'boolean' ? fallback.auto_trigger_enabled : false);
+  const linklessOnly = typeof src.linkless_only === 'boolean'
+    ? src.linkless_only
+    : (typeof fallback.linkless_only === 'boolean' ? fallback.linkless_only : false);
+  return {
+    auto_trigger_enabled: autoTrigger,
+    min_repins: clampInt(src.min_repins, fallback.min_repins ?? 500, 0, 10_000_000),
+    linkless_only: linklessOnly,
+    max_pages: clampInt(src.max_pages, fallback.max_pages ?? 20, 1, 200)
+  };
+}
+
 export async function getWorkspaceSettings(sql, workspaceId = DEFAULT_WORKSPACE_ID) {
   const wid = parsePositiveWorkspaceId(workspaceId) || DEFAULT_WORKSPACE_ID;
   if (!sql || typeof sql !== 'function') {
-    return { ...DEFAULT_WORKSPACE_SETTINGS, workspace_id: wid };
+    return {
+      ...DEFAULT_WORKSPACE_SETTINGS,
+      extraction_targets: normalizeExtractionTargets(),
+      pin_graph_rules: normalizePinGraphRules(),
+      workspace_id: wid
+    };
   }
 
   try {
@@ -510,7 +574,13 @@ export async function getWorkspaceSettings(sql, workspaceId = DEFAULT_WORKSPACE_
       LIMIT 1;
     `;
     if (!row) {
-      return { ...DEFAULT_WORKSPACE_SETTINGS, workspace_id: wid, has_cookie: false };
+      return {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        extraction_targets: normalizeExtractionTargets(),
+        pin_graph_rules: normalizePinGraphRules(),
+        workspace_id: wid,
+        has_cookie: false
+      };
     }
     return {
       ...DEFAULT_WORKSPACE_SETTINGS,
@@ -520,11 +590,19 @@ export async function getWorkspaceSettings(sql, workspaceId = DEFAULT_WORKSPACE_
       min_repin_count: Number(row.min_repin_count ?? 20),
       min_save_count: Number(row.min_save_count ?? 0),
       default_serp_top_n: Number(row.default_serp_top_n ?? 20),
+      extraction_targets: normalizeExtractionTargets(row.extraction_targets),
+      pin_graph_rules: normalizePinGraphRules(row.pin_graph_rules),
       has_cookie: Boolean(row.has_cookie)
     };
   } catch (err) {
     if (/relation\s+"?workspace_settings"?\s+does\s+not\s+exist/i.test(err?.message || '')) {
-      return { ...DEFAULT_WORKSPACE_SETTINGS, workspace_id: wid, has_cookie: false };
+      return {
+        ...DEFAULT_WORKSPACE_SETTINGS,
+        extraction_targets: normalizeExtractionTargets(),
+        pin_graph_rules: normalizePinGraphRules(),
+        workspace_id: wid,
+        has_cookie: false
+      };
     }
     throw err;
   }
@@ -549,12 +627,14 @@ export async function updateWorkspaceSettings(sql, workspaceId, patch = {}) {
   const defaultSerpTopN = clamp(patch.default_serp_top_n, current.default_serp_top_n, 5, 100);
   const rawMode = String(patch.execution_mode ?? current.execution_mode ?? 'auto').trim().toLowerCase();
   const executionMode = ['auto', 'direct', 'fleet'].includes(rawMode) ? rawMode : 'auto';
-  const extractionTargets = (patch.extraction_targets && typeof patch.extraction_targets === 'object')
-    ? { ...(current.extraction_targets || {}), ...patch.extraction_targets }
-    : (current.extraction_targets || DEFAULT_WORKSPACE_SETTINGS.extraction_targets);
-  const pinGraphRules = (patch.pin_graph_rules && typeof patch.pin_graph_rules === 'object')
-    ? { ...(current.pin_graph_rules || {}), ...patch.pin_graph_rules }
-    : (current.pin_graph_rules || DEFAULT_WORKSPACE_SETTINGS.pin_graph_rules);
+  const extractionTargets = normalizeExtractionTargets(
+    patch.extraction_targets,
+    current.extraction_targets
+  );
+  const pinGraphRules = normalizePinGraphRules(
+    patch.pin_graph_rules,
+    current.pin_graph_rules
+  );
   const ruleProfiles = Array.isArray(patch.rule_profiles)
     ? patch.rule_profiles
     : (Array.isArray(current.rule_profiles) ? current.rule_profiles : []);
@@ -607,7 +687,122 @@ export async function updateWorkspaceSettings(sql, workspaceId, patch = {}) {
       updated_at;
   `;
 
-  return saved;
+  return {
+    ...saved,
+    extraction_targets: normalizeExtractionTargets(saved?.extraction_targets, extractionTargets),
+    pin_graph_rules: normalizePinGraphRules(saved?.pin_graph_rules, pinGraphRules)
+  };
+}
+
+/**
+ * Returns strictly redacted Zone-A cookie status for a workspace.
+ * [INVARIANT: ZERO-SECRET-LEAK] NEVER returns raw cookie value or token prefixes.
+ */
+export async function getWorkspaceCookieStatus(sql, workspaceId = DEFAULT_WORKSPACE_ID) {
+  const wid = parsePositiveWorkspaceId(workspaceId) || DEFAULT_WORKSPACE_ID;
+  if (!sql || typeof sql !== 'function') {
+    return { workspace_id: wid, has_cookie: false, is_configured: false, preview: '' };
+  }
+  try {
+    const [row] = await sql`
+      SELECT (pinterest_cookie_enc IS NOT NULL AND pinterest_cookie_enc <> '') AS has_cookie, updated_at
+      FROM workspace_settings
+      WHERE workspace_id = ${wid}
+      LIMIT 1;
+    `;
+    const hasCookie = Boolean(row?.has_cookie);
+    return {
+      workspace_id: wid,
+      has_cookie: hasCookie,
+      is_configured: hasCookie,
+      preview: hasCookie ? '[CONFIGURED]' : '',
+      updated_at: row?.updated_at || null
+    };
+  } catch (err) {
+    if (/relation\s+"?workspace_settings"?\s+does\s+not\s+exist/i.test(err?.message || '')) {
+      return { workspace_id: wid, has_cookie: false, is_configured: false, preview: '' };
+    }
+    throw err;
+  }
+}
+
+/**
+ * Write-only Zone-A Pinterest Session Cookie persistence per workspace.
+ * Stores into workspace_settings.pinterest_cookie_enc and NEVER returns raw cookie text.
+ */
+export async function saveWorkspaceCookie(sql, workspaceId = DEFAULT_WORKSPACE_ID, rawCookie = '') {
+  const wid = parsePositiveWorkspaceId(workspaceId) || DEFAULT_WORKSPACE_ID;
+  const cleanRaw = String(rawCookie || '').trim();
+  if (cleanRaw.length <= 10) {
+    const err = new Error('A valid Pinterest session cookie string (> 10 characters) is required.');
+    err.status = 400;
+    throw err;
+  }
+  if (!sql || typeof sql !== 'function') {
+    throw new Error('Database client (sql) is required to save workspace cookie.');
+  }
+
+  await sql`
+    INSERT INTO workspace_settings (workspace_id, pinterest_cookie_enc, updated_at)
+    VALUES (${wid}, ${cleanRaw}, NOW())
+    ON CONFLICT (workspace_id) DO UPDATE SET
+      pinterest_cookie_enc = EXCLUDED.pinterest_cookie_enc,
+      updated_at = NOW();
+  `;
+
+  return {
+    workspace_id: wid,
+    has_cookie: true,
+    is_configured: true,
+    preview: '[CONFIGURED]'
+  };
+}
+
+/**
+ * Clears the Zone-A Pinterest Session Cookie for a workspace.
+ */
+export async function clearWorkspaceCookie(sql, workspaceId = DEFAULT_WORKSPACE_ID) {
+  const wid = parsePositiveWorkspaceId(workspaceId) || DEFAULT_WORKSPACE_ID;
+  if (!sql || typeof sql !== 'function') {
+    throw new Error('Database client (sql) is required to clear workspace cookie.');
+  }
+
+  await sql`
+    UPDATE workspace_settings
+    SET pinterest_cookie_enc = NULL, updated_at = NOW()
+    WHERE workspace_id = ${wid};
+  `;
+
+  return {
+    workspace_id: wid,
+    has_cookie: false,
+    is_configured: false,
+    preview: ''
+  };
+}
+
+/**
+ * Internal resolver for a specific workspace's stored Pinterest session cookie.
+ * [INVARIANT: ZERO-SECRET-LEAK] NEVER return the raw cookie value in any HTTP response or log.
+ */
+export async function resolveWorkspaceRawCookie(sql, workspaceId = DEFAULT_WORKSPACE_ID) {
+  const wid = parsePositiveWorkspaceId(workspaceId);
+  if (!wid || !sql || typeof sql !== 'function') {
+    return { rawCookie: '', source: 'none' };
+  }
+  try {
+    const [row] = await sql`
+      SELECT pinterest_cookie_enc
+      FROM workspace_settings
+      WHERE workspace_id = ${wid}
+      LIMIT 1;
+    `;
+    const raw = typeof row?.pinterest_cookie_enc === 'string' ? row.pinterest_cookie_enc.trim() : '';
+    if (raw.length > 10) {
+      return { rawCookie: raw, source: `workspace:${wid}:pinterest_cookie_enc` };
+    }
+  } catch (_) {}
+  return { rawCookie: '', source: 'none' };
 }
 
 /**

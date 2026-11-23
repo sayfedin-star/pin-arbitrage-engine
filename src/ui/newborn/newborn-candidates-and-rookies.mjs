@@ -1,7 +1,7 @@
 /**
  * src/ui/newborn/newborn-candidates-and-rookies.mjs
  *
- * Wave 6D High-Signal Results Workspace (`This Hunt` | `Tracked / Watchlist` | `Past Hunts`):
+ * V4 Discover Results Workspace (`This Hunt` | `Cluster Explorer` | `Past Hunts`):
  * - `This Hunt`:
  *   1. Annotations Crossover Panel right above Golden Pins (frequency/overlap, avg Re-pins,
  *      optional Search Volume lookup, click-to-filter, Copy Tags).
@@ -11,7 +11,7 @@
  *      `Re-pins` + `Re-pins/day` (with `Saves` quietly alongside), Pin `Annotations`,
  *      Discovery Source, opt-in Account (`Total audience` & `Impressions` when pulled),
  *      and 3 clean manual actions (`Scroll Related` | `Track Daily` | `Pull Account`).
- * - `Tracked / Watchlist`: 01:00 UTC Daily Anchors & Staged Watchlist (strictly opt-in).
+ * - `Cluster Explorer`: Keyword cluster builder & volume explorer (rendered in sibling partial).
  * - `Past Hunts`: Run history with Scrolled -> Matched Re-pins -> Verified Winners funnel.
  */
 
@@ -51,19 +51,6 @@ export function getNewbornCandidatesAndRookiesHtml() {
 
         <button type="button"
                 role="tab"
-                id="tab-newborn-watchlist"
-                :aria-selected="activeView === 'watchlist' ? 'true' : 'false'"
-                aria-controls="panel-newborn-watchlist"
-                @click="switchView('watchlist')"
-                class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
-                :class="activeView === 'watchlist' ? 'bg-white dark:bg-[#27272A] text-slate-900 dark:text-[#FAFAFA] shadow-xs' : 'text-slate-600 dark:text-[#A1A1AA] hover:text-slate-900 dark:hover:text-[#FAFAFA]'">
-          <i data-lucide="bookmark-check" class="w-3.5 h-3.5 text-indigo-500" aria-hidden="true"></i>
-          <span>Tracked / Watchlist</span>
-          <span class="px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-[#E4E4E7]" x-text="(overview?.counts?.watchlist_count || 0) + (overview?.counts?.active_daily_anchors_count || 0)"></span>
-        </button>
-
-        <button type="button"
-                role="tab"
                 id="tab-newborn-history"
                 :aria-selected="activeView === 'history' ? 'true' : 'false'"
                 aria-controls="panel-newborn-history"
@@ -80,7 +67,6 @@ export function getNewbornCandidatesAndRookiesHtml() {
       <div class="flex items-center gap-3 flex-wrap text-xs text-slate-500 dark:text-[#A1A1AA] font-mono tabular-nums">
         <span>Golden Pins: <strong class="text-slate-900 dark:text-[#FAFAFA]" x-text="overview?.counts?.golden_pins_count || 0"></strong></span>
         <span>No Link: <strong class="text-amber-600 dark:text-amber-400" x-text="overview?.counts?.linkless_vacuum_count || 0"></strong></span>
-        <span>Tracked Daily: <strong class="text-emerald-600 dark:text-emerald-400" x-text="overview?.counts?.active_daily_anchors_count || 0"></strong></span>
       </div>
     </div>
 
@@ -522,134 +508,6 @@ export function getNewbornCandidatesAndRookiesHtml() {
                 <button type="button" @click="nextCandidatesPage()" :disabled="!hasNextCandidatesPage()" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-100 dark:hover:bg-[#27272A] disabled:opacity-40 text-slate-700 dark:text-[#FAFAFA] cursor-pointer"><span>Next</span><i data-lucide="chevron-right" class="w-3.5 h-3.5" aria-hidden="true"></i></button>
               </div>
             </div>
-          </div>
-        </template>
-      </section>
-    </template>
-
-    <!-- ====================================================================== -->
-    <!-- VIEW 2: TRACKED / WATCHLIST (Strictly Opt-In Daily Tracking)           -->
-    <!-- ====================================================================== -->
-    <template x-if="activeView === 'watchlist'">
-      <section id="panel-newborn-watchlist" role="tabpanel" aria-labelledby="tab-newborn-watchlist" class="space-y-4">
-        <div class="bg-white dark:bg-[#18181B] rounded-2xl border border-slate-200 dark:border-[#27272A] p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div class="flex items-center gap-2">
-            <button type="button"
-                    @click="watchlistSubView = 'anchors'"
-                    class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-                    :class="watchlistSubView === 'anchors' ? 'bg-slate-900 dark:bg-[#FAFAFA] text-white dark:text-[#09090B]' : 'bg-slate-100 dark:bg-[#27272A] text-slate-600 dark:text-[#A1A1AA]'">
-              01:00 UTC Daily Anchors (<span class="font-mono tabular-nums" x-text="dailyAnchors.length"></span>)
-            </button>
-            <button type="button"
-                    @click="watchlistSubView = 'staged'"
-                    class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-                    :class="watchlistSubView === 'staged' ? 'bg-slate-900 dark:bg-[#FAFAFA] text-white dark:text-[#09090B]' : 'bg-slate-100 dark:bg-[#27272A] text-slate-600 dark:text-[#A1A1AA]'">
-              Staged Watchlist (<span class="font-mono tabular-nums" x-text="watchlistCandidates.length"></span>)
-            </button>
-          </div>
-
-          <button type="button"
-                  @click="pollWatchlistNow()"
-                  :disabled="isSubmittingWatchlistPoll"
-                  class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white text-xs font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
-            <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isSubmittingWatchlistPoll ? 'animate-spin' : ''" aria-hidden="true"></i>
-            <span x-text="isSubmittingWatchlistPoll ? 'Queueing Poll...' : 'Poll Watchlist Now'"></span>
-          </button>
-        </div>
-
-        <!-- 01:00 UTC Daily Anchors -->
-        <template x-if="watchlistSubView === 'anchors'">
-          <div class="bg-white dark:bg-[#18181B] rounded-2xl border border-slate-200 dark:border-[#27272A] shadow-xs overflow-x-auto">
-            <template x-if="dailyAnchors.length === 0">
-              <div class="p-8 text-center text-xs text-slate-500 dark:text-[#A1A1AA]">
-                Daily tracking is off by default. Click <strong>Track Daily</strong> on any Golden Pin in <strong>This Hunt</strong> to enroll it in 01:00 UTC velocity tracking.
-              </div>
-            </template>
-            <template x-if="dailyAnchors.length > 0">
-              <table class="w-full text-left border-collapse">
-                <thead>
-                  <tr class="border-b border-slate-200 dark:border-[#27272A] text-[11px] uppercase tracking-wider text-slate-500 dark:text-[#A1A1AA]">
-                    <th class="py-3 px-4 font-semibold">Tracked Pin</th>
-                    <th class="py-3 px-4 font-semibold">Re-pins</th>
-                    <th class="py-3 px-4 font-semibold">24h Re-pin Velocity</th>
-                    <th class="py-3 px-4 font-semibold">Saves</th>
-                    <th class="py-3 px-4 font-semibold text-right">Dossier</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100 dark:divide-[#27272A] text-xs">
-                  <template x-for="an in dailyAnchors" :key="an.pin_id">
-                    <tr class="hover:bg-slate-50/70 dark:hover:bg-[#27272A]/30">
-                      <td class="py-3 px-4">
-                        <div class="font-semibold text-slate-900 dark:text-[#FAFAFA] truncate max-w-xs" x-text="an.title || ('Pin #' + an.pin_id)"></div>
-                        <div class="text-[11px] text-slate-500" x-text="an.seed_query || an.clean_domain || 'Tracked Daily'"></div>
-                      </td>
-                      <td class="py-3 px-4 font-mono tabular-nums font-semibold text-slate-900 dark:text-[#FAFAFA]" x-text="formatNullableCount(an.repin_count)"></td>
-                      <td class="py-3 px-4 font-mono tabular-nums text-emerald-600 dark:text-emerald-400 font-semibold" x-text="formatVelocity(an.daily_repin_velocity)"></td>
-                      <td class="py-3 px-4 font-mono tabular-nums text-slate-500" x-text="formatNullableCount(an.save_count)"></td>
-                      <td class="py-3 px-4 text-right">
-                        <a :href="buildPinDetailsHref(an.pin_id)" class="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 font-semibold hover:underline">
-                          <span>Open Pin</span>
-                          <i data-lucide="arrow-up-right" class="w-3.5 h-3.5" aria-hidden="true"></i>
-                        </a>
-                      </td>
-                    </tr>
-                  </template>
-                </tbody>
-              </table>
-            </template>
-          </div>
-        </template>
-
-        <!-- Staged Watchlist Pins -->
-        <template x-if="watchlistSubView === 'staged'">
-          <div class="bg-white dark:bg-[#18181B] rounded-2xl border border-slate-200 dark:border-[#27272A] shadow-xs overflow-x-auto">
-            <template x-if="watchlistCandidates.length === 0">
-              <div class="p-8 text-center text-xs text-slate-500 dark:text-[#A1A1AA]">
-                No staged watchlist pins yet. Use <strong>Track Daily</strong> on any pin in <strong>This Hunt</strong> to stage or promote it.
-              </div>
-            </template>
-            <template x-if="watchlistCandidates.length > 0">
-              <table class="w-full text-left border-collapse">
-                <thead>
-                  <tr class="border-b border-slate-200 dark:border-[#27272A] text-[11px] uppercase tracking-wider text-slate-500 dark:text-[#A1A1AA]">
-                    <th class="py-3 px-4 font-semibold">Pin</th>
-                    <th class="py-3 px-4 font-semibold" x-text="settingsDraft?.qualification?.resolve_root_pin ? 'Root Age' : 'Pin Age'">Pin Age</th>
-                    <th class="py-3 px-4 font-semibold">Re-pins / +Day</th>
-                    <th class="py-3 px-4 font-semibold">Streak</th>
-                    <th class="py-3 px-4 font-semibold text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100 dark:divide-[#27272A] text-xs">
-                  <template x-for="wp in watchlistCandidates" :key="wp.pin_id">
-                    <tr class="hover:bg-slate-50/70 dark:hover:bg-[#27272A]/30">
-                      <td class="py-3 px-4">
-                        <div class="flex items-center gap-3 min-w-0">
-                          <template x-if="wp.image_url">
-                            <img :src="wp.image_url" :alt="wp.title || 'Watchlist pin'" width="40" height="48" loading="lazy" class="w-10 h-12 rounded-lg object-cover shrink-0 bg-slate-100" />
-                          </template>
-                          <div class="min-w-0">
-                            <button type="button" @click="openDossier(wp.pin_id)" class="font-semibold text-slate-900 dark:text-[#FAFAFA] hover:text-rose-600 truncate block max-w-xs text-left cursor-pointer" x-text="wp.title || ('Pin #' + wp.pin_id)"></button>
-                            <span class="text-[11px] text-slate-500" x-text="wp.is_linkless ? 'No Link / Linkless' : (wp.clean_domain || formatSurfaceLabel(wp.first_surface))"></span>
-                          </div>
-                        </div>
-                      </td>
-                      <td class="py-3 px-4 font-mono tabular-nums text-slate-700 dark:text-[#E4E4E7]" x-text="formatRootAge(wp.age_days)"></td>
-                      <td class="py-3 px-4 font-mono tabular-nums">
-                        <span class="font-semibold text-slate-900 dark:text-[#FAFAFA]" x-text="formatNullableCount(wp.repin_count)"></span>
-                        <span class="text-emerald-600 dark:text-emerald-400 ml-1" x-text="formatVelocity(wp.repin_per_day)"></span>
-                      </td>
-                      <td class="py-3 px-4 font-mono tabular-nums">
-                        <span class="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-semibold" x-text="(wp.consecutive_qualifying_days || 0) + 'd'"></span>
-                      </td>
-                      <td class="py-3 px-4 text-right space-x-1.5 whitespace-nowrap">
-                        <button type="button" @click="openPromoteModal([wp.pin_id])" class="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-semibold cursor-pointer">Track Daily</button>
-                        <button type="button" @click="stagePins([wp.pin_id], 'discarded')" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] text-slate-500 hover:text-rose-600 cursor-pointer">Remove</button>
-                      </td>
-                    </tr>
-                  </template>
-                </tbody>
-              </table>
-            </template>
           </div>
         </template>
       </section>

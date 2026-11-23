@@ -28,8 +28,8 @@ export function getNewbornSettingsAndModalsHtml() {
           <!-- Drawer Header -->
           <div class="px-5 py-4 border-b border-slate-200 dark:border-[#27272A] flex items-center justify-between gap-3 shrink-0">
             <div>
-              <h2 id="newborn-settings-drawer-title" class="text-base font-bold text-slate-900 dark:text-[#FAFAFA]">Settings &amp; Session Cookie</h2>
-              <p class="text-xs text-slate-500 dark:text-[#A1A1AA]">Configure default qualification thresholds, Zone-A session cookie, profiles, and opt-in automation.</p>
+              <h2 id="newborn-settings-drawer-title" class="text-base font-bold text-slate-900 dark:text-[#FAFAFA]">Discover Hunt Defaults</h2>
+              <p class="text-xs text-slate-500 dark:text-[#A1A1AA]">Quick thresholds &amp; profiles. Manage Session Cookie and Workspace defaults in <a href="/settings" class="text-rose-600 dark:text-rose-400 underline">Settings</a>.</p>
             </div>
             <button type="button"
                     @click="closeSettingsDrawer()"
@@ -42,9 +42,9 @@ export function getNewbornSettingsAndModalsHtml() {
           <!-- Drawer Section Pills -->
           <div class="px-5 py-2.5 border-b border-slate-100 dark:border-[#27272A] flex items-center gap-1.5 overflow-x-auto shrink-0 bg-slate-50/70 dark:bg-[#18181B]">
             <button type="button" @click="settingsTab = 'filters'" class="px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer" :class="settingsTab === 'filters' ? 'bg-slate-900 dark:bg-[#FAFAFA] text-white dark:text-[#09090B]' : 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-200/60 dark:hover:bg-[#27272A]'">Filters &amp; Rules</button>
-            <button type="button" @click="settingsTab = 'cookie'" class="px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer" :class="settingsTab === 'cookie' ? 'bg-slate-900 dark:bg-[#FAFAFA] text-white dark:text-[#09090B]' : 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-200/60 dark:hover:bg-[#27272A]'">Session Cookie</button>
             <button type="button" @click="settingsTab = 'profiles'" class="px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer" :class="settingsTab === 'profiles' ? 'bg-slate-900 dark:bg-[#FAFAFA] text-white dark:text-[#09090B]' : 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-200/60 dark:hover:bg-[#27272A]'">Rule Profiles</button>
             <button type="button" @click="settingsTab = 'surfaces'" class="px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer" :class="settingsTab === 'surfaces' ? 'bg-slate-900 dark:bg-[#FAFAFA] text-white dark:text-[#09090B]' : 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-200/60 dark:hover:bg-[#27272A]'">Surfaces &amp; Automation</button>
+            <a href="/settings#cookie" class="ml-auto px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30">Session Cookie -&gt;</a>
           </div>
 
           <!-- Drawer Scrollable Body -->
@@ -131,47 +131,7 @@ export function getNewbornSettingsAndModalsHtml() {
               </div>
             </template>
 
-            <!-- TAB 2: COOKIE VAULT (REDACTED) -->
-            <template x-if="settingsTab === 'cookie'">
-              <div class="space-y-4">
-                <div class="p-3.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] space-y-1.5">
-                  <div class="flex items-center justify-between text-xs">
-                    <span class="font-semibold text-slate-700 dark:text-[#E4E4E7]">Zone-A Deep-Scroll Auth</span>
-                    <span class="font-mono font-bold" :class="cookieStatus?.has_cookie ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'" x-text="cookieStatus?.has_cookie ? 'Active (_auth=1)' : 'Not Configured'"></span>
-                  </div>
-                  <div class="flex items-center justify-between text-xs">
-                    <span class="text-slate-500">Stored Status</span>
-                    <span class="font-mono text-slate-700 dark:text-[#E4E4E7]" x-text="cookieStatus?.preview || 'Not configured'"></span>
-                  </div>
-                  <p class="text-[11px] text-slate-500 dark:text-[#A1A1AA] pt-1 leading-relaxed">
-                    Cookies are strictly write-only and never returned to the browser. Zone-A <code>_auth=1</code> unlocks deep scrolling (1,000–5,000 pins across Search, Home Feed, Idea Page &amp; Related), while <code>Pidgets</code>, <code>PinResource</code>, and on-demand <code>UserResource</code> remain <strong>100% Zero-Cookie</strong> so Pin Annotations stay intact.
-                  </p>
-                </div>
-
-                <div class="space-y-2">
-                  <label class="block text-xs font-semibold text-slate-700 dark:text-[#E4E4E7]">Paste Pinterest Session Cookie (<code>_pinterest_sess</code>)</label>
-                  <textarea rows="3"
-                            x-model="cookieInput"
-                            placeholder="Paste raw _pinterest_sess token or full Cookie header..."
-                            class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-xs font-mono focus:outline-none focus:ring-2 focus:ring-rose-500"></textarea>
-                  <div class="flex items-center justify-between gap-2 pt-1">
-                    <button type="button"
-                            @click="saveCookie()"
-                            :disabled="isSavingCookie || !cookieInput.trim()"
-                            class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer">
-                      Save Session Cookie
-                    </button>
-                    <template x-if="cookieStatus?.has_cookie">
-                      <button type="button"
-                              @click="clearCookie()"
-                              class="px-3 py-2 rounded-xl border border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 text-xs font-semibold cursor-pointer">
-                        Clear Stored Cookie
-                      </button>
-                    </template>
-                  </div>
-                </div>
-              </div>
-            </template>
+            <!-- Cookie Vault centralized in /settings#cookie (V4 Wave 3) -->
 
             <!-- TAB 3: RULE PROFILES CRUD -->
             <template x-if="settingsTab === 'profiles'">
@@ -526,6 +486,182 @@ export function getNewbornSettingsAndModalsHtml() {
           <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-[#27272A]">
             <button type="button" @click="profileModalOpen = false" class="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] text-xs font-semibold cursor-pointer">Cancel</button>
             <button type="submit" :disabled="isSavingProfile" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white text-xs font-semibold cursor-pointer" x-text="isSavingProfile ? 'Saving...' : 'Save Profile'"></button>
+          </div>
+        </form>
+      </div>
+    </template>
+
+    <!-- ====================================================================== -->
+    <!-- 5. FLOATING CLUSTER BASKET BAR (z-[55])                                -->
+    <!-- ====================================================================== -->
+    <template x-if="clusterBasket.length > 0">
+      <div id="discover-cluster-basket-bar"
+           class="fixed bottom-4 left-4 right-4 md:left-72 lg:left-80 z-[55] max-w-5xl mx-auto rounded-2xl border border-slate-200 dark:border-[#27272A] bg-white/95 dark:bg-[#121215]/95 backdrop-blur-xl shadow-2xl p-3.5 space-y-2.5">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <span class="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-rose-600 text-white shrink-0">
+              <i data-lucide="shopping-basket" class="w-4 h-4" aria-hidden="true"></i>
+            </span>
+            <div class="min-w-0">
+              <div class="text-xs font-bold text-slate-900 dark:text-[#FAFAFA]" x-text="'Cluster Basket (' + clusterBasket.length + ' selected)'">Cluster Basket</div>
+              <div class="text-[11px] text-slate-500 dark:text-[#A1A1AA] truncate">Collect terms from Trends, Related Interests &amp; Build Cluster</div>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 shrink-0">
+            <form @submit.prevent="addManualBasketKeyword()" class="flex items-center gap-1">
+              <input type="text"
+                     x-model="basketManualInput"
+                     placeholder="+ Add keyword"
+                     aria-label="Add custom keyword to Cluster Basket"
+                     class="w-32 sm:w-40 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-xs text-slate-900 dark:text-[#FAFAFA] focus:outline-none focus:ring-2 focus:ring-rose-500" />
+              <button type="submit" class="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] text-xs font-semibold text-slate-700 dark:text-[#FAFAFA] hover:bg-slate-100 dark:hover:bg-[#18181B] cursor-pointer">Add</button>
+            </form>
+
+            <button type="button"
+                    @click="clearBasket()"
+                    class="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer">
+              Clear
+            </button>
+
+            <button type="button"
+                    @click="launchBasketQuickHunt()"
+                    :disabled="isLaunchingBasketHunt"
+                    class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-indigo-200 dark:border-indigo-800/60 bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-xs font-semibold transition cursor-pointer disabled:opacity-60">
+              <i data-lucide="radar" class="w-3.5 h-3.5" aria-hidden="true"></i>
+              <span x-text="isLaunchingBasketHunt ? 'Hunting...' : 'Quick Newborn Hunt'"></span>
+            </button>
+
+            <button type="button"
+                    @click="openBasketCampaignModal()"
+                    class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs transition cursor-pointer">
+              <i data-lucide="folder-plus" class="w-3.5 h-3.5" aria-hidden="true"></i>
+              <span>Create / Add to Campaign</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto pt-1 border-t border-slate-100 dark:border-[#27272A]">
+          <template x-for="kw in clusterBasket" :key="kw">
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] text-[11px] font-medium text-slate-700 dark:text-[#E4E4E7]">
+              <span x-text="kw"></span>
+              <button type="button" @click="removeFromBasket(kw)" :aria-label="'Remove ' + kw" class="text-slate-400 hover:text-rose-600 cursor-pointer">
+                <i data-lucide="x" class="w-3 h-3" aria-hidden="true"></i>
+              </button>
+            </span>
+          </template>
+        </div>
+      </div>
+    </template>
+
+    <!-- ====================================================================== -->
+    <!-- 6. CREATE / ADD TO CAMPAIGN MODAL (z-[75])                             -->
+    <!-- ====================================================================== -->
+    <template x-if="basketCampaignModalOpen">
+      <div class="fixed inset-0 z-[75] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="basket-campaign-modal-title">
+        <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-[1px]" @click="basketCampaignModalOpen = false"></div>
+
+        <form @submit.prevent="submitBasketToCampaign()" class="relative z-10 w-full max-w-lg bg-white dark:bg-[#18181B] rounded-2xl border border-slate-200 dark:border-[#27272A] shadow-2xl p-5 space-y-4">
+          <div class="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-[#27272A] pb-3">
+            <div>
+              <h2 id="basket-campaign-modal-title" class="text-base font-bold text-slate-900 dark:text-[#FAFAFA]">Create / Add to Campaign</h2>
+              <p class="text-xs text-slate-500 dark:text-[#A1A1AA]" x-text="clusterBasket.length + ' keywords ready for daily SERP Pulse &amp; Newborn Hunt'"></p>
+            </div>
+            <button type="button" @click="basketCampaignModalOpen = false" aria-label="Close campaign modal" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer">
+              <i data-lucide="x" class="w-4 h-4" aria-hidden="true"></i>
+            </button>
+          </div>
+
+          <div class="space-y-3.5 text-xs">
+            <div class="inline-flex p-1 rounded-xl bg-slate-100 dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] w-full">
+              <button type="button"
+                      @click="basketCampaignForm.mode = 'new'"
+                      class="flex-1 py-1.5 rounded-lg font-semibold transition cursor-pointer"
+                      :class="basketCampaignForm.mode === 'new' ? 'bg-white dark:bg-[#27272A] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500 dark:text-[#A1A1AA]'">
+                Create New Campaign
+              </button>
+              <button type="button"
+                      @click="basketCampaignForm.mode = 'existing'"
+                      class="flex-1 py-1.5 rounded-lg font-semibold transition cursor-pointer"
+                      :class="basketCampaignForm.mode === 'existing' ? 'bg-white dark:bg-[#27272A] text-slate-900 dark:text-white shadow-2xs' : 'text-slate-500 dark:text-[#A1A1AA]'">
+                Add to Existing Campaign
+              </button>
+            </div>
+
+            <template x-if="basketCampaignForm.mode === 'new'">
+              <label class="block space-y-1">
+                <span class="font-semibold text-slate-700 dark:text-[#E4E4E7]">Campaign Name</span>
+                <input type="text"
+                       required
+                       x-model="basketCampaignForm.newName"
+                       placeholder="e.g. Fall Soup Recipes 2026"
+                       class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-slate-900 dark:text-[#FAFAFA] focus:outline-none focus:ring-2 focus:ring-rose-500" />
+              </label>
+            </template>
+
+            <template x-if="basketCampaignForm.mode === 'existing'">
+              <label class="block space-y-1">
+                <span class="font-semibold text-slate-700 dark:text-[#E4E4E7]">Select Campaign</span>
+                <select required
+                        x-model="basketCampaignForm.existingFolderId"
+                        class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-slate-900 dark:text-[#FAFAFA]">
+                  <option value="">Choose a workspace campaign...</option>
+                  <template x-for="f in foldersList" :key="f.id">
+                    <option :value="f.id" x-text="f.name"></option>
+                  </template>
+                </select>
+              </label>
+            </template>
+
+            <!-- Flexible Top N Daily Selector -->
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between">
+                <span class="font-semibold text-slate-700 dark:text-[#E4E4E7]">Top N Daily SERP Pins per Keyword</span>
+                <span class="font-mono tabular-nums text-[11px] text-slate-500" x-text="'Top ' + basketCampaignForm.serpTopN"></span>
+              </div>
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <template x-for="n in [10, 20, 30, 50]" :key="n">
+                  <button type="button"
+                          @click="basketCampaignForm.serpTopN = n"
+                          class="px-3 py-1.5 rounded-lg text-xs font-mono font-semibold border transition cursor-pointer"
+                          :class="Number(basketCampaignForm.serpTopN) === n ? 'bg-rose-600 border-rose-600 text-white' : 'bg-slate-50 dark:bg-[#121215] border-slate-200 dark:border-[#27272A] text-slate-700 dark:text-[#E4E4E7]'"
+                          x-text="'Top ' + n"></button>
+                </template>
+                <input type="number"
+                       min="5"
+                       max="100"
+                       x-model.number="basketCampaignForm.serpTopN"
+                       aria-label="Custom Top N Daily count"
+                       class="w-20 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs font-mono tabular-nums" />
+              </div>
+            </div>
+
+            <!-- Action Checkboxes -->
+            <div class="space-y-2 p-3 rounded-xl bg-slate-50 dark:bg-[#121215] border border-slate-200 dark:border-[#27272A]">
+              <label class="flex items-start gap-2.5 cursor-pointer">
+                <input type="checkbox" x-model="basketCampaignForm.trackTopNDaily" class="mt-0.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500" />
+                <div>
+                  <div class="font-semibold text-slate-900 dark:text-[#FAFAFA]">Track Top N SERP Daily (Pulse)</div>
+                  <div class="text-[11px] text-slate-500 dark:text-[#A1A1AA]">Enroll Top N SERP pins per keyword into the campaign's daily velocity Pulse.</div>
+                </div>
+              </label>
+
+              <label class="flex items-start gap-2.5 cursor-pointer pt-2 border-t border-slate-200/70 dark:border-[#27272A]">
+                <input type="checkbox" x-model="basketCampaignForm.runNewbornDeepHunt" class="mt-0.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500" />
+                <div>
+                  <div class="font-semibold text-slate-900 dark:text-[#FAFAFA]">Run Newborn Deep Hunt</div>
+                  <div class="text-[11px] text-slate-500 dark:text-[#A1A1AA]">Immediately launch an all-surface Newborn hunt for these basket keywords linked to the campaign.</div>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-[#27272A]">
+            <button type="button" @click="basketCampaignModalOpen = false" class="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] text-xs font-semibold cursor-pointer">Cancel</button>
+            <button type="submit"
+                    :disabled="isSubmittingBasketCampaign"
+                    class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white text-xs font-semibold cursor-pointer"
+                    x-text="isSubmittingBasketCampaign ? 'Saving...' : 'Save Campaign &amp; Run'"></button>
           </div>
         </form>
       </div>

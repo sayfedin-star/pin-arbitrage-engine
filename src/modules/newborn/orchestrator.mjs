@@ -117,6 +117,7 @@ export async function pollNewbornWatchlist(sql, options = {}) {
   const {
     profileId = null,
     folderId = null,
+    workspaceId = null,
     existingRunId = null,
     settingsOverrides = null,
     rawCookieOverride = null,
@@ -137,7 +138,7 @@ export async function pollNewbornWatchlist(sql, options = {}) {
 
   const resolvedCookie = rawCookieOverride !== null && rawCookieOverride !== undefined
     ? { rawCookie: String(rawCookieOverride).trim() }
-    : await resolveNewbornRawCookie(sql, env || routerOptions.env || {});
+    : await resolveNewbornRawCookie(sql, env || routerOptions.env || {}, { workspaceId });
 
   const router = new NewbornCookieRouter({
     rawCookie: resolvedCookie.rawCookie,
@@ -427,6 +428,7 @@ export async function runNewbornAutoCycle(sql, options = {}) {
     seedQueries = [],
     profileId = null,
     folderId = null,
+    workspaceId = null,
     existingRunId = null,
     routerOptions = {},
     signal = null,
@@ -476,6 +478,7 @@ export async function runNewbornAutoCycle(sql, options = {}) {
     results.watchlist_poll = await pollNewbornWatchlist(sql, {
       profileId,
       folderId,
+      workspaceId,
       existingRunId: !runDisc ? numericRunId : null,
       routerOptions,
       signal,
@@ -491,6 +494,7 @@ export async function runNewbornAutoCycle(sql, options = {}) {
       seedQueries,
       profileId,
       folderId,
+      workspaceId,
       existingRunId: numericRunId,
       routerOptions,
       runType: 'auto_cycle',

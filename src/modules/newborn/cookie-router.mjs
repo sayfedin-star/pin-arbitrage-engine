@@ -625,6 +625,7 @@ export async function fetchRelatedModulesWithZoneA(url, options = {}) {
     pinId = '',
     sql = null,
     env = null,
+    workspaceId = null,
     rawCookie = undefined,
     fetchImpl = globalThis.fetch,
     dispatcher = undefined,
@@ -644,7 +645,7 @@ export async function fetchRelatedModulesWithZoneA(url, options = {}) {
   if (typeof rawCookie === 'string') {
     resolvedCookie = rawCookie.trim();
   } else {
-    const resolved = await resolveNewbornRawCookie(sql, env || {}).catch(() => ({ rawCookie: '' }));
+    const resolved = await resolveNewbornRawCookie(sql, env || {}, { workspaceId }).catch(() => ({ rawCookie: '' }));
     resolvedCookie = resolved?.rawCookie || '';
   }
 

@@ -81,12 +81,12 @@ test('Wave 6B.1: Newborn SSR Studio DOM tree, Light-Mode default invariant, offi
     assert.equal(/<script\b[^>]*\bsrc=["']\/pae-shell\.js(?:\?[^"']*)?["']/i.test(html), true);
   }
 
-  // Global mode navigation & official Pinterest Business terminology
+  // Global mode navigation & official Pinterest Business terminology (V4 Wave 3: canonical /discover nav)
   const globalTree = parseHtmlElementTree(globalHtml);
-  const newbornNavLinks = collectNodes(globalTree, (n) => n.tag === 'a' && n.attrs.href === '/newborn');
-  assert.ok(newbornNavLinks.length >= 2, 'App sidebar (mobile + desktop) must link to /newborn');
+  const discoverNavLinks = collectNodes(globalTree, (n) => n.tag === 'a' && (n.attrs.href === '/discover' || n.attrs.href === '/newborn'));
+  assert.ok(discoverNavLinks.length >= 2, 'App sidebar (mobile + desktop) must link to /discover');
 
-  assert.ok(globalHtml.includes('Newborn Pin Hunter'), 'Header must display "Newborn Pin Hunter" title');
+  assert.ok(globalHtml.includes('Discover') || globalHtml.includes('Newborn Pin Hunter'), 'Header must display Discover / Newborn title');
   assert.ok(globalHtml.includes('Max Pin Age (Days)'), 'Hero Hunt Card must expose Max Pin Age filter');
   assert.ok(globalHtml.includes('Min Re-pins'), 'Hero Hunt Card must expose Min Re-pins primary filter');
   assert.ok(globalHtml.includes('Min Saves (Optional)'), 'Hero Hunt Card must expose optional Min Saves filter');
@@ -94,7 +94,7 @@ test('Wave 6B.1: Newborn SSR Studio DOM tree, Light-Mode default invariant, offi
   assert.ok(globalHtml.includes('Home Feed'), 'Hero Hunt Card must expose Home Feed extraction path');
   assert.ok(globalHtml.includes('Rising Trends'), 'Hero Hunt Card must expose collapsible Rising Trends picker');
   assert.ok(globalHtml.includes('This Hunt'), '3-Tab workspace must render This Hunt tab');
-  assert.ok(globalHtml.includes('Tracked / Watchlist'), '3-Tab workspace must render Tracked / Watchlist tab');
+  assert.ok(globalHtml.includes('Cluster Explorer'), '3-Tab workspace must render Cluster Explorer tab');
   assert.ok(globalHtml.includes('Past Hunts'), '3-Tab workspace must render Past Hunts tab');
   assert.ok(globalHtml.includes('Annotations Crossover'), 'This Hunt must show Annotations Crossover panel');
   assert.ok(globalHtml.includes('No Link / Linkless'), 'Results UI must show clear No Link / Linkless badge');

@@ -74,7 +74,7 @@ export async function getNewbornOverview(sql, env = {}, { workspaceId = 1 } = {}
 
   const [settings, cookieStatus, statsRows, recentRuns, topCandidates] = await Promise.all([
     getNewbornSettings(sql),
-    getNewbornCookieStatus(sql, env),
+    getNewbornCookieStatus(sql, env, { workspaceId: wid }),
     sql`
       SELECT
         COUNT(*)::int AS total_candidates,

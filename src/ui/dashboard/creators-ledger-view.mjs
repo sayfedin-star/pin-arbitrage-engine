@@ -29,10 +29,10 @@ export function renderCreatorsLedgerView({ safeFolderId = '' } = {}) {
                 </div>
               </div>
               <div class="flex flex-wrap items-center gap-2">
-                <button @click="openAutoPromoteSettingsModal()" class="px-3.5 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-800 dark:text-slate-200 transition flex items-center space-x-1.5 shadow-xs cursor-pointer active:scale-95" title="Configure Auto-Promote & Breakout Rules">
-                  <i data-lucide="sliders" class="w-3.5 h-3.5 text-rose-500"></i>
-                  <span>Auto-Promote Rules</span>
-                </button>
+                <a href="/watchlist" class="px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-800 dark:text-slate-200 transition flex items-center space-x-1.5 shadow-xs">
+                  <i data-lucide="bookmark" class="w-3.5 h-3.5 text-rose-500"></i>
+                  <span>Watchlist Modes</span>
+                </a>
                 <button @click="exportCompetitorsCsv()" class="px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition flex items-center space-x-1.5 shadow-sm">
                   <i data-lucide="download" class="w-3.5 h-3.5"></i>
                   <span>Export CSV</span>
@@ -83,10 +83,6 @@ export function renderCreatorsLedgerView({ safeFolderId = '' } = {}) {
                   <input type="text" x-model="bulkPulseCustomLabel" :placeholder="'SERP Auto • ' + (activeFolder?.name || 'Folder')" class="px-3 py-1 text-xs rounded-xl bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] text-slate-800 dark:text-slate-200 w-full sm:max-w-xs focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono">
                 </div>
                 <div class="flex items-center gap-2 w-full sm:w-auto">
-                  <button @click="openAutoPromoteSettingsModal()" class="px-3 py-1.5 text-xs font-bold rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-800 dark:text-slate-200 transition flex items-center space-x-1.5 shadow-xs cursor-pointer active:scale-95 whitespace-nowrap" title="Configure Auto-Promote & Breakout Rules">
-                    <i data-lucide="sliders" class="w-3.5 h-3.5 text-rose-500"></i>
-                    <span>Rules</span>
-                  </button>
                   <button @click="bulkPulseTrackSerpCreators()" :disabled="isBulkPulseTracking" class="w-full sm:w-auto px-3.5 py-1.5 text-xs font-bold rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 transition flex items-center justify-center space-x-1.5 shadow-xs cursor-pointer disabled:opacity-50 active:scale-95 whitespace-nowrap">
                     <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-500" :class="isBulkPulseTracking ? 'animate-spin' : ''"></i>
                     <span x-text="isBulkPulseTracking ? 'Auto-Tracking...' : 'Auto-Track All SERP Creators (Lightweight 24h Pulse)'"></span>

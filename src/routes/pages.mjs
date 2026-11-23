@@ -175,25 +175,11 @@ export async function handlePagesRoutes(routeCtx) {
     });
   }
 
-  // 4. Level 1B: Keyword Discovery & Autocomplete Hub
+  // 4A. V4 Canonical Radar Studio (/, /radar, /pulse, /24h)
   if (
-    pathLower === '/keywords/discovery' ||
-    pathLower === '/discovery' ||
-    pathLower.startsWith('/keywords/discovery/') ||
-    pathLower.startsWith('/discovery/')
-  ) {
-    if (method !== 'GET' && method !== 'HEAD') {
-      return methodNotAllowedResponse('GET, OPTIONS');
-    }
-    if (method === 'HEAD') {
-      return sendNative(null, 200, HTML_HEADERS);
-    }
-    const { getDiscoveryPageHtml } = await import('../ui/discovery/index.mjs');
-    return sendNative(getDiscoveryPageHtml(), 200, HTML_HEADERS);
-  }
-
-  // 4C. Level 5: 24-Hour Algorithmic Pulse & Crossover Studio (/pulse, /24h)
-  if (
+    pathLower === '/' ||
+    pathLower === '/radar' ||
+    pathLower === '/radar/' ||
     pathLower === '/pulse' ||
     pathLower === '/pulse/' ||
     pathLower === '/24h' ||
@@ -207,15 +193,24 @@ export async function handlePagesRoutes(routeCtx) {
     if (method === 'HEAD') {
       return sendNative(null, 200, HTML_HEADERS);
     }
-    const { getPulsePageHtml } = await import('../ui/pulse/index.mjs');
-    return sendNative(getPulsePageHtml(''), 200, HTML_HEADERS);
+    const tabParam = searchParams?.get?.('tab') || 'pulse';
+    const { getRadarPageHtml } = await import('../ui/radar/index.mjs');
+    return sendNative(getRadarPageHtml(tabParam), 200, HTML_HEADERS);
   }
 
-  // 4D. Level 6: Newborn Breakout Hunter & Automation Studio (/newborn)
+  // 4B. V4 Canonical Discover Studio (/discover, /newborn, /discovery, /keywords/discovery)
   if (
+    pathLower === '/discover' ||
+    pathLower === '/discover/' ||
+    pathLower.startsWith('/discover/') ||
     pathLower === '/newborn' ||
     pathLower === '/newborn/' ||
-    pathLower.startsWith('/newborn/')
+    pathLower.startsWith('/newborn/') ||
+    pathLower === '/discovery' ||
+    pathLower === '/discovery/' ||
+    pathLower.startsWith('/discovery/') ||
+    pathLower === '/keywords/discovery' ||
+    pathLower.startsWith('/keywords/discovery/')
   ) {
     if (method !== 'GET' && method !== 'HEAD') {
       return methodNotAllowedResponse('GET, OPTIONS');
@@ -224,9 +219,34 @@ export async function handlePagesRoutes(routeCtx) {
       return sendNative(null, 200, HTML_HEADERS);
     }
     const nbSegments = normalizedPath.split('/').filter(Boolean);
-    const subRoom = (nbSegments[1] || '').toLowerCase();
+    const subRoom = (nbSegments[0]?.toLowerCase() === 'keywords' ? '' : (nbSegments[1] || '')).toLowerCase();
     const { getNewbornPageHtml } = await import('../ui/newborn/index.mjs');
     return sendNative(getNewbornPageHtml('', subRoom), 200, HTML_HEADERS);
+  }
+
+  // 4C. V4 Canonical Watchlist Studio (/watchlist)
+  if (pathLower === '/watchlist' || pathLower === '/watchlist/') {
+    if (method !== 'GET' && method !== 'HEAD') {
+      return methodNotAllowedResponse('GET, OPTIONS');
+    }
+    if (method === 'HEAD') {
+      return sendNative(null, 200, HTML_HEADERS);
+    }
+    const tabParam = searchParams?.get?.('tab') || 'creators';
+    const { getWatchlistPageHtml } = await import('../ui/watchlist/index.mjs');
+    return sendNative(getWatchlistPageHtml(tabParam), 200, HTML_HEADERS);
+  }
+
+  // 4D. V4 Canonical Centralized Settings Studio (/settings)
+  if (pathLower === '/settings' || pathLower === '/settings/') {
+    if (method !== 'GET' && method !== 'HEAD') {
+      return methodNotAllowedResponse('GET, OPTIONS');
+    }
+    if (method === 'HEAD') {
+      return sendNative(null, 200, HTML_HEADERS);
+    }
+    const { getSettingsPageHtml } = await import('../ui/settings/index.mjs');
+    return sendNative(getSettingsPageHtml(), 200, HTML_HEADERS);
   }
 
   // 5. Level 3: Dedicated Pin Intelligence Page (/pins/:pin_id or /pin/:pin_id)
@@ -280,8 +300,13 @@ export async function handlePagesRoutes(routeCtx) {
     }
   }
 
-  // 6. Level 4: Dedicated Campaign Workspace Rooms (/folders, /folders/:id, and /folders/:id/*)
-  if (pathLower === '/folders' || pathLower.startsWith('/folders/')) {
+  // 6. Level 4: Dedicated Campaign Workspace Rooms (/campaigns, /campaigns/:id/*, /folders, /folders/:id/*)
+  if (
+    pathLower === '/campaigns' ||
+    pathLower.startsWith('/campaigns/') ||
+    pathLower === '/folders' ||
+    pathLower.startsWith('/folders/')
+  ) {
     if (method !== 'GET' && method !== 'HEAD') {
       return methodNotAllowedResponse('GET, OPTIONS');
     }

@@ -1095,8 +1095,9 @@ test('Wave 1.13: Newborn polling pauses on document.hidden, enforces mutex & 5-e
   assert.equal(creatorInst.activeCreatorSnapshots.length, 1, 'Snapshot must remain in list on HTTP 500');
 
   // 3. Discovery submitAddToFolder aborts when POST /api/folders fails
-  const discRes = await app.inject({ method: 'GET', url: '/discovery' });
-  const discScript = await loadAssetScript(discRes.body, 'discovery');
+  const discRes = await app.inject({ method: 'GET', url: '/assets/js/discovery.js' });
+  assert.equal(discRes.statusCode, 200);
+  const discScript = discRes.body;
   assert.ok(discScript.includes('function discoveryApp('));
   const discToasts = [];
   const discFetchUrls = [];
@@ -1146,8 +1147,9 @@ test('Wave 1.13: Newborn polling pauses on document.hidden, enforces mutex & 5-e
   assert.ok(kwToasts.some((toast) => toast.type === 'error'));
 
   // 5. Pulse fetchPulseData(true) does NOT toast success when payload returns success: false
-  const pulseRes = await app.inject({ method: 'GET', url: '/pulse' });
-  const pulseScript = await loadAssetScript(pulseRes.body, 'pulse');
+  const pulseRes = await app.inject({ method: 'GET', url: '/assets/js/pulse.js' });
+  assert.equal(pulseRes.statusCode, 200);
+  const pulseScript = pulseRes.body;
   assert.ok(pulseScript.includes('function pulseStudioApp('));
   const pulseToasts = [];
   const pulseVm = {
