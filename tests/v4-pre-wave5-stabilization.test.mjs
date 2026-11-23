@@ -12,6 +12,8 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import vm from 'node:vm';
 
 import { getRadarPageHtml } from '../src/ui/radar/index.mjs';
@@ -40,6 +42,18 @@ import { handleDomainsRoutes } from '../src/routes/domains.mjs';
 import { handleWatchlistRoutes } from '../src/routes/watchlist.mjs';
 import { handleNewbornRoutes } from '../src/routes/newborn.mjs';
 import { handleFoldersRoutes } from '../src/routes/folders.mjs';
+import {
+  BYTE_BUDGETS,
+  DEAD_SYMBOLS,
+  shaMatches,
+  evaluateHtmlBudgetsAndSymbols,
+  evaluatePulsePayload,
+  evaluateCreatorsPayload,
+  evaluateDomainsPayload,
+  evaluateWorkspaceSettingsPayload,
+  evaluateCookieWriteOnlyPayload,
+  formatMarkdownSummary
+} from '../scripts/verify-live-readonly.mjs';
 
 function extractScriptBody(scriptTagHtml) {
   return String(scriptTagHtml || '')
@@ -963,3 +977,78 @@ test('T8..T11 (WP-5 & WP-6): Launchpad case-insensitive filterKey, POST /api/fol
   assert.equal(reloadCount, 1, 'Watchlist must reload in finally when at least 1 item was imported');
   assert.ok(wl.toastMsg.includes('Imported 1 creator(s)') && wl.toastMsg.includes('1 already watched') && wl.toastMsg.includes('1 failed'));
 });
+
+test('T12: Read-Only Live Verifier (scripts/verify-live-readonly.mjs) & ci.yml wiring', () => {
+  assert.equal(shaMatches('44c6228', '44c6228abcdef1234567890'), true);
+  assert.equal(shaMatches('deadbee', '44c6228'), false);
+  assert.equal(shaMatches('44c6228', ''), true);
+
+  const htmlOk = evaluateHtmlBudgetsAndSymbols({
+    path: '/folders/5',
+    html: '<div>Inherited from Workspace</div>',
+    maxBytes: BYTE_BUDGETS.foldersHtmlMaxBytes,
+    forbiddenSymbols: DEAD_SYMBOLS.folders,
+    requiredSubstrings: ['Inherited from Workspace']
+  });
+  assert.equal(htmlOk.pass, true);
+
+  const htmlBad = evaluateHtmlBudgetsAndSymbols({
+    path: '/folders/5',
+    html: '<div>isSettingsModalOpen Inherited from Workspace</div>',
+    maxBytes: BYTE_BUDGETS.foldersHtmlMaxBytes,
+    forbiddenSymbols: DEAD_SYMBOLS.folders,
+    requiredSubstrings: ['Inherited from Workspace']
+  });
+  assert.equal(htmlBad.pass, false);
+  assert.deepEqual(htmlBad.foundForbidden, ['isSettingsModalOpen']);
+
+  const pulseEval = evaluatePulsePayload({
+    success: true,
+    breakout_pins: [{ save_count: 1500, daily_save_velocity: 42, window_saves_gain: 210 }]
+  }, 500_000, '24h');
+  assert.equal(pulseEval.pass, true);
+  assert.equal(evaluatePulsePayload({ success: true, breakout_pins: [] }, 950_000, '24h').pass, false);
+
+  const creatorsEval = evaluateCreatorsPayload({
+    success: true,
+    overview: { pins_tracked: 2_700_000_000, combined_reach: 120_000_000, total_impressions: 240_000_000 },
+    competitors: [{ username: 'chef', monthly_reach: 500_000 }]
+  });
+  assert.equal(creatorsEval.pass, true);
+  assert.equal(creatorsEval.pinsTrackedBillions, 2.7);
+
+  const domainsEval = evaluateDomainsPayload({
+    success: true,
+    total_domains: 42,
+    domains: [{ domain: 'example.com', avg_velocity: 18 }]
+  });
+  assert.equal(domainsEval.pass, true);
+
+  const wsEval = evaluateWorkspaceSettingsPayload({
+    success: true,
+    workspace_id: 1,
+    settings: { min_repin_count: 20, extraction_targets: { boards: { max_boards: 10 } } }
+  });
+  assert.equal(wsEval.pass, true);
+  assert.equal(wsEval.minRepins, 20);
+  assert.equal(wsEval.maxBoards, 10);
+
+  assert.equal(evaluateCookieWriteOnlyPayload({ success: true, has_cookie: true, preview: '[CONFIGURED]' }).pass, true);
+  assert.equal(evaluateCookieWriteOnlyPayload({ success: true, has_cookie: true, preview: '_pinterest_sess=raw_leak' }).pass, false);
+
+  const md = formatMarkdownSummary({
+    allPassed: true,
+    target: 'https://app.hymum.com',
+    commit: '44c6228',
+    timestamp: '2026-04-01T00:00:00Z',
+    checks: [{ name: 'GET /api/health', pass: true, detail: 'HTTP 200' }]
+  });
+  assert.match(md, /PAE v4 Live Read-Only Verification \(PASS\)/);
+
+  const ciYml = fs.readFileSync(path.resolve(process.cwd(), '.github/workflows/ci.yml'), 'utf8');
+  assert.match(ciYml, /^name: Deploy/m);
+  assert.match(ciYml, /^\s*workflow_dispatch:/m);
+  assert.match(ciYml, /node scripts\/verify-live-readonly\.mjs/);
+  assert.doesNotMatch(ciYml, /^\s*schedule:/m);
+});
+
