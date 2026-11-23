@@ -51,6 +51,7 @@ import {
   evaluateCreatorsPayload,
   evaluateDomainsPayload,
   evaluateWorkspaceSettingsPayload,
+  selectSecondaryWorkspaceId,
   evaluateCookieWriteOnlyPayload,
   formatMarkdownSummary
 } from '../scripts/verify-live-readonly.mjs';
@@ -1032,6 +1033,9 @@ test('T12: Read-Only Live Verifier (scripts/verify-live-readonly.mjs) & ci.yml w
   assert.equal(wsEval.pass, true);
   assert.equal(wsEval.minRepins, 20);
   assert.equal(wsEval.maxBoards, 10);
+
+  assert.equal(selectSecondaryWorkspaceId({ workspaces: [{ id: 1 }] }), null);
+  assert.equal(selectSecondaryWorkspaceId({ workspaces: [{ id: 1 }, { id: 3 }] }), 3);
 
   assert.equal(evaluateCookieWriteOnlyPayload({ success: true, has_cookie: true, preview: '[CONFIGURED]' }).pass, true);
   assert.equal(evaluateCookieWriteOnlyPayload({ success: true, has_cookie: true, preview: '_pinterest_sess=raw_leak' }).pass, false);

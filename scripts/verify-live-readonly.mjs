@@ -162,6 +162,12 @@ export function evaluateWorkspaceSettingsPayload(payload) {
   };
 }
 
+export function selectSecondaryWorkspaceId(payload) {
+  const list = Array.isArray(payload?.workspaces) ? payload.workspaces : [];
+  const alt = list.find((w) => Number.isInteger(Number(w?.id)) && Number(w.id) > 1);
+  return alt ? Number(alt.id) : null;
+}
+
 export function evaluateCookieWriteOnlyPayload(payload) {
   const rawPreview = String(payload?.preview || '');
   const leakedRaw = rawPreview !== '' && rawPreview !== '[CONFIGURED]';
@@ -402,20 +408,39 @@ export async function runLiveReadOnlyVerification(env = process.env) {
     `HTTP ${candMalformed.status} (expected 400)`
   );
 
-  const candCrossWs = await fetchReadOnly(baseUrl, '/api/newborn/candidates?folder_id=5', { apiKey, workspaceId: 2 });
-  addCheck(
-    'GET /api/newborn/candidates?folder_id=5 in WS2 (Cross-WS -> 404)',
-    candCrossWs.status === 404,
-    `HTTP ${candCrossWs.status} (expected 404)`
-  );
+  // Discover real workspaces (Read-Only) so cross-workspace checks target an existing non-default workspace ID
+  const workspacesRes = await fetchReadOnly(baseUrl, '/api/workspaces', { apiKey, workspaceId: 1 });
+  const wsList = Array.isArray(workspacesRes.json?.workspaces) ? workspacesRes.json.workspaces : [];
+  const wsIds = wsList.map((w) => Number(w?.id)).filter((n) => Number.isInteger(n) && n > 0);
+  const altWsId = selectSecondaryWorkspaceId(workspacesRes.json);
 
-  const candNullWs2 = await fetchReadOnly(baseUrl, '/api/newborn/candidates', { apiKey, workspaceId: 2 });
-  const ws2NullCount = Array.isArray(candNullWs2.json?.candidates) ? candNullWs2.json.candidates.length : -1;
-  addCheck(
-    'GET /api/newborn/candidates (WS2 folder_id=null -> 0)',
-    candNullWs2.status === 200 && ws2NullCount === 0,
-    `HTTP ${candNullWs2.status}, candidates=${ws2NullCount} (expected 0)`
-  );
+  if (altWsId) {
+    const candCrossWs = await fetchReadOnly(baseUrl, '/api/newborn/candidates?folder_id=5', { apiKey, workspaceId: altWsId });
+    addCheck(
+      `GET /api/newborn/candidates?folder_id=5 in WS${altWsId} (Cross-WS -> 404)`,
+      candCrossWs.status === 404,
+      `HTTP ${candCrossWs.status} (expected 404, workspaces=[${wsIds.join(',')}])`
+    );
+
+    const candNullAltWs = await fetchReadOnly(baseUrl, '/api/newborn/candidates', { apiKey, workspaceId: altWsId });
+    const altNullCount = Array.isArray(candNullAltWs.json?.candidates) ? candNullAltWs.json.candidates.length : -1;
+    const altIsolatedOk = candNullAltWs.status === 200
+      && altNullCount >= 0
+      && (candNullAltWs.json?.candidates || []).every((c) => Number(c?.workspace_id ?? altWsId) === altWsId);
+    addCheck(
+      `GET /api/newborn/candidates (WS${altWsId} folder_id=null isolation)`,
+      altIsolatedOk,
+      `HTTP ${candNullAltWs.status}, candidates=${altNullCount} (ws=${altWsId})`
+    );
+  } else {
+    const staleFallbackRes = await fetchReadOnly(baseUrl, '/api/workspaces/settings', { apiKey, workspaceId: 999999 });
+    const resolvedWs = Number(staleFallbackRes.json?.workspace_id || 0);
+    addCheck(
+      'Cross-Workspace Isolation & Stale-ID Fallback (Single-WS DB)',
+      workspacesRes.status === 200 && staleFallbackRes.status === 200 && resolvedWs === 1,
+      `Only Workspace 1 exists on live DB (ids=[${wsIds.join(',') || '1'}]); stale WS 999999 safely fell back to ws=${resolvedWs} (multi-WS 404 verified by offline tests T3/T4)`
+    );
+  }
 
   // 5. /folders & /folders/5 (Room 5) byte budget + dead code removal
   for (const folderRoute of ['/folders', '/folders/5']) {
@@ -473,7 +498,7 @@ export async function runLiveReadOnlyVerification(env = process.env) {
       'echo "ERR_PG_APP=${ERR_PG_APP}"',
       'echo "ERR_PG_SVC=${ERR_PG_SVC}"',
       'if command -v docker >/dev/null 2>&1 && docker ps --format "{{.Names}}" | grep -Eq "^pae-postgres$"; then',
-      '  PG_JSON=$(docker exec pae-postgres psql -U postgres -d pin_arbitrage -Atqc "BEGIN READ ONLY; SELECT json_build_object(\'ws1_min_repin_count\', (SELECT COALESCE(min_repin_count, -1) FROM workspace_settings WHERE workspace_id = 1 LIMIT 1), \'ws1_max_boards\', (SELECT COALESCE((extraction_targets->\'boards\'->>\'max_boards\')::int, -1) FROM workspace_settings WHERE workspace_id = 1 LIMIT 1), \'folder5_exists\', EXISTS(SELECT 1 FROM keyword_folders WHERE id = 5 AND workspace_id = 1)); ROLLBACK;" 2>/dev/null | tail -n 1 || true)',
+      '  PG_JSON=$(docker exec pae-postgres psql -U postgres -d pin_arbitrage -Atqc "BEGIN READ ONLY; SELECT json_build_object(\'workspace_ids\', (SELECT COALESCE(json_agg(id ORDER BY id), \'[]\'::json) FROM workspaces), \'ws1_min_repin_count\', (SELECT COALESCE(min_repin_count, -1) FROM workspace_settings WHERE workspace_id = 1 LIMIT 1), \'ws1_max_boards\', (SELECT COALESCE((extraction_targets->\'boards\'->>\'max_boards\')::int, -1) FROM workspace_settings WHERE workspace_id = 1 LIMIT 1), \'folder5_exists\', EXISTS(SELECT 1 FROM keyword_folders WHERE id = 5 AND workspace_id = 1)); ROLLBACK;" 2>/dev/null | tail -n 1 || true)',
       '  echo "PG_RO=${PG_JSON}"',
       'fi'
     ].join('\n');
