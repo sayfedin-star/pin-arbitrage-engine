@@ -50,12 +50,11 @@ export function getFoldersClientAppScript() {
         syncingTopN: false,
         selectedStudioPinIds: [],
         pinGraphSeeds: [],
+        pinGraphExpanded: false,
+        manualPinGraphSeedInput: '',
         queueingPinGraphSeeds: false,
         pruningLoading: false,
         prunePreviewResult: null,
-        pinterestCookieInput: '',
-        pinterestCookieStatus: { has_cookie: true, preview: '' },
-        isSavingCookie: false,
         pruneForm: {
           scope: 'displaced',
           min_pin_age_days: 30,
@@ -181,8 +180,14 @@ export function getFoldersClientAppScript() {
                 serp_top_n: Number(data.serp_top_n || this.activeFolder?.serp_top_n || 20),
                 source_counts: data.source_counts || { all: 0, search: 0, newborn: 0, creator: 0, related: 0 }
               };
+            } else {
+              const errData = await res.json().catch(() => ({}));
+              this.showToast(errData.error || 'Failed to load tracked campaign pins', 'error');
             }
-          } catch (_) {
+          } catch (err) {
+            if (!err || err.name !== 'AbortError') {
+              this.showToast('Failed to load tracked campaign pins: ' + (err?.message || 'network error'), 'error');
+            }
           } finally {
             this.trackedPinsLoading = false;
             if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
@@ -236,8 +241,15 @@ export function getFoldersClientAppScript() {
             if (res.ok) {
               const data = await res.json().catch(() => ({}));
               this.pinGraphSeeds = Array.isArray(data.seeds) ? data.seeds : [];
+            } else {
+              const errData = await res.json().catch(() => ({}));
+              this.showToast(errData.error || 'Failed to load Pin Graph seeds', 'error');
             }
-          } catch (_) {}
+          } catch (err) {
+            if (!err || err.name !== 'AbortError') {
+              this.showToast('Failed to load Pin Graph seeds: ' + (err?.message || 'network error'), 'error');
+            }
+          }
         },
 
         async queueSelectedForRelatedPins(pinIdsOverride = null) {
@@ -268,6 +280,46 @@ export function getFoldersClientAppScript() {
             this.showToast('Network error: ' + err.message, 'error');
           } finally {
             this.queueingPinGraphSeeds = false;
+          }
+        },
+
+        async queueManualPinGraphSeeds() {
+          const raw = String(this.manualPinGraphSeedInput || '').trim();
+          if (!raw) {
+            this.showToast('Paste at least one Pin ID or Pinterest Pin URL', 'warning');
+            return;
+          }
+          const ids = Array.from(new Set(
+            raw.split(/[\s,]+/)
+              .map((part) => {
+                const m = String(part).match(/\d{10,30}/);
+                return m ? m[0] : '';
+              })
+              .filter(Boolean)
+          ));
+          if (!ids.length) {
+            this.showToast('No valid numeric Pin IDs found', 'warning');
+            return;
+          }
+          await this.queueSelectedForRelatedPins(ids);
+          this.manualPinGraphSeedInput = '';
+        },
+
+        async removePinGraphSeed(pinId) {
+          if (!this.activeFolderId || !pinId) return;
+          try {
+            const res = await (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId + '/pin-graph-seeds/' + encodeURIComponent(pinId), {
+              method: 'DELETE'
+            });
+            if (res.ok) {
+              this.showToast('Removed seed Pin #' + pinId, 'info');
+              await this.loadPinGraphSeeds();
+            } else {
+              const data = await res.json().catch(() => ({}));
+              this.showToast(data.error || 'Failed to remove seed', 'error');
+            }
+          } catch (err) {
+            this.showToast('Network error: ' + err.message, 'error');
           }
         },
 
@@ -423,7 +475,13 @@ export function getFoldersClientAppScript() {
           pause_competitors: false,
           pause_crawlers: false,
           block_fleet: false,
-          auto_discover_creators: true
+          auto_discover_creators: true,
+          pin_graph_rules: {
+            auto_trigger_enabled: false,
+            linkless_only: false,
+            min_repins: 500,
+            max_pages: 20
+          }
         },
 
         get totalKeywordsCount() {
@@ -1259,7 +1317,6 @@ export function getFoldersClientAppScript() {
           }
 
           // Unnecessary 30s Crossover fetch bypassed when in settings room
-          this.fetchPinterestCookieStatus().catch(() => {});
           this.loadTrackedPinsSummary().catch(() => {});
           this.loadPinGraphSeeds().catch(() => {});
           if (this.currentRoom === 'settings') {
@@ -1361,6 +1418,9 @@ export function getFoldersClientAppScript() {
           if (!meta || typeof meta !== 'object' || Array.isArray(meta)) meta = {};
 
           const fallbackQuota = String(this.globalDefaultMaxPins || '50');
+          const pgr = (this.activeFolder.pin_graph_rules && typeof this.activeFolder.pin_graph_rules === 'object')
+            ? this.activeFolder.pin_graph_rules
+            : {};
           this.folderSettings = {
             name: this.activeFolder.name || '',
             description: this.activeFolder.description || '',
@@ -1374,7 +1434,13 @@ export function getFoldersClientAppScript() {
             pause_competitors: Boolean(meta.pause_competitors),
             pause_crawlers: Boolean(meta.pause_crawlers),
             block_fleet: Boolean(meta.block_fleet),
-            auto_discover_creators: meta.auto_discover_creators !== undefined ? Boolean(meta.auto_discover_creators) : true
+            auto_discover_creators: meta.auto_discover_creators !== undefined ? Boolean(meta.auto_discover_creators) : true,
+            pin_graph_rules: {
+              auto_trigger_enabled: Boolean(pgr.auto_trigger_enabled),
+              linkless_only: Boolean(pgr.linkless_only),
+              min_repins: Number.isFinite(Number(pgr.min_repins)) ? Math.max(0, Number(pgr.min_repins)) : 500,
+              max_pages: Number.isFinite(Number(pgr.max_pages)) ? Math.min(100, Math.max(1, Number(pgr.max_pages))) : 20
+            }
           };
         },
 
@@ -1382,7 +1448,6 @@ export function getFoldersClientAppScript() {
           if (!this.activeFolder) return;
           await this.fetchGlobalDefaultQuota().catch(() => {});
           this.syncFolderSettingsFromActive();
-          this.fetchPinterestCookieStatus().catch(() => {});
           this.isSettingsModalOpen = true;
         },
 
@@ -1399,48 +1464,6 @@ export function getFoldersClientAppScript() {
           } catch (_) {}
         },
 
-        async fetchPinterestCookieStatus() {
-          try {
-            const res = await (window.safeApiFetch || fetch)('/api/settings/cookie');
-            if (res.ok) {
-              const data = await res.json();
-              this.pinterestCookieStatus = data;
-              if (data.cookie && !this.pinterestCookieInput) {
-                this.pinterestCookieInput = data.cookie;
-              }
-            }
-          } catch (_) {}
-        },
-
-        async savePinterestCookie() {
-          if (!this.pinterestCookieInput || !this.pinterestCookieInput.trim()) {
-            this.showToast('Please paste a Pinterest session cookie first', 'warning');
-            return;
-          }
-          this.isSavingCookie = true;
-          try {
-            const res = await (window.safeApiFetch || fetch)('/api/settings/cookie', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ cookie: this.pinterestCookieInput.trim() })
-            });
-            const data = await res.json().catch(() => ({}));
-            if (res.ok && data.success) {
-              this.pinterestCookieStatus = {
-                has_cookie: data.has_cookie,
-                preview: data.preview || (this.pinterestCookieInput.trim().slice(0, 32) + '...')
-              };
-              this.showToast('Pinterest session cookie saved & activated across all crawlers!', 'success');
-            } else {
-              this.showToast(data.error || data.message || 'Failed to save cookie', 'error');
-            }
-          } catch (err) {
-            this.showToast('Error saving cookie: ' + err.message, 'error');
-          } finally {
-            this.isSavingCookie = false;
-          }
-        },
-
         async saveFolderSettings(andLaunchAudit = false) {
           if (!this.activeFolderId) return;
           this.settingsLoading = true;
@@ -1455,11 +1478,18 @@ export function getFoldersClientAppScript() {
             if (!meta || typeof meta !== 'object' || Array.isArray(meta)) meta = {};
 
             const maxPinsVal = String(this.folderSettings.max_serp_pins || this.folderSettings.max_pins || this.globalDefaultMaxPins || '50');
+            const pgrForm = this.folderSettings.pin_graph_rules || {};
             const payload = {
               name: (this.folderSettings.name || '').trim() || (this.activeFolder?.name || ''),
               description: (this.folderSettings.description || '').trim(),
               color: this.folderSettings.color || '#6366f1',
               serp_top_n: Math.min(100, Math.max(5, Number(this.folderSettings.serp_top_n || 20))),
+              pin_graph_rules: {
+                auto_trigger_enabled: Boolean(pgrForm.auto_trigger_enabled),
+                linkless_only: Boolean(pgrForm.linkless_only),
+                min_repins: Math.max(0, Math.round(Number(pgrForm.min_repins ?? 500) || 0)),
+                max_pages: Math.min(100, Math.max(1, Math.round(Number(pgrForm.max_pages ?? 20) || 20)))
+              },
               metadata: {
                 ...meta,
                 enable_serp_harvest: Boolean(this.folderSettings.enable_serp_harvest),

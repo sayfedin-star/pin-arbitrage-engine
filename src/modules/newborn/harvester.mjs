@@ -19,6 +19,7 @@ import {
   resolveNewbornRawCookie,
   stampAutomationRunTimestamp
 } from './settings.mjs';
+import { getWorkspaceSettings } from '../workspaces/service.mjs';
 import {
   formatPinterestBoardUrl,
   mergeCandidatePinRecords,
@@ -124,6 +125,84 @@ function computeNextConsecutiveDays(prevDays, prevDateVal, todayDateStr, qualifi
     consecutive_qualifying_days: 1,
     last_qualified_date: todayDateStr
   };
+}
+
+/**
+ * V4 Wave 4: Maps `workspace_settings.extraction_targets` onto normalized Newborn
+ * `settings.discovery.surfaces`, respecting any explicit per-run `settingsOverrides`
+ * passed by the caller so interactive UI overrides always win.
+ */
+export function applyWorkspaceExtractionTargetsToSettings(settings, workspaceSettings = null, explicitOverrides = null) {
+  if (!settings || typeof settings !== 'object') return settings;
+  const targets = workspaceSettings?.extraction_targets;
+  if (!targets || typeof targets !== 'object') return settings;
+
+  const surfaces = settings?.discovery?.surfaces;
+  if (!surfaces || typeof surfaces !== 'object') return settings;
+
+  const ovSurfaces = explicitOverrides?.discovery?.surfaces || {};
+  const ovEnabledList = Array.isArray(explicitOverrides?.discovery?.enabled_surfaces)
+    ? new Set(explicitOverrides.discovery.enabled_surfaces)
+    : null;
+  const clamp = (val, min, max) => {
+    const n = Number(val);
+    if (!Number.isFinite(n)) return null;
+    return Math.min(max, Math.max(min, Math.round(n)));
+  };
+
+  if (targets.search && typeof targets.search === 'object' && !ovSurfaces.pin_serp_capsules) {
+    if (typeof targets.search.enabled === 'boolean' && surfaces.pin_serp_capsules && !ovEnabledList) {
+      surfaces.pin_serp_capsules.enabled = targets.search.enabled;
+    }
+    const tp = clamp(targets.search.target_pins, 10, 5000);
+    if (tp !== null && surfaces.pin_serp_capsules) {
+      surfaces.pin_serp_capsules.target_pins = tp;
+    }
+  }
+
+  if (targets.boards && typeof targets.boards === 'object') {
+    const maxB = clamp(targets.boards.max_boards, 1, 100);
+    const perB = clamp(targets.boards.target_pins_per_board, 10, 2000);
+    if (!ovSurfaces.fresh_boards && surfaces.fresh_boards) {
+      if (typeof targets.boards.enabled === 'boolean' && !ovEnabledList) {
+        surfaces.fresh_boards.enabled = targets.boards.enabled;
+      }
+      if (maxB !== null) surfaces.fresh_boards.max_boards_to_expand = Math.min(50, maxB);
+      if (perB !== null) surfaces.fresh_boards.target_pins_per_board = perB;
+    }
+    if (!ovSurfaces.board_more_ideas && surfaces.board_more_ideas && perB !== null) {
+      surfaces.board_more_ideas.target_pins_per_board = perB;
+    }
+    if (!ovSurfaces.board_feed && surfaces.board_feed && perB !== null) {
+      surfaces.board_feed.target_pins_per_board = perB;
+    }
+  }
+
+  if (targets.idea_page && typeof targets.idea_page === 'object' && !ovSurfaces.ideas_feeds && surfaces.ideas_feeds) {
+    if (typeof targets.idea_page.enabled === 'boolean' && !ovEnabledList) {
+      surfaces.ideas_feeds.enabled = targets.idea_page.enabled;
+    }
+    const tp = clamp(targets.idea_page.target_pins, 10, 5000);
+    if (tp !== null) surfaces.ideas_feeds.target_pins = tp;
+  }
+
+  if (targets.home_feed && typeof targets.home_feed === 'object' && !ovSurfaces.home_feed && surfaces.home_feed) {
+    if (typeof targets.home_feed.enabled === 'boolean' && !ovEnabledList) {
+      surfaces.home_feed.enabled = targets.home_feed.enabled;
+    }
+    const tp = clamp(targets.home_feed.target_pins, 10, 5000);
+    if (tp !== null) surfaces.home_feed.target_pins = tp;
+  }
+
+  if (targets.related_pins && typeof targets.related_pins === 'object' && !ovSurfaces.related_pin_snowball && surfaces.related_pin_snowball) {
+    if (typeof targets.related_pins.enabled === 'boolean' && !ovEnabledList && explicitOverrides?.discovery?.snowball?.enabled === undefined) {
+      surfaces.related_pin_snowball.enabled = targets.related_pins.enabled;
+    }
+    const tp = clamp(targets.related_pins.target_pins, 10, 5000);
+    if (tp !== null) surfaces.related_pin_snowball.target_pins = tp;
+  }
+
+  return settings;
 }
 
 /**
@@ -761,6 +840,13 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
     profileId,
     overrides: settingsOverrides
   });
+
+  if (sql && typeof sql === 'function') {
+    const wsSettings = await getWorkspaceSettings(sql, workspaceId).catch(() => null);
+    if (wsSettings && wsSettings.updated_at) {
+      applyWorkspaceExtractionTargetsToSettings(settings, wsSettings, settingsOverrides);
+    }
+  }
 
   const resolveRootPin = Boolean(settings.qualification?.resolve_root_pin === true);
 

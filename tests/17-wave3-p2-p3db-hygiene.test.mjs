@@ -853,7 +853,9 @@ test('Wave 3.9: Fleet runner awaits inflightRenewal before DELETE, closes dispat
   assert.match(kwYml, /cron:\s*'0 1 \* \* \*'/);
   assert.match(crYml, /cron:\s*'30 2 \* \* \*'/);
   assert.match(rpYml, /cron:\s*'15 4 \* \* \*'/);
-  assert.match(nbYml, /cron:\s*'15 0,6,9,12,15,18,21 \* \* \*'/);
+  assert.doesNotMatch(nbYml, /^\s*schedule:/m);
+  assert.doesNotMatch(nbYml, /^\s*-\s*cron:/m);
+  assert.match(nbYml, /^\s*workflow_dispatch:/m);
 
   // Consolidate guards & skip-wakeup: 'true'
   for (const [name, yml] of [

@@ -111,6 +111,29 @@ export function getPinDetailsBodyHtml(safePinId) {
         </div>
       </template>
 
+      <!-- V4 Watchlist Pin CTA -->
+      <button
+        type="button"
+        @click="savePinToWatchlist()"
+        :disabled="v4WatchlistBusy"
+        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:border-amber-500/60 text-slate-700 dark:text-slate-200 text-xs font-semibold transition cursor-pointer disabled:opacity-50"
+        title="Save Pin to Workspace Watchlist for daily velocity tracking"
+      >
+        <i data-lucide="bookmark" class="w-3.5 h-3.5 text-amber-500"></i>
+        <span class="hidden md:inline" x-text="v4WatchlistBusy ? 'Saving...' : 'Watchlist'"></span>
+      </button>
+
+      <!-- V4 Campaign Track / Pin Graph Seed CTA -->
+      <button
+        type="button"
+        @click="openV4CampaignModal()"
+        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 text-xs font-semibold transition cursor-pointer"
+        title="Add Pin to a Campaign or queue as a Related Pins Graph Seed"
+      >
+        <i data-lucide="folder-plus" class="w-3.5 h-3.5"></i>
+        <span class="hidden md:inline">Campaign / Seed</span>
+      </button>
+
       <!-- Live Deep Sync CTA -->
       <button 
         type="button"
@@ -1503,6 +1526,38 @@ export function getPinDetailsBodyHtml(safePinId) {
         <button @click="confirmDelete()" :disabled="isDeleting" class="px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition shadow-xs cursor-pointer">
           <span x-show="!isDeleting">Confirm Deletion</span>
           <span x-show="isDeleting">Deleting...</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- V4 CAMPAIGN TRACK / PIN GRAPH SEED MODAL -->
+  <div x-show="v4CampaignModalOpen" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4" x-cloak>
+    <div @click.away="v4CampaignModalOpen = false" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <i data-lucide="folder-plus" class="w-4 h-4 text-indigo-500"></i>
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Send Pin to Campaign</h3>
+        </div>
+        <button type="button" @click="v4CampaignModalOpen = false" class="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><i data-lucide="x" class="w-4 h-4"></i></button>
+      </div>
+      <div class="space-y-2">
+        <label class="text-[11px] font-mono uppercase text-slate-500">Target Campaign</label>
+        <select x-model="v4SelectedFolderId" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-xs text-slate-900 dark:text-white">
+          <option value="">Select a campaign...</option>
+          <template x-for="f in v4CampaignFolders" :key="f.id">
+            <option :value="String(f.id)" x-text="f.name"></option>
+          </template>
+        </select>
+      </div>
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
+        <button type="button" @click="addPinToCampaignTracked()" :disabled="!v4SelectedFolderId || v4CampaignActionBusy" class="flex-1 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold cursor-pointer disabled:opacity-40 inline-flex items-center justify-center gap-1.5">
+          <i data-lucide="radar" class="w-3.5 h-3.5"></i>
+          <span>Add to Campaign Tracking</span>
+        </button>
+        <button type="button" @click="queuePinAsGraphSeed()" :disabled="!v4SelectedFolderId || v4CampaignActionBusy" class="flex-1 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer disabled:opacity-40 inline-flex items-center justify-center gap-1.5">
+          <i data-lucide="git-branch" class="w-3.5 h-3.5"></i>
+          <span>Queue Pin Graph Seed</span>
         </button>
       </div>
     </div>

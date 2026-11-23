@@ -771,7 +771,9 @@ test('Wave 6F [11]: scripts/newborn-fleet.mjs db_run lifecycle and newborn-hunte
   assert.ok(wfContent.includes('cluster_id:'));
   assert.ok(wfContent.includes("format('run-{0}', inputs.run_id)"));
   assert.ok(wfContent.includes('FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true'));
-  assert.ok(wfContent.includes("cron: '15 0,6,9,12,15,18,21 * * *'"));
+  assert.ok(!/^\s*schedule:/m.test(wfContent), 'Wave 4: newborn-hunter.yml must NOT contain a schedule: block');
+  assert.ok(wfContent.includes('workflow_dispatch:'));
+  assert.ok(wfContent.includes('max-parallel: 20'));
   assert.ok(wfContent.includes("vars.NEWBORN_AUTO_HUNTER_ENABLED == 'true'"));
 
   const parsed = parseNewbornFleetArgs(['--mode=db_run', '--run-id=42', '--cluster-id=9', '--shards=4', '--worker-index=1'], {});

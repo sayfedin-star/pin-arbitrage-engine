@@ -1215,6 +1215,331 @@ export async function fetchCampaignTrackedPinsForWorker(targetSql, { workerIndex
 }
 
 /**
+ * V4 Wave 4: Resolves dynamic Daily Pulse SERP fetch depth for a keyword via
+ * `MAX(COALESCE(kf.serp_top_n, 20))` across all active campaigns containing it,
+ * clamped strictly within `[10, 50]`.
+ * Returns `null` when the keyword does not belong to any active campaign (so
+ * default quota precedence applies).
+ */
+export async function resolveKeywordMaxSerpTopN(targetSql, keywordId, { min = 10, max = 50 } = {}) {
+  const kid = Number(keywordId);
+  if (!targetSql || typeof targetSql !== 'function' || !kid) return null;
+  const lo = Math.max(1, Number(min) || 10);
+  const hi = Math.max(lo, Number(max) || 50);
+  try {
+    const rows = await targetSql`
+      SELECT MAX(COALESCE(kf.serp_top_n, 20))::int AS max_top_n
+      FROM keyword_folder_items kfi
+      JOIN keyword_folders kf ON kf.id = kfi.folder_id
+      WHERE kfi.keyword_id = ${kid}
+        AND LOWER(COALESCE(kf.metadata->>'status', 'active')) NOT IN ('paused', 'archived')
+        AND LOWER(COALESCE(kf.metadata->>'pause_crawlers', 'false')) <> 'true'
+        AND LOWER(COALESCE(kf.metadata->>'is_crawler_paused', 'false')) <> 'true';
+    `;
+    const raw = rows?.[0]?.max_top_n;
+    if (raw === null || raw === undefined || !Number.isFinite(Number(raw))) {
+      return null;
+    }
+    return Math.min(hi, Math.max(lo, Math.round(Number(raw))));
+  } catch (err) {
+    const code = String(err?.code || '');
+    if (code === '42703' || code === '42P01') {
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
+ * V4 Wave 4: After Daily Pulse harvests SERP positions for a keyword, syncs each active
+ * campaign's configured Top `serp_top_n` active SERP pins into `campaign_tracked_pins`
+ * (`source_type = 'search'`).
+ */
+export async function syncKeywordTopNIntoCampaigns(targetSql, keywordId) {
+  const kid = Number(keywordId);
+  if (!targetSql || typeof targetSql !== 'function' || !kid) {
+    return { campaigns: 0, synced: 0 };
+  }
+  try {
+    const campaigns = await targetSql`
+      SELECT
+        kf.id AS folder_id,
+        COALESCE(kf.workspace_id, 1)::int AS workspace_id,
+        LEAST(100, GREATEST(5, COALESCE(kf.serp_top_n, 20)))::int AS serp_top_n
+      FROM keyword_folder_items kfi
+      JOIN keyword_folders kf ON kf.id = kfi.folder_id
+      WHERE kfi.keyword_id = ${kid}
+        AND LOWER(COALESCE(kf.metadata->>'status', 'active')) NOT IN ('paused', 'archived')
+        AND LOWER(COALESCE(kf.metadata->>'pause_crawlers', 'false')) <> 'true'
+        AND LOWER(COALESCE(kf.metadata->>'is_crawler_paused', 'false')) <> 'true'
+      ORDER BY kf.id ASC;
+    `;
+    if (!Array.isArray(campaigns) || campaigns.length === 0) {
+      return { campaigns: 0, synced: 0 };
+    }
+    let totalSynced = 0;
+    const sourceRef = `kw:${kid}`;
+    for (const c of campaigns) {
+      const fid = Number(c.folder_id);
+      const wid = Number(c.workspace_id) || 1;
+      const topN = Math.min(100, Math.max(5, Math.round(Number(c.serp_top_n || 20))));
+      const inserted = await targetSql`
+        WITH top_pins AS (
+          SELECT ksp.pin_id
+          FROM keyword_serp_positions ksp
+          WHERE ksp.keyword_id = ${kid}
+            AND ksp.is_displaced = FALSE
+            AND ksp.pin_id IS NOT NULL
+            AND ksp.pin_id <> ''
+          ORDER BY ksp.rank_position ASC NULLS LAST, ksp.pin_id ASC
+          LIMIT ${topN}
+        )
+        INSERT INTO campaign_tracked_pins (folder_id, workspace_id, pin_id, source_type, source_ref, is_active, added_at)
+        SELECT ${fid}, ${wid}, tp.pin_id, 'search', ${sourceRef}, TRUE, NOW()
+        FROM top_pins tp
+        ORDER BY tp.pin_id ASC
+        ON CONFLICT (folder_id, pin_id, source_type) DO UPDATE SET
+          is_active = TRUE,
+          source_ref = EXCLUDED.source_ref
+        RETURNING pin_id;
+      `;
+      totalSynced += Array.isArray(inserted) ? inserted.length : 0;
+    }
+    return { campaigns: campaigns.length, synced: totalSynced };
+  } catch (err) {
+    const code = String(err?.code || '');
+    if (code === '42P01' || code === '42703') {
+      return { campaigns: 0, synced: 0 };
+    }
+    throw err;
+  }
+}
+
+/**
+ * V4 Wave 4 (Phase 1.5): Shared Phase 1A SERP harvest + Top-N campaign sync executor
+ * used consistently across Mode A (`keyword_sweep`), Mode B (`pin_partition`), and
+ * Mode C (`folder_pin_partition`) so `MAX(serp_top_n)` and `campaign_tracked_pins`
+ * (`source_type = 'search'`) sync apply uniformly regardless of dispatch mode.
+ */
+export async function runPhase1ASerpHarvestForKeyword(
+  targetSql,
+  keywordId,
+  {
+    cookie = null,
+    explicitMaxSerpPins = null,
+    leaseToken = null,
+    crawlFn = crawlKeywordSERP
+  } = {}
+) {
+  const dynamicMaxTopN = explicitMaxSerpPins === null
+    ? await resolveKeywordMaxSerpTopN(targetSql, keywordId, { min: 10, max: 50 }).catch(() => null)
+    : null;
+  const resolvedSerpQuota = explicitMaxSerpPins !== null ? explicitMaxSerpPins : dynamicMaxTopN;
+  const crawlRes = await crawlFn(targetSql, keywordId, {
+    cookie,
+    ...(resolvedSerpQuota !== null ? { max_serp_pins: resolvedSerpQuota } : {}),
+    skip_top_enrich: true,
+    force: true,
+    ...(leaseToken ? { lease_token: leaseToken } : {})
+  });
+  let syncRes = { campaigns: 0, synced: 0 };
+  let syncWarning = null;
+  try {
+    syncRes = await syncKeywordTopNIntoCampaigns(targetSql, keywordId);
+  } catch (syncErr) {
+    syncWarning = syncErr?.message || String(syncErr);
+  }
+  return {
+    crawlRes,
+    dynamicMaxTopN,
+    resolvedSerpQuota,
+    syncRes,
+    syncWarning
+  };
+}
+
+/**
+ * V4 Wave 4: Fetches Saved Pins tracked in `workspace_watchlist` (`entity_type = 'pin'`)
+ * shard-partitioned across the 20-runner 01:00 UTC Daily Pulse fleet (strictly Zone 1 `_auth=0`).
+ */
+export async function fetchWatchlistPinsForWorker(targetSql, { workerIndex = 0, workerTotal = 20 } = {}) {
+  if (!targetSql || typeof targetSql !== 'function') return [];
+  const wTotal = Math.max(1, Number(workerTotal) || 20);
+  const wIdx = Math.max(0, Math.min(wTotal - 1, Number(workerIndex) || 0));
+
+  try {
+    if (wTotal === 20) {
+      return await targetSql`
+        SELECT DISTINCT ON (ww.entity_key)
+          ww.entity_key AS pin_id,
+          NULL::int AS keyword_id,
+          NULL::int AS rank_position,
+          NULL::int AS last_known_rank,
+          ump.creator_username,
+          ump.board_name,
+          ump.description,
+          ump.alt_text,
+          ump.dominant_color,
+          ump.comment_count,
+          ump.share_count,
+          ump.save_count,
+          ump.repin_count,
+          ump.daily_save_velocity,
+          ump.daily_repin_velocity,
+          ump.created_at_pinterest,
+          ump.creation_method,
+          COALESCE(ump.is_hydrated, FALSE) AS is_hydrated,
+          COALESCE(ump.is_hydrated, FALSE) AS is_deep_hydrated,
+          ump.last_scraped_at,
+          ump.visual_annotations,
+          ump.image_signature,
+          ump.metadata,
+          ump.title,
+          COALESCE(ump.clean_domain, ump.domain, '') AS domain,
+          ump.destination_url,
+          ump.image_url,
+          COALESCE(ump.last_scraped_at, ww.created_at) AS crawled_at,
+          ww.updated_at AS updated_at,
+          FALSE AS is_displaced,
+          TRUE AS is_watchlist_pin,
+          CASE
+            WHEN ump.last_scraped_at IS NOT NULL
+             AND (ump.last_scraped_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
+            THEN ump.save_count
+            ELSE NULL
+          END AS baseline_day_saves,
+          CASE
+            WHEN ump.last_scraped_at IS NOT NULL
+             AND (ump.last_scraped_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
+            THEN (ump.last_scraped_at AT TIME ZONE 'UTC')::date
+            ELSE NULL
+          END AS baseline_day_date,
+          '[]'::jsonb AS folder_positions
+        FROM workspace_watchlist ww
+        LEFT JOIN universal_master_pins ump ON ump.pin_id = ww.entity_key
+        WHERE ww.entity_type = 'pin'
+          AND ww.entity_key ~ '^[0-9]{10,30}$'
+          AND (ABS(hashtext(ww.entity_key::text)::bigint) % 20) = ${wIdx}
+        ORDER BY ww.entity_key ASC, ww.updated_at DESC;
+      `;
+    }
+    if (wTotal > 1) {
+      return await targetSql`
+        SELECT DISTINCT ON (ww.entity_key)
+          ww.entity_key AS pin_id,
+          NULL::int AS keyword_id,
+          NULL::int AS rank_position,
+          NULL::int AS last_known_rank,
+          ump.creator_username,
+          ump.board_name,
+          ump.description,
+          ump.alt_text,
+          ump.dominant_color,
+          ump.comment_count,
+          ump.share_count,
+          ump.save_count,
+          ump.repin_count,
+          ump.daily_save_velocity,
+          ump.daily_repin_velocity,
+          ump.created_at_pinterest,
+          ump.creation_method,
+          COALESCE(ump.is_hydrated, FALSE) AS is_hydrated,
+          COALESCE(ump.is_hydrated, FALSE) AS is_deep_hydrated,
+          ump.last_scraped_at,
+          ump.visual_annotations,
+          ump.image_signature,
+          ump.metadata,
+          ump.title,
+          COALESCE(ump.clean_domain, ump.domain, '') AS domain,
+          ump.destination_url,
+          ump.image_url,
+          COALESCE(ump.last_scraped_at, ww.created_at) AS crawled_at,
+          ww.updated_at AS updated_at,
+          FALSE AS is_displaced,
+          TRUE AS is_watchlist_pin,
+          CASE
+            WHEN ump.last_scraped_at IS NOT NULL
+             AND (ump.last_scraped_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
+            THEN ump.save_count
+            ELSE NULL
+          END AS baseline_day_saves,
+          CASE
+            WHEN ump.last_scraped_at IS NOT NULL
+             AND (ump.last_scraped_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
+            THEN (ump.last_scraped_at AT TIME ZONE 'UTC')::date
+            ELSE NULL
+          END AS baseline_day_date,
+          '[]'::jsonb AS folder_positions
+        FROM workspace_watchlist ww
+        LEFT JOIN universal_master_pins ump ON ump.pin_id = ww.entity_key
+        WHERE ww.entity_type = 'pin'
+          AND ww.entity_key ~ '^[0-9]{10,30}$'
+          AND (ABS(hashtext(ww.entity_key::text)::bigint) % ${wTotal}) = ${wIdx}
+        ORDER BY ww.entity_key ASC, ww.updated_at DESC;
+      `;
+    }
+    return await targetSql`
+      SELECT DISTINCT ON (ww.entity_key)
+        ww.entity_key AS pin_id,
+        NULL::int AS keyword_id,
+        NULL::int AS rank_position,
+        NULL::int AS last_known_rank,
+        ump.creator_username,
+        ump.board_name,
+        ump.description,
+        ump.alt_text,
+        ump.dominant_color,
+        ump.comment_count,
+        ump.share_count,
+        ump.save_count,
+        ump.repin_count,
+        ump.daily_save_velocity,
+        ump.daily_repin_velocity,
+        ump.created_at_pinterest,
+        ump.creation_method,
+        COALESCE(ump.is_hydrated, FALSE) AS is_hydrated,
+        COALESCE(ump.is_hydrated, FALSE) AS is_deep_hydrated,
+        ump.last_scraped_at,
+        ump.visual_annotations,
+        ump.image_signature,
+        ump.metadata,
+        ump.title,
+        COALESCE(ump.clean_domain, ump.domain, '') AS domain,
+        ump.destination_url,
+        ump.image_url,
+        COALESCE(ump.last_scraped_at, ww.created_at) AS crawled_at,
+        ww.updated_at AS updated_at,
+        FALSE AS is_displaced,
+        TRUE AS is_watchlist_pin,
+        CASE
+          WHEN ump.last_scraped_at IS NOT NULL
+           AND (ump.last_scraped_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
+          THEN ump.save_count
+          ELSE NULL
+        END AS baseline_day_saves,
+        CASE
+          WHEN ump.last_scraped_at IS NOT NULL
+           AND (ump.last_scraped_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
+          THEN (ump.last_scraped_at AT TIME ZONE 'UTC')::date
+          ELSE NULL
+        END AS baseline_day_date,
+        '[]'::jsonb AS folder_positions
+      FROM workspace_watchlist ww
+      LEFT JOIN universal_master_pins ump ON ump.pin_id = ww.entity_key
+      WHERE ww.entity_type = 'pin'
+        AND ww.entity_key ~ '^[0-9]{10,30}$'
+      ORDER BY ww.entity_key ASC, ww.updated_at DESC;
+    `;
+  } catch (err) {
+    if (String(err?.code || '') === '42P01') {
+      return [];
+    }
+    console.error('[keyword-velocity-crawler] fetchWatchlistPinsForWorker SQL error:', err?.message || err);
+    throw err;
+  }
+}
+
+/**
  * Atomic Multi-Recordset Batch Flush to Central Metadata Hub
  * Supports single-keyword, folder cluster, global fleet cross-keyword fan-out, and standalone Newborn anchors.
  */
@@ -1728,15 +2053,19 @@ async function run() {
         const effectiveToken = crypto.randomUUID();
         try {
           console.log(`  [*] [Phase 1A] Harvesting SERP for Keyword ID ${kid}...`);
-          const res = await crawlKeywordSERP(sql, kid, {
+          const { crawlRes: res, dynamicMaxTopN, syncRes, syncWarning } = await runPhase1ASerpHarvestForKeyword(sql, kid, {
             cookie,
-            ...(explicitMaxSerpPins !== null ? { max_serp_pins: explicitMaxSerpPins } : {}),
-            skip_top_enrich: true,
-            force: true,
-            lease_token: effectiveToken
+            explicitMaxSerpPins,
+            leaseToken: effectiveToken
           });
           serpSuccessCount++;
-          console.log(`  [+] [Phase 1A] Keyword ID ${kid} SERP harvest complete:`, res?.pins_collected || res?.total_pins_processed || 'OK');
+          if (syncWarning) {
+            console.warn(`  [!] [Phase 1A] Keyword ID ${kid} Top-N campaign sync warning: ${syncWarning}`);
+          }
+          const topNSyncMsg = syncRes.campaigns > 0
+            ? ` | synced ${syncRes.synced} Top-N pin(s) across ${syncRes.campaigns} campaign(s)`
+            : '';
+          console.log(`  [+] [Phase 1A] Keyword ID ${kid} SERP harvest complete:`, res?.pins_collected || res?.total_pins_processed || res?.crawled_pins || 'OK', `${dynamicMaxTopN !== null ? `(max_serp_top_n=${dynamicMaxTopN})` : ''}${topNSyncMsg}`.trim());
         } catch (err) {
           serpErrorCount++;
           const isFatalSqlError = classifyFatalSerpSqlError(err);
@@ -1991,14 +2320,18 @@ async function run() {
         const effectiveToken = crypto.randomUUID();
         let fatalSerpDbErrB = null;
         try {
-          const res = await crawlKeywordSERP(sql, kwRow.id, {
+          const { crawlRes: res, dynamicMaxTopN, syncRes, syncWarning } = await runPhase1ASerpHarvestForKeyword(sql, kwRow.id, {
             cookie,
-            ...(explicitMaxSerpPins !== null ? { max_serp_pins: explicitMaxSerpPins } : {}),
-            skip_top_enrich: true,
-            force: true,
-            lease_token: effectiveToken
+            explicitMaxSerpPins,
+            leaseToken: effectiveToken
           });
-          console.log(`[Phase 1A] Lead Runner SERP ingest complete:`, res?.pins_collected || res?.total_pins_processed || 'OK');
+          if (syncWarning) {
+            console.warn(`[Phase 1A] Keyword ID ${kwRow.id} Top-N campaign sync warning: ${syncWarning}`);
+          }
+          const topNSyncMsg = syncRes.campaigns > 0
+            ? ` | synced ${syncRes.synced} Top-N pin(s) across ${syncRes.campaigns} campaign(s)`
+            : '';
+          console.log(`[Phase 1A] Lead Runner SERP ingest complete:`, res?.pins_collected || res?.total_pins_processed || res?.crawled_pins || 'OK', `${dynamicMaxTopN !== null ? `(max_serp_top_n=${dynamicMaxTopN})` : ''}${topNSyncMsg}`.trim());
         } catch (err) {
           const isFatalSqlError = classifyFatalSerpSqlError(err);
           console.warn(`[Phase 1A] Lead Runner SERP error (code=${err?.code || 'N/A'}):`, err.message);
@@ -2180,15 +2513,16 @@ async function run() {
       }
     }
 
-    const [preCheckAnchors, preCheckCampaignTracked] = allFleetKeywordIds.length === 0
+    const [preCheckAnchors, preCheckCampaignTracked, preCheckWatchlistPins] = allFleetKeywordIds.length === 0
       ? await Promise.all([
           fetchStandaloneNewbornAnchorsForWorker(sql?.noRetry || sql, { workerIndex, workerTotal }),
-          fetchCampaignTrackedPinsForWorker(sql?.noRetry || sql, { workerIndex, workerTotal })
+          fetchCampaignTrackedPinsForWorker(sql?.noRetry || sql, { workerIndex, workerTotal }),
+          fetchWatchlistPinsForWorker(sql?.noRetry || sql, { workerIndex, workerTotal })
         ])
-      : [[], []];
+      : [[], [], []];
 
-    if (allFleetKeywordIds.length === 0 && preCheckAnchors.length === 0 && preCheckCampaignTracked.length === 0) {
-      console.log('[!] No active keywords, Newborn daily anchors, or Campaign tracked pins in this worker slice. Exiting cleanly.');
+    if (allFleetKeywordIds.length === 0 && preCheckAnchors.length === 0 && preCheckCampaignTracked.length === 0 && preCheckWatchlistPins.length === 0) {
+      console.log('[!] No active keywords, Newborn daily anchors, Campaign tracked pins, or Watchlist pins in this worker slice. Exiting cleanly.');
       await closeCrawlerDb(0);
     }
 
@@ -2223,15 +2557,19 @@ async function run() {
         mySerpKeywordIds.map((kid) => serpSem.run(async () => {
           const effectiveToken = crypto.randomUUID();
           try {
-            const res = await crawlKeywordSERP(sql, kid, {
+            const { crawlRes: res, dynamicMaxTopN, syncRes, syncWarning } = await runPhase1ASerpHarvestForKeyword(sql, kid, {
               cookie: effectiveSerpCookie,
-              ...(explicitMaxSerpPins !== null ? { max_serp_pins: explicitMaxSerpPins } : {}),
-              skip_top_enrich: true,
-              force: true,
-              lease_token: effectiveToken
+              explicitMaxSerpPins,
+              leaseToken: effectiveToken
             });
             serpSuccessCount++;
-            console.log(`  [+] [Phase 1A] Keyword ID ${kid} SERP harvest complete (${res?.crawled_pins || 0} pins)`);
+            if (syncWarning) {
+              console.warn(`  [!] [Phase 1A] Keyword ID ${kid} Top-N campaign sync warning: ${syncWarning}`);
+            }
+            const topNSyncMsg = syncRes.campaigns > 0
+              ? ` | synced ${syncRes.synced} Top-N pin(s) across ${syncRes.campaigns} campaign(s)`
+              : '';
+            console.log(`  [+] [Phase 1A] Keyword ID ${kid} SERP harvest complete (${res?.crawled_pins || 0} pins${dynamicMaxTopN !== null ? `, max_serp_top_n=${dynamicMaxTopN}` : ''}${topNSyncMsg})`);
           } catch (err) {
             serpErrorCount++;
             const isFatalSqlError = classifyFatalSerpSqlError(err);
@@ -2366,15 +2704,16 @@ async function run() {
         `, phase1bRetryOpts)
       : [];
 
-    // Union standalone Newborn daily crawler anchors + V4 4-source Campaign tracked pins assigned to this shard
-    const [standaloneAnchors, campaignTrackedPins] = allFleetKeywordIds.length === 0
-      ? [preCheckAnchors, preCheckCampaignTracked]
+    // Union standalone Newborn daily crawler anchors + V4 4-source Campaign tracked pins + Watchlist Saved Pins assigned to this shard
+    const [standaloneAnchors, campaignTrackedPins, watchlistPins] = allFleetKeywordIds.length === 0
+      ? [preCheckAnchors, preCheckCampaignTracked, preCheckWatchlistPins]
       : await Promise.all([
           fetchStandaloneNewbornAnchorsForWorker(phase1bSqlA, { workerIndex, workerTotal }),
-          fetchCampaignTrackedPinsForWorker(phase1bSqlA, { workerIndex, workerTotal })
+          fetchCampaignTrackedPinsForWorker(phase1bSqlA, { workerIndex, workerTotal }),
+          fetchWatchlistPinsForWorker(phase1bSqlA, { workerIndex, workerTotal })
         ]);
 
-    const extraTrackedPins = [...standaloneAnchors, ...campaignTrackedPins];
+    const extraTrackedPins = [...standaloneAnchors, ...campaignTrackedPins, ...watchlistPins];
     if (extraTrackedPins.length > 0) {
       const existingPinIds = new Set(myPins.map((p) => String(p.pin_id)));
       for (const extraPin of extraTrackedPins) {

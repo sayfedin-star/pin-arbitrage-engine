@@ -38,6 +38,7 @@ import { addKeyword } from '../modules/keywords/service.mjs';
 import {
   DEFAULT_WORKSPACE_ID,
   assertFolderInWorkspace,
+  getWorkspaceSettings,
   addCampaignTrackedPins,
   getCampaignTrackedPinsSummary,
   syncCampaignTopNSerpPins,
@@ -279,6 +280,7 @@ export async function handleFoldersRoutes({
           folderId,
           workspaceId,
           pinIds,
+          sourceType: body.source_type || body.source || 'manual',
           depth: body.depth ?? 1
         });
         invalidateFolderCache(folderId, workspaceId);
@@ -586,7 +588,18 @@ export async function handleFoldersRoutes({
       if (body.status && !['active', 'archived', 'paused', 'completed'].includes(String(body.status).toLowerCase())) {
         return jsonResponse({ success: false, error: 'Invalid folder status. Allowed values: active, archived, paused, completed' }, 400);
       }
-      const created = await createFolder(sql, { ...body, workspaceId });
+      let effectiveSerpTopN = body.serp_top_n;
+      if (effectiveSerpTopN === undefined || effectiveSerpTopN === null || effectiveSerpTopN === '') {
+        const wsSettings = await getWorkspaceSettings(sql, workspaceId).catch(() => null);
+        if (wsSettings && Number.isFinite(Number(wsSettings.default_serp_top_n))) {
+          effectiveSerpTopN = Math.min(50, Math.max(10, Math.round(Number(wsSettings.default_serp_top_n))));
+        }
+      }
+      const created = await createFolder(sql, {
+        ...body,
+        ...(effectiveSerpTopN !== undefined ? { serp_top_n: effectiveSerpTopN } : {}),
+        workspaceId
+      });
       return jsonResponse({ success: true, folder: created });
     }
 

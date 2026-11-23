@@ -284,8 +284,9 @@ export async function runKeywordFleetDispatch({ sql, env = process.env }) {
 
     let standaloneAnchorsCount = 0;
     let campaignTrackedPinsCount = 0;
+    let watchlistPinsCount = 0;
     if (isSweepAll) {
-      const [anchorCntRows, trackedCntRows] = await Promise.all([
+      const [anchorCntRows, trackedCntRows, watchlistCntRows] = await Promise.all([
         sql`
           SELECT COUNT(*)::int AS total
           FROM newborn_daily_anchors
@@ -295,17 +296,23 @@ export async function runKeywordFleetDispatch({ sql, env = process.env }) {
           SELECT COUNT(DISTINCT pin_id)::int AS total
           FROM campaign_tracked_pins
           WHERE is_active = TRUE;
+        `.catch(() => [{ total: 0 }]),
+        sql`
+          SELECT COUNT(DISTINCT entity_key)::int AS total
+          FROM workspace_watchlist
+          WHERE entity_type = 'pin';
         `.catch(() => [{ total: 0 }])
       ]);
       standaloneAnchorsCount = Number(anchorCntRows?.[0]?.total || 0);
       campaignTrackedPinsCount = Number(trackedCntRows?.[0]?.total || 0);
+      watchlistPinsCount = Number(watchlistCntRows?.[0]?.total || 0);
     }
 
-    const totalStandaloneTracked = standaloneAnchorsCount + campaignTrackedPinsCount;
-    console.log(`[*] Dispatched ${targetRows.length} active keywords (+ ${standaloneAnchorsCount} Newborn daily anchors, ${campaignTrackedPinsCount} Campaign 4-source tracked pins) across 20 Persistent Fleet Workers.`);
+    const totalStandaloneTracked = standaloneAnchorsCount + campaignTrackedPinsCount + watchlistPinsCount;
+    console.log(`[*] Dispatched ${targetRows.length} active keywords (+ ${standaloneAnchorsCount} Newborn daily anchors, ${campaignTrackedPinsCount} Campaign 4-source tracked pins, ${watchlistPinsCount} Watchlist saved pins) across 20 Persistent Fleet Workers.`);
 
     if (targetRows.length === 0 && totalStandaloneTracked === 0) {
-      console.log('[!] Warning: No active keywords, Newborn anchors, or Campaign tracked pins found in database. Emitting empty matrix.');
+      console.log('[!] Warning: No active keywords, Newborn anchors, Campaign tracked pins, or Watchlist pins found in database. Emitting empty matrix.');
       matrixTasks = [];
     } else {
       const WORKER_COUNT = DEFAULT_FLEET_WORKER_TOTAL;
@@ -319,13 +326,14 @@ export async function runKeywordFleetDispatch({ sql, env = process.env }) {
           target_keyword: '',
           keyword: chunk.length > 0
             ? `${chunk[0].keyword} (+${Math.max(0, chunk.length - 1)} kw)`
-            : (campaignTrackedPinsCount > 0 ? `Campaign Tracked Slice #${w + 1}` : (standaloneAnchorsCount > 0 ? `Newborn Anchor Slice #${w + 1}` : `Pin Slice Worker #${w + 1}`)),
+            : (campaignTrackedPinsCount > 0 ? `Campaign Tracked Slice #${w + 1}` : (watchlistPinsCount > 0 ? `Watchlist Pin Slice #${w + 1}` : (standaloneAnchorsCount > 0 ? `Newborn Anchor Slice #${w + 1}` : `Pin Slice Worker #${w + 1}`))),
           keyword_id: chunk[0]?.id || targetRows[0]?.id || null,
           keyword_ids: chunk.map(r => r.id).join(','),
           all_keyword_ids: allKeywordIdsCsv,
           keywords_count: chunk.length,
           standalone_anchors_count: standaloneAnchorsCount,
           campaign_tracked_pins_count: campaignTrackedPinsCount,
+          watchlist_pins_count: watchlistPinsCount,
           category: 'Global Pin Swarm',
           worker_index: w,
           worker_slot: w + 1,
@@ -344,6 +352,7 @@ export async function runKeywordFleetDispatch({ sql, env = process.env }) {
       keywordsCount: targetRows.length,
       standaloneAnchorsCount,
       campaignTrackedPinsCount,
+      watchlistPinsCount,
       runnersAssigned: matrixTasks.length,
       keywordsList: targetRows.map(r => r.keyword)
     };

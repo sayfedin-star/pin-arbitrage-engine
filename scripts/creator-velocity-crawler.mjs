@@ -58,6 +58,8 @@ import { formatPinterestCookie, sanitizeForJsonb, Semaphore } from '../src/utils
 import { calculateDailyVelocity, isRepinHydrationJump, detectHydrationJump } from '../src/lib/math.mjs';
 import { shouldSkipFreshPinEnrichment, sanitizeVisualAnnotations } from '../src/domain/pin-intelligence.mjs';
 import { getEffectivePinterestCookie } from '../src/modules/keywords/settings.mjs';
+import { resolveNewbornRawCookie } from '../src/modules/newborn/settings.mjs';
+import { redactSecrets } from '../src/http/security-and-response.mjs';
 
 import {
   closeCrawlerDb as closeDbClient,
@@ -120,6 +122,128 @@ const rawPhase2MaxPins = parseInt(process.env.PHASE2_MAX_PINS || '250', 10);
 const PHASE2_MAX_PINS = Number.isFinite(rawPhase2MaxPins) && rawPhase2MaxPins > 0 ? Math.min(2000, rawPhase2MaxPins) : 250;
 const rawPhase2FreshHours = parseInt(process.env.PHASE2_FRESHNESS_HOURS || '18', 10);
 const PHASE2_FRESHNESS_HOURS = Number.isFinite(rawPhase2FreshHours) && rawPhase2FreshHours > 0 ? rawPhase2FreshHours : 18;
+
+/**
+ * V4 Wave 4: Loads `workspace_watchlist` creator tracking modes across all workspaces.
+ * If ANY workspace tracks a creator as `metrics_full_catalog`, full catalog pull wins;
+ * otherwise `metrics_only` keeps the creator on the fast lightweight profile pulse path.
+ */
+export async function loadWatchlistCreatorContext(targetSql) {
+  const modeMap = new Map();
+  const workspaceMap = new Map();
+  if (!targetSql || typeof targetSql !== 'function') return { modeMap, workspaceMap };
+  try {
+    const rows = await targetSql`
+      SELECT
+        LOWER(LTRIM(BTRIM(entity_key), '@')) AS username,
+        BOOL_OR(creator_tracking_mode = 'metrics_full_catalog') AS wants_full,
+        COALESCE(
+          MIN(workspace_id) FILTER (WHERE creator_tracking_mode = 'metrics_full_catalog'),
+          MIN(workspace_id)
+        )::int AS primary_workspace_id
+      FROM workspace_watchlist
+      WHERE entity_type = 'creator'
+        AND BTRIM(COALESCE(entity_key, '')) <> ''
+      GROUP BY 1;
+    `;
+    for (const r of (rows || [])) {
+      const uname = String(r?.username || '').trim().toLowerCase();
+      if (!uname) continue;
+      modeMap.set(uname, r.wants_full ? 'metrics_full_catalog' : 'metrics_only');
+      const wid = Number(r?.primary_workspace_id);
+      if (Number.isInteger(wid) && wid > 0) {
+        workspaceMap.set(uname, wid);
+      }
+    }
+  } catch (err) {
+    if (String(err?.code || '') !== '42P01') {
+      console.warn('[creator-velocity-crawler] workspace_watchlist lookup warning:', redactSecrets(err?.message || String(err)));
+    }
+  }
+  return { modeMap, workspaceMap };
+}
+
+export async function loadWatchlistCreatorModes(targetSql) {
+  const { modeMap } = await loadWatchlistCreatorContext(targetSql);
+  return modeMap;
+}
+
+/**
+ * V4 Wave 4 (Phase 1.5): Resolves strictly isolated per-workspace cookie + bounded
+ * `syncFullCreatorCatalog` caps (`maxBoards`, `maxDurationMs`, `maxPages`, `maxPagesPerBoard`)
+ * so Workspace 2+ never inherits Workspace 1/global cookies and high-board creators
+ * cannot stall a 20-runner worker indefinitely.
+ */
+export async function resolveCreatorSyncCookieAndBounds(
+  targetSql,
+  env = process.env,
+  {
+    acc = null,
+    workspaceId = null,
+    fallbackCookie = null,
+    defaultMaxPages = 500,
+    resolveCookieFn = resolveNewbornRawCookie
+  } = {}
+) {
+  const accRules = acc?.qualification_rules || acc?.metadata?.qualification_rules || {};
+  const targetPages = Math.min(2000, Math.max(1, Number(accRules.max_pages) || Number(defaultMaxPages) || 500));
+  const rawMaxBoards = Number(accRules.max_boards || env?.CREATOR_MAX_BOARDS || 60);
+  const maxBoards = Number.isFinite(rawMaxBoards) && rawMaxBoards > 0 ? Math.min(250, Math.round(rawMaxBoards)) : 60;
+  const rawMaxDurationMs = Number(env?.CREATOR_MAX_DURATION_MS || (6 * 60 * 1000));
+  const maxDurationMs = Number.isFinite(rawMaxDurationMs) && rawMaxDurationMs >= 30000
+    ? Math.min(20 * 60 * 1000, Math.round(rawMaxDurationMs))
+    : 6 * 60 * 1000;
+
+  const numericWid = Number(workspaceId);
+  const hasExplicitWorkspace = Number.isInteger(numericWid) && numericWid > 0;
+  let resolvedCookie = '';
+  let cookieSource = 'none';
+
+  if (hasExplicitWorkspace) {
+    const res = await resolveCookieFn(targetSql, env, { workspaceId: numericWid }).catch(() => ({ rawCookie: '', source: 'none' }));
+    resolvedCookie = typeof res?.rawCookie === 'string' ? res.rawCookie.trim() : '';
+    cookieSource = res?.source || 'none';
+    // Strict Workspace 2+ isolation: NEVER fall back to global / Workspace 1 cookie
+    if (!resolvedCookie && numericWid === 1 && fallbackCookie) {
+      resolvedCookie = String(fallbackCookie).trim();
+      cookieSource = 'env:fallback_ws1';
+    }
+  } else {
+    resolvedCookie = typeof fallbackCookie === 'string' ? fallbackCookie.trim() : '';
+    cookieSource = resolvedCookie ? 'env:PINTEREST_COOKIE' : 'none';
+  }
+
+  return {
+    cookie: resolvedCookie,
+    cookieSource,
+    workspaceId: hasExplicitWorkspace ? numericWid : null,
+    maxPages: targetPages,
+    maxPagesPerBoard: 50,
+    maxBoards,
+    maxDurationMs
+  };
+}
+
+/**
+ * V4 Wave 4: Resolves effective creator tracking mode, giving `workspace_watchlist.creator_tracking_mode`
+ * priority while preserving Lock 7 (`pulse_only` fast-path bypass) for non-watchlisted creators.
+ */
+export function resolveEffectiveCreatorTrackingMode(acc, watchlistModeMap = null) {
+  const cleanUser = String(acc?.username || '').replace(/^@+/, '').trim().toLowerCase();
+  if (cleanUser && watchlistModeMap instanceof Map && watchlistModeMap.has(cleanUser)) {
+    const wlMode = watchlistModeMap.get(cleanUser);
+    if (wlMode === 'metrics_full_catalog') {
+      return { mode: 'full', isPulseOnly: false, source: 'workspace_watchlist' };
+    }
+    return { mode: 'pulse_only', isPulseOnly: true, source: 'workspace_watchlist' };
+  }
+  const isPulseOnly = acc?.tracking_mode === 'pulse_only' || (acc?.profile_pulse_only ?? acc?.metadata?.profile_pulse_only) === true;
+  return {
+    mode: isPulseOnly ? 'pulse_only' : 'full',
+    isPulseOnly,
+    source: 'competitor_profiles'
+  };
+}
 
 /**
  * Route enriched pins to universal_master_pins and pins_daily_metrics via canonical PinRepository.ingestPinsBatch SSOT.
@@ -935,13 +1059,16 @@ async function run() {
       console.warn(`[!] Failed to load dynamic creator hub settings (using fallback defaults):`, setErr.message);
     }
 
+    const { modeMap: watchlistModeMap, workspaceMap: watchlistWorkspaceMap } = await loadWatchlistCreatorContext(sql);
     let accountsProcessed = 0;
     const pulseAccounts = [];
     const fullAccounts = [];
 
     for (const acc of myAccounts) {
       // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 7: Lightweight Creator Pulse Fast-Path Bypass
-      const isPulseOnly = acc.tracking_mode === 'pulse_only' || (acc.profile_pulse_only ?? acc.metadata?.profile_pulse_only) === true;
+      const legacyPulseOnly = acc.tracking_mode === 'pulse_only' || (acc.profile_pulse_only ?? acc.metadata?.profile_pulse_only) === true;
+      const effectiveMode = resolveEffectiveCreatorTrackingMode(acc, watchlistModeMap);
+      const isPulseOnly = effectiveMode.source === 'workspace_watchlist' ? effectiveMode.isPulseOnly : legacyPulseOnly;
       if (isPulseOnly) {
         pulseAccounts.push(acc);
       } else {
@@ -999,7 +1126,7 @@ async function run() {
           });
         }
       } catch (hErr) {
-        console.warn(`[Phase 1A] Batch history baseline lookup warning:`, hErr.message);
+        console.warn(`[Phase 1A] Batch history baseline lookup warning:`, redactSecrets(hErr?.message || String(hErr)));
       }
 
       const resolvedPulseCookie = await getEffectivePinterestCookie(sql, cookie);
@@ -1212,8 +1339,8 @@ async function run() {
             }
           }
 
-          // Tracking mode is strictly operator-controlled via Watchlist toggle (Metrics Only vs Metrics + Full Catalog).
-          const nextTrackingMode = 'pulse_only';
+          // Preserve existing global competitor_profiles.tracking_mode so a workspace watchlist metrics_only override never mutates global state.
+          const nextTrackingMode = acc.tracking_mode || 'pulse_only';
           const nextCustomLabel = acc.custom_label || '';
 
           const snapMeta = {
@@ -1259,7 +1386,7 @@ async function run() {
             await flushPulseBatch(chunkToFlush);
           }
         } catch (pErr) {
-          console.warn(`[!] Pulse sync warning for @${cleanUser}:`, pErr.message);
+          console.warn(`[!] Pulse sync warning for @${cleanUser}:`, redactSecrets(pErr?.message || String(pErr)));
         } finally {
           accountsProcessed++;
           if (accountsProcessed % 50 === 0) {
@@ -1281,35 +1408,46 @@ async function run() {
     const fullSem = new Semaphore(Math.min(3, Math.max(1, fullAccounts.length)));
     await Promise.allSettled(fullAccounts.map((acc, i) => fullSem.run(async () => {
       const cleanUser = (acc.username || '').replace(/^@+/, '').trim();
+      const lowerUser = cleanUser.toLowerCase();
+      const targetWorkspaceId = watchlistWorkspaceMap.get(lowerUser) || null;
+      const syncConfig = await resolveCreatorSyncCookieAndBounds(sql, process.env, {
+        acc,
+        workspaceId: targetWorkspaceId,
+        fallbackCookie: cookie,
+        defaultMaxPages: maxPages
+      });
       console.log(`\n----------------------------------------------------------------`);
-      console.log(`[Phase 1B: ${i + 1}/${fullAccounts.length}] Full Creator Sync: @${cleanUser} (Account ID: ${acc.id})`);
+      console.log(`[Phase 1B: ${i + 1}/${fullAccounts.length}] Full Creator Sync: @${cleanUser} (Account ID: ${acc.id}, ws=${syncConfig.workspaceId ?? 'global'}, cookie=${syncConfig.cookieSource})`);
       console.log(`----------------------------------------------------------------`);
 
       try {
         console.log(`[*] Updating reach & impressions for @${cleanUser}...`);
-        await syncCompetitorProfile(sql, cleanUser, cookie, { pulseOnly: false });
+        await syncCompetitorProfile(sql, cleanUser, syncConfig.cookie || null, {
+          pulseOnly: false,
+          disableGlobalCookieFallback: Boolean(syncConfig.workspaceId && syncConfig.workspaceId > 1)
+        });
       } catch (pErr) {
-        console.warn(`[!] Profile sync warning for @${cleanUser}:`, pErr.message);
+        console.warn(`[!] Profile sync warning for @${cleanUser}:`, redactSecrets(pErr?.message || String(pErr)));
       }
 
-      // Full catalog sync: BoardFeedResource primary across all boards + /_created/ merge (no early_stop_pages = 3 cap)
+      // Full catalog sync: BoardFeedResource primary across all boards + /_created/ merge (bounded maxBoards + maxDurationMs)
       try {
-        const accRules = acc.qualification_rules || acc.metadata?.qualification_rules || {};
-        const targetPages = Number(accRules.max_pages) || maxPages || 500;
-        console.log(`[*] Running syncFullCreatorCatalog for @${cleanUser} (BoardFeedResource primary + /_created/ merge, maxPages=${targetPages})...`);
+        console.log(`[*] Running syncFullCreatorCatalog for @${cleanUser} (maxPages=${syncConfig.maxPages}, maxBoards=${syncConfig.maxBoards}, maxDurationMs=${syncConfig.maxDurationMs})...`);
         const catalogRes = await syncFullCreatorCatalog(sql, acc.id, cleanUser, {
-          maxPages: targetPages,
-          maxPagesPerBoard: 50,
-          cookie,
+          maxPages: syncConfig.maxPages,
+          maxPagesPerBoard: syncConfig.maxPagesPerBoard,
+          maxBoards: syncConfig.maxBoards,
+          maxDurationMs: syncConfig.maxDurationMs,
+          cookie: syncConfig.cookie,
           syncBoardsFirst: true,
           personalBoardsOnly
         });
         console.log(`[✓] @${cleanUser} catalog sync: boards=${catalogRes.boards_crawled}/${catalogRes.boards_found}, board_pins=${catalogRes.board_pins_ingested}, created_pins=${catalogRes.created_pins_ingested}, errors=${catalogRes.errors?.length || 0}`);
         if (Array.isArray(catalogRes.errors) && catalogRes.errors.length > 0) {
-          console.warn(`[!] @${cleanUser} catalog sync reported ${catalogRes.errors.length} warning(s):`, catalogRes.errors.slice(0, 5));
+          console.warn(`[!] @${cleanUser} catalog sync reported ${catalogRes.errors.length} warning(s):`, catalogRes.errors.slice(0, 5).map((e) => redactSecrets(typeof e === 'string' ? e : (e?.message || JSON.stringify(e)))));
         }
       } catch (catErr) {
-        console.warn(`[!] Full catalog sync error for @${cleanUser}:`, catErr.message);
+        console.warn(`[!] Full catalog sync error for @${cleanUser}:`, redactSecrets(catErr?.message || String(catErr)));
       }
 
       await sql`
@@ -1317,7 +1455,7 @@ async function run() {
         SET updated_at = NOW()
         WHERE id = ${acc.id};
       `.catch((err) => {
-        console.warn(`[!] Failed updating timestamp for @${cleanUser}:`, err.message);
+        console.warn(`[!] Failed updating timestamp for @${cleanUser}:`, redactSecrets(err?.message || String(err)));
       });
 
       accountsProcessed++;

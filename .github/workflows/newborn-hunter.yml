@@ -1,9 +1,6 @@
 name: Newborn Hunt
 
 on:
-  schedule:
-    # Evaluates dynamic newborn_engine_settings schedule every 3h outside the 01:00-05:00 UTC nightly batch window
-    - cron: '15 0,6,9,12,15,18,21 * * *'
   workflow_dispatch:
     inputs:
       mode:

@@ -266,13 +266,46 @@ export async function runCreatorFleetDispatch({ sql, env = process.env }) {
     console.log('\n[*] Mode Selected: MODE A (Scheduled Sweep across All Active Creators)');
     console.log('[*] Querying all active creator profiles from Central Hub...');
 
-    const activeProfiles = await sql`
-      SELECT id, username, tracking_mode, last_synced_at
-      FROM competitor_profiles
-      WHERE is_active = TRUE
-        AND COALESCE(account_type, 'competitor') <> 'system'
-      ORDER BY (CASE WHEN tracking_mode = 'full' THEN 0 ELSE 1 END) ASC, last_synced_at ASC NULLS FIRST, id ASC;
-    `;
+    let activeProfiles;
+    try {
+      activeProfiles = await sql`
+        SELECT
+          cp.id,
+          cp.username,
+          CASE
+            WHEN EXISTS (
+              SELECT 1 FROM workspace_watchlist ww
+              WHERE ww.entity_type = 'creator'
+                AND LOWER(LTRIM(BTRIM(ww.entity_key), '@')) = LOWER(LTRIM(BTRIM(cp.username), '@'))
+                AND ww.creator_tracking_mode = 'metrics_full_catalog'
+            ) THEN 'full'
+            ELSE cp.tracking_mode
+          END AS tracking_mode,
+          cp.last_synced_at
+        FROM competitor_profiles cp
+        WHERE cp.is_active = TRUE
+          AND COALESCE(cp.account_type, 'competitor') <> 'system'
+        ORDER BY
+          (CASE
+            WHEN cp.tracking_mode = 'full' OR EXISTS (
+              SELECT 1 FROM workspace_watchlist ww
+              WHERE ww.entity_type = 'creator'
+                AND LOWER(LTRIM(BTRIM(ww.entity_key), '@')) = LOWER(LTRIM(BTRIM(cp.username), '@'))
+                AND ww.creator_tracking_mode = 'metrics_full_catalog'
+            ) THEN 0 ELSE 1 END) ASC,
+          cp.last_synced_at ASC NULLS FIRST,
+          cp.id ASC;
+      `;
+    } catch (err) {
+      if (String(err?.code || '') !== '42P01') throw err;
+      activeProfiles = await sql`
+        SELECT id, username, tracking_mode, last_synced_at
+        FROM competitor_profiles
+        WHERE is_active = TRUE
+          AND COALESCE(account_type, 'competitor') <> 'system'
+        ORDER BY (CASE WHEN tracking_mode = 'full' THEN 0 ELSE 1 END) ASC, last_synced_at ASC NULLS FIRST, id ASC;
+      `;
+    }
 
     console.log(`[*] Resolved ${activeProfiles.length} active creator profile(s) in Central Hub.`);
 

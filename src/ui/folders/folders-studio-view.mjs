@@ -150,8 +150,9 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
             <h3 class="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-100">Daily Tracked Pins (4 Sources)</h3>
             <span class="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400" x-text="'· Seeds: ' + formatNumber(pinGraphSeeds.length)"></span>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 flex-wrap">
             <button type="button" @click="syncTopNSerpPins()" :disabled="syncingTopN" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"><i data-lucide="refresh-cw" class="w-3 h-3" :class="syncingTopN ? 'animate-spin' : ''"></i><span x-text="syncingTopN ? 'Syncing...' : ('Sync Top ' + (trackedPinsSummary.serp_top_n || folderSettings.serp_top_n || 20))"></span></button>
+            <button type="button" @click="pinGraphExpanded = !pinGraphExpanded; if (pinGraphExpanded) loadPinGraphSeeds()" class="px-2.5 py-1 rounded-lg text-xs font-semibold border transition cursor-pointer inline-flex items-center gap-1" :class="pinGraphExpanded ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-200 border-slate-200 dark:border-[#27272A]'"><i data-lucide="git-branch" class="w-3 h-3"></i><span x-text="'Pin Graph Seeds (' + formatNumber(pinGraphSeeds.length) + ')'"></span></button>
             <button type="button" @click="trackedPinsExpanded = !trackedPinsExpanded" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] cursor-pointer" x-text="trackedPinsExpanded ? 'Hide List' : ('Tracked (' + formatNumber(trackedPinsSummary.source_counts?.all || 0) + ')')"></button>
           </div>
         </div>
@@ -160,6 +161,29 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
             <button type="button" @click="loadTrackedPinsSummary(src.k); trackedPinsExpanded = true" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition cursor-pointer" :class="trackedPinsSourceFilter === src.k ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A]'"><span x-text="src.l + ' (' + formatNumber(trackedPinsSummary.source_counts?.[src.k] || 0) + ')'"></span></button>
           </template>
         </div>
+        <template x-if="pinGraphExpanded">
+          <div class="border-t border-slate-200 dark:border-[#27272A] pt-3 space-y-2.5">
+            <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+              <input type="text" x-model="manualPinGraphSeedInput" @keydown.enter.prevent="queueManualPinGraphSeeds()" placeholder="Paste Seed Pin ID(s) or URLs (comma-separated)..." class="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500">
+              <button type="button" @click="queueManualPinGraphSeeds()" :disabled="queueingPinGraphSeeds" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"><i data-lucide="plus" class="w-3.5 h-3.5"></i><span x-text="queueingPinGraphSeeds ? 'Queueing...' : 'Queue Seed(s)'"></span></button>
+            </div>
+            <div x-show="!(pinGraphSeeds || []).length" class="text-xs text-slate-500">No Related Pins seeds queued yet for this campaign.</div>
+            <div x-show="(pinGraphSeeds || []).length > 0" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 max-h-52 overflow-y-auto">
+              <template x-for="seed in (pinGraphSeeds || [])" :key="seed.seed_pin_id">
+                <div class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/70 dark:bg-[#18181B]/70 flex items-center justify-between gap-2">
+                  <div class="min-w-0">
+                    <a :href="'/pin/' + seed.seed_pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '')" class="text-xs font-semibold text-slate-900 dark:text-white hover:text-emerald-500 truncate block" x-text="seed.title || ('Seed #' + seed.seed_pin_id)"></a>
+                    <div class="flex items-center gap-1.5 mt-0.5 text-[10px] font-mono tabular-nums">
+                      <span class="uppercase px-1.5 py-0.25 rounded border" :class="seed.status === 'crawled' ? 'text-emerald-600 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : (seed.status === 'failed' ? 'text-rose-500 border-rose-500/30 bg-rose-500/10' : 'text-amber-600 dark:text-amber-400 border-amber-500/30 bg-amber-500/10')" x-text="seed.status || 'queued'"></span>
+                      <span class="text-slate-500" x-text="seed.source_type || 'manual'"></span>
+                    </div>
+                  </div>
+                  <button type="button" @click="removePinGraphSeed(seed.seed_pin_id)" class="p-1 rounded text-slate-400 hover:text-rose-500 cursor-pointer shrink-0" title="Remove Seed"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
         <template x-if="trackedPinsExpanded">
           <div class="border-t border-slate-200 dark:border-[#27272A] pt-3">
             <div x-show="trackedPinsLoading" class="text-xs text-slate-500">Loading tracked pins...</div>
@@ -996,28 +1020,31 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                 </label>
               </div>
 
-              <!-- Global Pinterest Session Cookie (PINTEREST_COOKIE) -->
-              <div class="p-4 rounded-xl border border-amber-500/25 bg-amber-500/5 space-y-2.5">
+              <!-- V4 Wave 4: Campaign Pin Graph Rules Override -->
+              <div class="p-4 rounded-xl border border-emerald-500/25 bg-emerald-500/5 space-y-3">
                 <div class="flex items-center justify-between">
                   <div class="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                    <i data-lucide="key" class="w-3.5 h-3.5 text-amber-500 shrink-0"></i><span>Pinterest Session Cookie (PINTEREST_COOKIE)</span>
+                    <i data-lucide="git-branch" class="w-3.5 h-3.5 text-emerald-500 shrink-0"></i><span>Pin Graph Rules (Related Pins)</span>
                   </div>
-                  <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border"
-                        :class="pinterestCookieStatus?.has_cookie ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'"
-                        x-text="pinterestCookieStatus?.has_cookie ? 'Authenticated' : 'Guest Mode'"></span>
+                  <a href="/settings" class="text-[10px] font-mono text-indigo-500 hover:underline">Workspace Cookie &amp; Defaults</a>
                 </div>
-                <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  Paste your raw <code class="font-mono text-amber-600 dark:text-amber-400">_pinterest_sess</code> value or full cookie string to authenticate SERP search crawls and eliminate <code class="font-mono text-rose-500">e1_</code> encrypted pin IDs.
-                </p>
-                <textarea x-model="pinterestCookieInput" rows="3"
-                          placeholder="Paste raw _pinterest_sess token (TWc9PS...) or _auth=0; _pinterest_sess=&quot;...&quot;"
-                          class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-900 dark:text-white font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-amber-500"></textarea>
-                <div class="flex items-center justify-between pt-1">
-                  <span class="text-[10px] font-mono text-slate-400" x-text="pinterestCookieStatus?.preview ? ('Active: ' + pinterestCookieStatus.preview) : 'Ready'"></span>
-                  <button type="button" @click="savePinterestCookie()" :disabled="isSavingCookie"
-                          class="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white transition cursor-pointer disabled:opacity-50">
-                    <span x-text="isSavingCookie ? 'Saving...' : 'Save & Activate Cookie'"></span>
-                  </button>
+                <label class="flex items-center justify-between text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                  <span>Auto-track qualifying Related Pins</span>
+                  <input type="checkbox" x-model="folderSettings.pin_graph_rules.auto_trigger_enabled" class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                </label>
+                <label class="flex items-center justify-between text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                  <span>Linkless pins only (Arbitrage Vacuum)</span>
+                  <input type="checkbox" x-model="folderSettings.pin_graph_rules.linkless_only" class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                </label>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="text-[10px] uppercase font-mono text-slate-500">Min Re-pins</label>
+                    <input type="number" min="0" x-model.number="folderSettings.pin_graph_rules.min_repins" class="w-full mt-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-900 dark:text-white font-mono text-xs">
+                  </div>
+                  <div>
+                    <label class="text-[10px] uppercase font-mono text-slate-500">Max Pages / Seed</label>
+                    <input type="number" min="1" max="100" x-model.number="folderSettings.pin_graph_rules.max_pages" class="w-full mt-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-900 dark:text-white font-mono text-xs">
+                  </div>
                 </div>
               </div>
             </div>

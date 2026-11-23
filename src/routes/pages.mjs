@@ -175,6 +175,17 @@ export async function handlePagesRoutes(routeCtx) {
     });
   }
 
+  // 3C. V4 Wave 4: Redirect legacy /creators -> /watchlist?tab=creators (retires 600KB classic dashboard)
+  if (pathLower === '/creators' || pathLower === '/creators/') {
+    if (method !== 'GET' && method !== 'HEAD') {
+      return methodNotAllowedResponse('GET, OPTIONS');
+    }
+    return sendNative(null, 302, {
+      'Location': '/watchlist?tab=creators',
+      'Cache-Control': 'no-cache, no-store, must-revalidate'
+    });
+  }
+
   // 4A. V4 Canonical Radar Studio (/, /radar, /pulse, /24h)
   if (
     pathLower === '/' ||

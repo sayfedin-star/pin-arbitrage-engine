@@ -18,8 +18,11 @@ import {
   sleep,
   setDefaultDispatcher,
   fetchPinFromPinResource,
-  fetchPinsBatchFromPidgets
+  fetchPinsBatchFromPidgets,
+  CircuitBreakerOpenError,
+  globalPinterestCircuitBreaker
 } from '../src/core/pinterest/index.mjs';
+import { redactSecrets } from '../src/http/security-and-response.mjs';
 
 import {
   loadDotEnvIfPresent,
@@ -136,10 +139,15 @@ export async function sqlWithRetry(queryFn, maxRetries = 3, options = {}) {
  */
 export async function fetchWithRetry(url, headers, maxRetries = 3, options = {}) {
   const fetchFn = typeof options.fetchImpl === 'function' ? options.fetchImpl : fetch;
+  const breaker = options.circuitBreaker !== undefined ? options.circuitBreaker : globalPinterestCircuitBreaker;
+  const sleepFn = typeof options.sleepImpl === 'function' ? options.sleepImpl : sleep;
   let activeHeaders = { ...headers };
   let attemptedGuestFallback = false;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    if (breaker && typeof breaker.canExecute === 'function' && !breaker.canExecute()) {
+      throw new CircuitBreakerOpenError('Pinterest circuit breaker is OPEN: halting RelatedModulesResource fetch');
+    }
     try {
       const response = await fetchFn(url, {
         headers: activeHeaders,
@@ -149,8 +157,17 @@ export async function fetchWithRetry(url, headers, maxRetries = 3, options = {})
 
       if (response.status === 429) {
         if (response?.body) await response.body.cancel().catch(() => {});
-        console.warn(`[!] HTTP 429 Rate limited (attempt ${attempt}/${maxRetries}). Sleeping 60 seconds...`);
-        await sleep(60000);
+        if (breaker && typeof breaker.recordFailure === 'function') {
+          breaker.recordFailure(429);
+          if (typeof breaker.canExecute === 'function' && !breaker.canExecute()) {
+            throw new CircuitBreakerOpenError('Pinterest circuit breaker tripped OPEN after HTTP 429');
+          }
+        }
+        if (attempt === maxRetries) {
+          throw new Error('HTTP error 429: Rate limited');
+        }
+        console.warn(`[!] HTTP 429 Rate limited (attempt ${attempt}/${maxRetries}). Backing off...`);
+        await sleepFn(Math.min(60000, 15000 * attempt));
         continue;
       }
 
@@ -170,6 +187,12 @@ export async function fetchWithRetry(url, headers, maxRetries = 3, options = {})
       if (response.status === 403) {
         if (response?.body) await response.body.cancel().catch(() => {});
         console.error(`[-] HTTP 403 Forbidden on attempt ${attempt}: Pinterest blocked request.`);
+        if (breaker && typeof breaker.recordFailure === 'function') {
+          breaker.recordFailure(403);
+          if (typeof breaker.canExecute === 'function' && !breaker.canExecute()) {
+            throw new CircuitBreakerOpenError('Pinterest circuit breaker tripped OPEN after HTTP 403');
+          }
+        }
       }
 
       if (!response.ok) {
@@ -178,24 +201,36 @@ export async function fetchWithRetry(url, headers, maxRetries = 3, options = {})
         if (attempt === maxRetries) {
           throw new Error(`HTTP error ${response.status}: ${response.statusText}`);
         }
-        await sleep(3000 * attempt);
+        await sleepFn(3000 * attempt);
         continue;
       }
 
+      if (breaker && typeof breaker.recordSuccess === 'function') {
+        breaker.recordSuccess();
+      }
       return await response.json();
     } catch (err) {
-      if (/^HTTP error (?:412|401):/.test(String(err?.message || ''))) {
+      if (err instanceof CircuitBreakerOpenError || err?.code === 'CIRCUIT_BREAKER_OPEN') {
         throw err;
+      }
+      if (/^HTTP error (?:412|401|429):/.test(String(err?.message || ''))) {
+        throw err;
+      }
+      if (breaker && typeof breaker.recordFailure === 'function') {
+        breaker.recordFailure(0, err);
+        if (typeof breaker.canExecute === 'function' && !breaker.canExecute()) {
+          throw new CircuitBreakerOpenError('Pinterest circuit breaker tripped OPEN after repeated network failures');
+        }
       }
       if (err.name === 'TimeoutError' || err.name === 'AbortError') {
         console.warn(`[!] Request timed out (attempt ${attempt}/${maxRetries})`);
       } else {
-        console.warn(`[!] Network error on attempt ${attempt}: ${err.message}`);
+        console.warn(`[!] Network error on attempt ${attempt}: ${redactSecrets(err?.message || String(err))}`);
       }
       if (attempt === maxRetries) {
         throw err;
       }
-      await sleep(2500 * attempt);
+      await sleepFn(2500 * attempt);
     }
   }
 }
@@ -1032,14 +1067,18 @@ async function crawlSeed(seed) {
 
   let bookmark = null;
   const rawMaxPages = parseInt(process.env.MAX_PAGES, 10);
-  const maxPages = (!isNaN(rawMaxPages) && rawMaxPages > 0) ? Math.min(rawMaxPages, 100) : 60;
+  const seedRuleMaxPages = Number(seed?.pin_graph_rules?.max_pages);
+  const maxPages = Number.isFinite(seedRuleMaxPages) && seedRuleMaxPages > 0
+    ? Math.min(Math.round(seedRuleMaxPages), 100)
+    : ((!isNaN(rawMaxPages) && rawMaxPages > 0) ? Math.min(rawMaxPages, 100) : 60);
 
-  const resolvedCookieInfo = await resolveNewbornRawCookie(sql, process.env).catch(() => ({ rawCookie: '' }));
+  const seedWorkspaceId = Number(seed?.workspace_id) > 0 ? Number(seed.workspace_id) : 1;
+  const resolvedCookieInfo = await resolveNewbornRawCookie(sql, process.env, { workspaceId: seedWorkspaceId }).catch(() => ({ rawCookie: '' }));
   const { headers: baseHeaders, guestHeaders, usedAuthCookie } = buildZoneARelatedModulesHeaders({
     pinId,
     rawCookie: resolvedCookieInfo?.rawCookie || ''
   });
-  console.log(`[*] RelatedModulesResource Routing: ${usedAuthCookie ? 'Zone-A Authenticated (_auth=1)' : 'Guest Fallback (Zero-Cookie)'}`);
+  console.log(`[*] RelatedModulesResource Routing (ws=${seedWorkspaceId}): ${usedAuthCookie ? 'Zone-A Authenticated (_auth=1)' : 'Guest Fallback (Zero-Cookie)'}`);
 
   for (let page = 1; page <= maxPages; page++) {
     console.log(`[*] [Page ${page}/${maxPages}] Requesting RelatedModulesResource...`);
@@ -1073,7 +1112,7 @@ async function crawlSeed(seed) {
     try {
       responseData = await fetchWithRetry(targetUrl, baseHeaders);
     } catch (err) {
-      console.error(`[-] Failed to fetch page ${page} for seed ${pinId}: ${err.message}`);
+      console.error(`[-] Failed to fetch page ${page} for seed ${pinId}: ${redactSecrets(err?.message || String(err))}`);
       break;
     }
 
@@ -1222,7 +1261,7 @@ async function crawlSeed(seed) {
   // Zero-Candidates Safeguard: Prevent wiping existing metrics or prematurely marking crawl as done if upstream fails
   if (totalCandidates === 0) {
     console.warn(`[!] Warning: Zero candidates harvested for seed ${pinId} (check network connectivity or seed validity). Preserving existing database metrics and crawl state.`);
-    return;
+    return { totalCandidates: 0, candidates: [] };
   }
 
   // Strict Upstream Quota Preservation: If Pinterest delivered candidate_counts, preserve them 100% as ground truth!
@@ -1427,6 +1466,180 @@ async function crawlSeed(seed) {
   `);
 
   console.log(`[+] Seed ${pinId} cluster intelligence pipeline completed successfully.`);
+  return { totalCandidates, candidates: allCandidates };
+}
+
+/**
+ * V4 Wave 4: Merges workspace default `pin_graph_rules` with optional per-campaign
+ * overrides (`keyword_folders.pin_graph_rules`), preserving `auto_trigger_enabled = false`
+ * as the strict Zero Auto-Promote default.
+ */
+export function mergeCampaignPinGraphRules(workspaceRules = {}, folderRules = {}) {
+  const ws = (workspaceRules && typeof workspaceRules === 'object' && !Array.isArray(workspaceRules)) ? workspaceRules : {};
+  const fl = (folderRules && typeof folderRules === 'object' && !Array.isArray(folderRules)) ? folderRules : {};
+  const clamp = (val, fallback, min, max) => {
+    const n = Number(val);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, Math.round(n)));
+  };
+  return {
+    auto_trigger_enabled: typeof fl.auto_trigger_enabled === 'boolean'
+      ? fl.auto_trigger_enabled
+      : (typeof ws.auto_trigger_enabled === 'boolean' ? ws.auto_trigger_enabled : false),
+    linkless_only: typeof fl.linkless_only === 'boolean'
+      ? fl.linkless_only
+      : (typeof ws.linkless_only === 'boolean' ? ws.linkless_only : false),
+    min_repins: clamp(fl.min_repins ?? ws.min_repins, 500, 0, 1000000),
+    max_pages: clamp(fl.max_pages ?? ws.max_pages, 20, 1, 100)
+  };
+}
+
+/**
+ * V4 Wave 4: Pure rule evaluator for Pin Graph candidates (`min_repins` + `linkless_only`).
+ */
+export function evaluatePinGraphCandidateRules(candidate, rules = {}) {
+  if (!candidate || !candidate.candidate_pin_id && !candidate.pin_id) return false;
+  const minRepins = Math.max(0, Number(rules?.min_repins ?? 0) || 0);
+  const repins = Number(candidate.repins ?? candidate.repin_count ?? 0) || 0;
+  if (minRepins > 0 && repins < minRepins) return false;
+
+  if (rules?.linkless_only === true) {
+    const dest = String(candidate.destination_url || '').trim();
+    const dom = String(candidate.clean_domain || candidate.domain || '').trim();
+    if (dest.length > 0 || dom.length > 0) return false;
+  }
+  return true;
+}
+
+/**
+ * V4 Wave 4: Fetches queued `campaign_pin_graph_seeds` merged with workspace & campaign
+ * `pin_graph_rules`, shard-partitioned across the 20-runner matrix (`42P01`/`42703` safe).
+ */
+export async function fetchQueuedCampaignPinGraphSeeds(dbSql, { shardIdx = null, shardTotal = 20, limit = 100, pinIds = null } = {}) {
+  if (!dbSql || typeof dbSql !== 'function') return [];
+  const effectiveShardTot = Math.max(1, Number(shardTotal) || 20);
+  const safeLimit = Math.max(1, Math.min(500, Number(limit) || 100));
+  const cleanPinIds = Array.isArray(pinIds) && pinIds.length > 0
+    ? pinIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : null;
+  try {
+    const rows = await dbSql`
+      SELECT
+        cpgs.folder_id,
+        COALESCE(cpgs.workspace_id, kf.workspace_id, 1)::int AS workspace_id,
+        cpgs.seed_pin_id AS pin_id,
+        cpgs.source_type,
+        cpgs.status,
+        cpgs.last_crawled_at,
+        kf.name AS folder_name,
+        kf.pin_graph_rules AS folder_pin_graph_rules,
+        ws.pin_graph_rules AS workspace_pin_graph_rules
+      FROM campaign_pin_graph_seeds cpgs
+      JOIN keyword_folders kf ON kf.id = cpgs.folder_id
+      LEFT JOIN workspace_settings ws ON ws.workspace_id = COALESCE(cpgs.workspace_id, kf.workspace_id, 1)
+      WHERE cpgs.status = 'queued'
+        AND LOWER(COALESCE(kf.metadata->>'status', 'active')) NOT IN ('paused', 'archived')
+        AND LOWER(COALESCE(kf.metadata->>'pause_crawlers', 'false')) <> 'true'
+        AND LOWER(COALESCE(kf.metadata->>'is_crawler_paused', 'false')) <> 'true'
+        AND (${cleanPinIds}::text[] IS NULL OR cpgs.seed_pin_id = ANY(${cleanPinIds}::text[]))
+        AND (${shardIdx}::int IS NULL OR (ABS(hashtext(cpgs.seed_pin_id::text)::bigint) % ${effectiveShardTot}::int) = ${shardIdx}::int)
+      ORDER BY cpgs.created_at ASC, cpgs.seed_pin_id ASC
+      LIMIT ${safeLimit};
+    `;
+    return (rows || []).map((r) => ({
+      folder_id: Number(r.folder_id),
+      workspace_id: Number(r.workspace_id) || 1,
+      pin_id: String(r.pin_id),
+      label: r.folder_name ? `Campaign: ${r.folder_name}` : 'Campaign Pin Graph Seed',
+      source_type: String(r.source_type || 'manual'),
+      status: String(r.status || 'queued'),
+      last_crawled_at: r.last_crawled_at || null,
+      is_campaign_seed: true,
+      pin_graph_rules: mergeCampaignPinGraphRules(r.workspace_pin_graph_rules, r.folder_pin_graph_rules)
+    }));
+  } catch (err) {
+    const code = String(err?.code || '');
+    if (code === '42P01' || code === '42703') {
+      return [];
+    }
+    throw err;
+  }
+}
+
+/**
+ * V4 Wave 4: Updates `campaign_pin_graph_seeds.status` strictly within Migration 012's
+ * CHECK constraint (`'queued' | 'crawled' | 'failed'`).
+ */
+export async function markCampaignPinGraphSeedStatus(dbSql, { folderId, seedPinId, status = 'crawled' } = {}) {
+  const fid = Number(folderId);
+  const pid = String(seedPinId || '').trim();
+  const safeStatus = ['queued', 'crawled', 'failed'].includes(String(status)) ? String(status) : 'failed';
+  if (!dbSql || typeof dbSql !== 'function' || !fid || !pid) return false;
+  try {
+    await dbSql`
+      UPDATE campaign_pin_graph_seeds
+      SET status = ${safeStatus},
+          last_crawled_at = NOW()
+      WHERE folder_id = ${fid}
+        AND seed_pin_id = ${pid};
+    `;
+    return true;
+  } catch (err) {
+    if (String(err?.code || '') === '42P01') return false;
+    throw err;
+  }
+}
+
+/**
+ * V4 Wave 4: Conditionally records qualifying Related Pins into `campaign_tracked_pins`
+ * (`source_type = 'related'`) ONLY when `rules.auto_trigger_enabled === true`.
+ * Preserves Zero Auto-Promote whenever `auto_trigger_enabled` is false.
+ */
+export async function recordCampaignRelatedPins(dbSql, {
+  folderId,
+  workspaceId = 1,
+  seedPinId,
+  candidates = [],
+  rules = {}
+} = {}) {
+  const fid = Number(folderId);
+  const wid = Number(workspaceId) || 1;
+  const seedId = String(seedPinId || '').trim();
+  if (!dbSql || typeof dbSql !== 'function' || !fid || !seedId) {
+    return { tracked: 0, skippedReason: 'invalid_args' };
+  }
+  const merged = mergeCampaignPinGraphRules({}, rules);
+  if (merged.auto_trigger_enabled !== true) {
+    return { tracked: 0, skippedReason: 'auto_trigger_disabled' };
+  }
+  const matchingIds = Array.from(new Set(
+    (Array.isArray(candidates) ? candidates : [])
+      .filter((c) => evaluatePinGraphCandidateRules(c, merged))
+      .map((c) => String(c.candidate_pin_id || c.pin_id || '').trim())
+      .filter((id) => /^\d{10,30}$/.test(id) && id !== seedId)
+  )).sort();
+
+  if (matchingIds.length === 0) {
+    return { tracked: 0, skippedReason: 'no_matching_candidates' };
+  }
+
+  const sourceRef = `seed:${seedId}`;
+  try {
+    const inserted = await dbSql`
+      INSERT INTO campaign_tracked_pins (folder_id, workspace_id, pin_id, source_type, source_ref, is_active, added_at)
+      SELECT ${fid}, ${wid}, unnest(${matchingIds}::varchar[]), 'related', ${sourceRef}, TRUE, NOW()
+      ON CONFLICT (folder_id, pin_id, source_type) DO UPDATE SET
+        is_active = TRUE,
+        source_ref = EXCLUDED.source_ref
+      RETURNING pin_id;
+    `;
+    return { tracked: Array.isArray(inserted) ? inserted.length : 0, skippedReason: null };
+  } catch (err) {
+    if (String(err?.code || '') === '42P01') {
+      return { tracked: 0, skippedReason: 'table_missing' };
+    }
+    throw err;
+  }
 }
 
 /**
@@ -1547,12 +1760,36 @@ async function main() {
 
     // Strictly deterministic order matching rawIds across all shards
     const existingMap = new Map((existing || []).map(s => [String(s.pin_id), s]));
-    seedsToProcess = rawIds.map(id => existingMap.get(id) || {
-      pin_id: id,
-      label: 'Target Pin Override',
-      is_competitor: false,
-      velocity: 0,
-      last_crawled_at: null
+    const matchedCampaignSeeds = await fetchQueuedCampaignPinGraphSeeds(sql, {
+      pinIds: rawIds,
+      limit: Math.min(500, Math.max(20, rawIds.length * 5))
+    }).catch((err) => {
+      console.warn(`[!] Warning loading campaign_pin_graph_seeds for TARGET_PIN_ID override:`, redactSecrets(err?.message || String(err)));
+      return [];
+    });
+    const campaignLinksByPin = new Map();
+    for (const cs of matchedCampaignSeeds) {
+      const list = campaignLinksByPin.get(cs.pin_id) || [];
+      list.push(cs);
+      campaignLinksByPin.set(cs.pin_id, list);
+    }
+    seedsToProcess = rawIds.map(id => {
+      const baseSeed = existingMap.get(id) || {
+        pin_id: id,
+        label: 'Target Pin Override',
+        is_competitor: false,
+        velocity: 0,
+        last_crawled_at: null
+      };
+      const links = campaignLinksByPin.get(String(id)) || [];
+      return links.length > 0
+        ? {
+            ...baseSeed,
+            workspace_id: baseSeed.workspace_id || links[0].workspace_id,
+            pin_graph_rules: baseSeed.pin_graph_rules || links[0].pin_graph_rules,
+            campaign_links: links
+          }
+        : baseSeed;
     });
   } else {
     const effectiveShardTot = (shardTot !== null && !isNaN(shardTot) && shardTot > 0) ? shardTot : 20;
@@ -1566,6 +1803,37 @@ async function main() {
       ORDER BY last_crawled_at ASC NULLS FIRST, pin_id ASC
       LIMIT 100;
     `);
+
+    const campaignSeeds = await fetchQueuedCampaignPinGraphSeeds(sql, {
+      shardIdx,
+      shardTotal: effectiveShardTot,
+      limit: 100
+    }).catch((err) => {
+      console.warn(`[!] Warning loading campaign_pin_graph_seeds:`, err?.message || err);
+      return [];
+    });
+
+    if (campaignSeeds.length > 0) {
+      const existingByPin = new Map(seedsToProcess.map((s) => [String(s.pin_id), s]));
+      for (const cs of campaignSeeds) {
+        await sqlWithRetry(() => sql`
+          INSERT INTO cluster_seeds (pin_id, label, is_competitor, velocity)
+          VALUES (${cs.pin_id}, ${cs.label}, false, 0)
+          ON CONFLICT (pin_id) DO NOTHING;
+        `).catch(() => {});
+        const existingSeed = existingByPin.get(cs.pin_id);
+        if (existingSeed) {
+          existingSeed.campaign_links = [...(existingSeed.campaign_links || []), cs];
+          existingSeed.workspace_id = existingSeed.workspace_id || cs.workspace_id;
+          existingSeed.pin_graph_rules = existingSeed.pin_graph_rules || cs.pin_graph_rules;
+        } else {
+          const wrapped = { ...cs, campaign_links: [cs] };
+          existingByPin.set(cs.pin_id, wrapped);
+          seedsToProcess.push(wrapped);
+        }
+      }
+      console.log(`[+] Merged ${campaignSeeds.length} queued V4 campaign_pin_graph_seeds into crawl queue.`);
+    }
 
     if (shardIdx !== null) {
       console.log(`\n===============================================================`);
@@ -1695,9 +1963,38 @@ async function main() {
     if (typeof heartbeatTimer.unref === 'function') heartbeatTimer.unref();
 
     try {
-      await crawlSeed(seed);
+      const crawlRes = await crawlSeed(seed);
+      const campaignLinks = Array.isArray(seed.campaign_links) ? seed.campaign_links : [];
+      for (const link of campaignLinks) {
+        const nextStatus = (crawlRes && crawlRes.totalCandidates > 0) ? 'crawled' : 'failed';
+        await markCampaignPinGraphSeedStatus(sql, {
+          folderId: link.folder_id,
+          seedPinId: link.pin_id,
+          status: nextStatus
+        }).catch(() => {});
+        if (nextStatus === 'crawled') {
+          const trackRes = await recordCampaignRelatedPins(sql, {
+            folderId: link.folder_id,
+            workspaceId: link.workspace_id,
+            seedPinId: link.pin_id,
+            candidates: crawlRes.candidates || [],
+            rules: link.pin_graph_rules || {}
+          }).catch(() => ({ tracked: 0 }));
+          if (trackRes.tracked > 0) {
+            console.log(`[+] Auto-tracked ${trackRes.tracked} related pin(s) into Campaign #${link.folder_id} (auto_trigger_enabled=true).`);
+          }
+        }
+      }
     } catch (err) {
-      console.error(`[-] Error crawling seed ${seed.pin_id}:`, err);
+      console.error(`[-] Error crawling seed ${seed.pin_id}: ${redactSecrets(err?.message || String(err))}`);
+      const campaignLinks = Array.isArray(seed.campaign_links) ? seed.campaign_links : [];
+      for (const link of campaignLinks) {
+        await markCampaignPinGraphSeedStatus(sql, {
+          folderId: link.folder_id,
+          seedPinId: link.pin_id,
+          status: 'failed'
+        }).catch(() => {});
+      }
     } finally {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       currentSeedLeaseContext = null;

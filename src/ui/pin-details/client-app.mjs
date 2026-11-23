@@ -47,6 +47,11 @@ export function getPinDetailsClientAppScripts() {
         isDeleting: false,
         isSyncing: false,
         isTrackingCreator: false,
+        v4WatchlistBusy: false,
+        v4CampaignModalOpen: false,
+        v4CampaignActionBusy: false,
+        v4CampaignFolders: [],
+        v4SelectedFolderId: '',
         annotationsIntelOpen: false,
         annotationsIntelLoading: false,
         annotationsIntelError: '',
@@ -1481,6 +1486,107 @@ export function getPinDetailsClientAppScripts() {
             this.showToast('Deletion error: ' + err.message, 'error');
           } finally {
             this.isDeleting = false;
+          }
+        },
+
+        async savePinToWatchlist() {
+          if (this.v4WatchlistBusy || !this.pinId) return;
+          this.v4WatchlistBusy = true;
+          try {
+            const res = await (window.safeApiFetch || fetch)('/api/watchlist', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+              body: JSON.stringify({
+                entity_type: 'pin',
+                entity_key: String(this.pinId),
+                notes: this.dossier?.creative?.title ? String(this.dossier.creative.title).slice(0, 140) : ''
+              })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data?.success !== false) {
+              this.showToast('Pin #' + this.pinId + ' saved to Workspace Watchlist');
+            } else {
+              this.showToast(data?.error || 'Could not save pin to Watchlist', 'error');
+            }
+          } catch (err) {
+            this.showToast('Watchlist error: ' + err.message, 'error');
+          } finally {
+            this.v4WatchlistBusy = false;
+          }
+        },
+
+        async openV4CampaignModal() {
+          this.v4CampaignModalOpen = true;
+          if (!this.v4SelectedFolderId && this.originFolderId) {
+            this.v4SelectedFolderId = String(this.originFolderId);
+          }
+          try {
+            const res = await (window.safeApiFetch || fetch)('/api/folders?lite=true', { headers: { Accept: 'application/json' } });
+            if (res.ok) {
+              const data = await res.json().catch(() => ({}));
+              this.v4CampaignFolders = Array.isArray(data.folders) ? data.folders : [];
+              if (!this.v4SelectedFolderId && this.v4CampaignFolders.length > 0) {
+                this.v4SelectedFolderId = String(this.v4CampaignFolders[0].id);
+              }
+            } else {
+              const errData = await res.json().catch(() => ({}));
+              this.showToast(errData?.error || 'Failed to load Campaigns list', 'error');
+            }
+          } catch (err) {
+            if (!err || err.name !== 'AbortError') {
+              this.showToast('Failed to load Campaigns list: ' + (err?.message || 'network error'), 'error');
+            }
+          }
+          if (typeof this.$nextTick === 'function') {
+            this.$nextTick(() => {
+              if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons();
+            });
+          }
+        },
+
+        async addPinToCampaignTracked() {
+          if (!this.v4SelectedFolderId || this.v4CampaignActionBusy) return;
+          this.v4CampaignActionBusy = true;
+          try {
+            const res = await (window.safeApiFetch || fetch)('/api/folders/' + encodeURIComponent(this.v4SelectedFolderId) + '/tracked-pins', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+              body: JSON.stringify({ pin_ids: [String(this.pinId)], source_type: 'related', source_ref: 'pin_dossier' })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data?.success) {
+              this.showToast('Pin #' + this.pinId + ' added to Campaign daily tracking');
+              this.v4CampaignModalOpen = false;
+            } else {
+              this.showToast(data?.error || 'Failed to add pin to Campaign', 'error');
+            }
+          } catch (err) {
+            this.showToast('Campaign tracking error: ' + err.message, 'error');
+          } finally {
+            this.v4CampaignActionBusy = false;
+          }
+        },
+
+        async queuePinAsGraphSeed() {
+          if (!this.v4SelectedFolderId || this.v4CampaignActionBusy) return;
+          this.v4CampaignActionBusy = true;
+          try {
+            const res = await (window.safeApiFetch || fetch)('/api/folders/' + encodeURIComponent(this.v4SelectedFolderId) + '/pin-graph-seeds', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+              body: JSON.stringify({ pin_ids: [String(this.pinId)], source_type: 'manual' })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data?.success) {
+              this.showToast('Queued Pin #' + this.pinId + ' as Campaign Pin Graph Seed');
+              this.v4CampaignModalOpen = false;
+            } else {
+              this.showToast(data?.error || 'Failed to queue Pin Graph Seed', 'error');
+            }
+          } catch (err) {
+            this.showToast('Seed queue error: ' + err.message, 'error');
+          } finally {
+            this.v4CampaignActionBusy = false;
           }
         }
       };

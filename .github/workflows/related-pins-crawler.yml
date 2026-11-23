@@ -3,7 +3,7 @@ run-name: "Related Pins Crawler [${{ inputs.mode || 'seed_deep' }}]${{ inputs.ta
 
 on:
   schedule:
-    # Daily deep crawl of queued cluster_seeds at 04:15 UTC (clear of 01:00 keywords, 02:30 creators & newborn 15 0,6,9,12,15,18,21 * * *)
+    # Daily deep crawl of queued cluster_seeds & campaign_pin_graph_seeds at 04:15 UTC (clear of 01:00 keywords & 02:30 creators)
     - cron: '15 4 * * *'
   workflow_dispatch:
     inputs:
@@ -96,17 +96,24 @@ jobs:
             const sql = createSqlClient(process.env.DATABASE_URL, { max: 1 });
             try {
               const rows = await sql\`SELECT COUNT(*)::int AS cnt FROM cluster_seeds\`;
-              console.log(rows[0]?.cnt || 0);
+              let campaignQueued = 0;
+              try {
+                const cRows = await sql\`SELECT COUNT(*)::int AS cnt FROM campaign_pin_graph_seeds WHERE status = 'queued'\`;
+                campaignQueued = Number(cRows[0]?.cnt || 0);
+              } catch (e) {
+                if (String(e?.code || '') !== '42P01') throw e;
+              }
+              console.log(Number(rows[0]?.cnt || 0) + campaignQueued);
             } finally {
               await sql.end({ timeout: 2 }).catch(() => {});
             }
             process.exit(0);
           ")
-          echo "Detected $SEED_COUNT rows in cluster_seeds."
+          echo "Detected $SEED_COUNT total seed(s) across cluster_seeds + queued campaign_pin_graph_seeds."
           if [ "${SEED_COUNT:-0}" -gt 0 ]; then
             echo "has_seeds=true" >> "$GITHUB_OUTPUT"
           else
-            echo "No seeds in cluster_seeds. Skipping 20-runner matrix."
+            echo "No seeds queued in cluster_seeds or campaign_pin_graph_seeds. Skipping 20-runner matrix."
             echo "has_seeds=false" >> "$GITHUB_OUTPUT"
           fi
 

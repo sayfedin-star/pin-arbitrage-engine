@@ -23,7 +23,13 @@ function decodeHtmlEntitiesClient(str) {
 
 window.watchlistApp = function watchlistApp() {
   const boot = window.__PAE_PAGE_DATA__ || window.__PAE_PAGE_BOOTSTRAP__ || {};
-  const initTab = ['creator', 'domain', 'pin'].includes(String(boot.initialTab || '')) ? String(boot.initialTab) : 'creator';
+  const tabMap = { creator: 'creator', creators: 'creator', domain: 'domain', domains: 'domain', pin: 'pin', pins: 'pin' };
+  let rawTab = String(boot.initialTab || '').trim().toLowerCase();
+  try {
+    const qsTab = new URLSearchParams(window.location.search).get('tab');
+    if (qsTab) rawTab = String(qsTab).trim().toLowerCase();
+  } catch (_) {}
+  const initTab = tabMap[rawTab] || 'creator';
 
   return {
     isDark: false,

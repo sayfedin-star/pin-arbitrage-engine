@@ -582,7 +582,7 @@ test('Pillar 4: GitHub Actions 5 workflows have clean short names and preserve a
     { file: 'ci.yml', name: 'Deploy', needsCron: false, needsSkipWakeup: false, needsRunName: false },
     { file: 'keyword-intelligence-velocity.yml', name: 'Daily Pulse', needsCron: true, needsSkipWakeup: true, needsRunName: false },
     { file: 'crawler-pipeline.yml', name: 'Creator Sync', needsCron: true, needsSkipWakeup: false, needsRunName: false },
-    { file: 'newborn-hunter.yml', name: 'Newborn Hunt', needsCron: true, needsSkipWakeup: false, needsRunName: false },
+    { file: 'newborn-hunter.yml', name: 'Newborn Hunt', needsCron: false, forbidCron: true, needsSkipWakeup: false, needsRunName: false },
     { file: 'related-pins-crawler.yml', name: 'Related Pins', needsCron: false, needsSkipWakeup: false, needsRunName: true }
   ];
 
@@ -593,6 +593,10 @@ test('Pillar 4: GitHub Actions 5 workflows have clean short names and preserve a
     assert.match(content, /FORCE_JAVASCRIPT_ACTIONS_TO_NODE24:\s*true/, `${wf.file} must keep FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true`);
     if (wf.needsCron) {
       assert.match(content, /cron:\s*['"][^'"]+['"]/, `${wf.file} must preserve schedule cron`);
+    }
+    if (wf.forbidCron) {
+      assert.doesNotMatch(content, /^\s*schedule:/m, `${wf.file} must NOT have an automatic schedule: cron trigger (Wave 4)`);
+      assert.doesNotMatch(content, /^\s*-\s*cron:/m, `${wf.file} must NOT have a cron entry (Wave 4)`);
     }
     if (wf.needsSkipWakeup) {
       assert.match(content, /skip-wakeup:\s*['"]true['"]/, `${wf.file} must preserve skip-wakeup: 'true'`);

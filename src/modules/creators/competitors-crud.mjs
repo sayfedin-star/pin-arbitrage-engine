@@ -315,7 +315,7 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
     existingProfile?.metadata?.profile_pulse_only === true
   );
 
-  const resolvedCookie = cookie || await getEffectivePinterestCookie(sql, cookie);
+  const resolvedCookie = cookie || (options.disableGlobalCookieFallback ? '' : await getEffectivePinterestCookie(sql, cookie));
   const formattedCookie = formatPinterestCookie(resolvedCookie);
   const res = await fetchUserResource(cleanUsername, formattedCookie);
   if (!res.ok) {
