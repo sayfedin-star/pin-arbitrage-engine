@@ -554,6 +554,94 @@ export function getAppSidebarClientScriptCode() {
         }
       }
 
+      if (typeof window !== 'undefined' && typeof window.paeWorkspaceSwitcher !== 'function') {
+        window.paeWorkspaceSwitcher = function paeWorkspaceSwitcher() {
+          return {
+            open: false,
+            creating: false,
+            saving: false,
+            errorMsg: '',
+            newWorkspaceName: '',
+            activeWorkspaceId: 1,
+            workspaces: [{ id: 1, name: 'Default Workspace', slug: 'default', is_default: true, campaign_count: 0 }],
+            init: async function() {
+              try {
+                var apiFetch = window.safeApiFetch || fetch;
+                var res = await apiFetch('/api/workspaces', { credentials: 'same-origin' });
+                if (!res.ok) return;
+                var data = await res.json();
+                if (data && Array.isArray(data.workspaces) && data.workspaces.length > 0) {
+                  this.workspaces = data.workspaces;
+                  this.activeWorkspaceId = Number(data.active_workspace_id || data.workspaces[0].id || 1);
+                }
+              } catch (_) {}
+            },
+            activeWorkspaceName: function() {
+              for (var i = 0; i < this.workspaces.length; i++) {
+                if (Number(this.workspaces[i].id) === Number(this.activeWorkspaceId)) {
+                  return this.workspaces[i].name || 'Default Workspace';
+                }
+              }
+              return 'Default Workspace';
+            },
+            switchWorkspace: async function(id) {
+              var targetId = Number(id);
+              if (!targetId || targetId === Number(this.activeWorkspaceId)) {
+                this.open = false;
+                return;
+              }
+              this.errorMsg = '';
+              try {
+                var apiFetch = window.safeApiFetch || fetch;
+                var res = await apiFetch('/api/workspaces/switch', {
+                  method: 'POST',
+                  credentials: 'same-origin',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ workspace_id: targetId })
+                });
+                if (!res.ok) {
+                  this.errorMsg = 'Failed to switch workspace.';
+                  return;
+                }
+                this.activeWorkspaceId = targetId;
+                this.open = false;
+                window.location.reload();
+              } catch (_) {
+                this.errorMsg = 'Network error while switching workspace.';
+              }
+            },
+            createNewWorkspace: async function() {
+              var clean = String(this.newWorkspaceName || '').trim();
+              if (!clean || this.saving) return;
+              this.saving = true;
+              this.errorMsg = '';
+              try {
+                var apiFetch = window.safeApiFetch || fetch;
+                var res = await apiFetch('/api/workspaces', {
+                  method: 'POST',
+                  credentials: 'same-origin',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ name: clean })
+                });
+                var data = await res.json().catch(function() { return {}; });
+                if (!res.ok || !data.workspace) {
+                  this.errorMsg = data.message || data.error || 'Could not create workspace.';
+                  return;
+                }
+                this.workspaces.push(data.workspace);
+                this.newWorkspaceName = '';
+                this.creating = false;
+                await this.switchWorkspace(data.workspace.id);
+              } catch (_) {
+                this.errorMsg = 'Network error while creating workspace.';
+              } finally {
+                this.saving = false;
+              }
+            }
+          };
+        };
+      }
+
       if (typeof window !== 'undefined') {
         if (window.PAE && !window.PAE.refreshIcons) {
           window.PAE.refreshIcons = refreshAppSidebarIcons;

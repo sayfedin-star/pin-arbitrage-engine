@@ -67,7 +67,6 @@ export function getDomainsClientAppScript() {
         sizeFilter: 'all',
         logicMode: 'and',
         sortBy: 'visibility',
-        excludeMarketplaces: true,
 
         // Deep Dossier Studio State (Dedicated Full-Page Route /domains/:domain)
         isDossierOpen: Boolean(initialDomain),
@@ -325,8 +324,7 @@ export function getDomainsClientAppScript() {
             limit: String(this.limit),
             sort: this.sortBy,
             preset: this.activePreset,
-            pillar: this.selectedPillar,
-            exclude_marketplaces: String(this.excludeMarketplaces)
+            pillar: this.selectedPillar
           });
 
           // [INVARIANT: CACHE-BUSTED-DOMAIN-LOAD] Guarantee fresh reads on manual refreshes
@@ -487,7 +485,6 @@ export function getDomainsClientAppScript() {
           this.sizeFilter = 'all';
           this.logicMode = 'and';
           this.sortBy = 'visibility';
-          this.excludeMarketplaces = true;
           this.loadDomains(true);
         },
 

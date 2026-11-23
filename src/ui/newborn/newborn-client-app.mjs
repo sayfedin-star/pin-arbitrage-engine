@@ -33,7 +33,7 @@ export function getNewbornClientAppScript() {
             related_pin_snowball: { enabled: false, max_pages: 8, page_size: 25, target_pins: 200 }
           },
           snowball: { enabled: false, max_hops: 1, seed_cap: 10, min_seed_golden_score: 65 },
-          hydration: { enable_pidgets_pretriage: true, max_pin_hydrations_per_run: 500, max_user_hydrations_per_run: 25, auto_fetch_accounts: false }
+          hydration: { enable_pidgets_pretriage: true, max_pin_hydrations_per_run: 500, max_user_hydrations_per_run: 50, auto_fetch_accounts: true }
         },
         qualification: {
           age_window_preset: '30d',
@@ -49,8 +49,8 @@ export function getNewbornClientAppScript() {
           provenance: {
             allowed_sources: ['SHARE_EXTENSION_IOS', 'SHARE_EXTENSION_ANDROID', 'UPLOADED', 'ORGANIC_PIN', 'CAROUSEL', 'VIDEO', 'IDEA_PIN', 'BOOKMARKLET', 'UNKNOWN'],
             excluded_sources: [],
-            ai_disclosure_policy: 'exclude',
-            exclude_products: true,
+            ai_disclosure_policy: 'include',
+            exclude_products: false,
             exclude_videos: false
           },
           linkless_vacuum: { mode: 'boost', linkless_vacuum_only: false, score_boost: 12 }

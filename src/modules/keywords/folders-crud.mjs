@@ -7,37 +7,78 @@ import { normalizePinterestUsername, RESERVED_PINTEREST_PATHS, syncCompetitorPro
 import { normalizeFolderMetadata, invalidateFolderCache } from './folders-crossover.mjs';
 import { ignoreAndRemoveSerpPin } from './displaced-and-tombstones.mjs';
 import { safeWaitUntil } from '../../http/security-and-response.mjs';
+import { DEFAULT_WORKSPACE_ID, parsePositiveWorkspaceId } from '../workspaces/service.mjs';
+
+function isMissingWorkspaceColumnError(err) {
+  return /column\s+"?(?:workspace_id|serp_top_n|pin_graph_rules)"?\s+does\s+not\s+exist/i.test(err?.message || '');
+}
 
 /**
  * Lightweight folder listing for fast header dropdown / switcher (< 5ms)
  * Queries only keyword_folders and keyword_folder_items count.
  */
-export async function listFoldersLite(sql, { projectId = 'default' } = {}) {
-  const rows = await sql`
-    WITH kw_counts AS (
-      SELECT folder_id, COUNT(keyword_id)::int AS keyword_count
-      FROM keyword_folder_items
-      GROUP BY folder_id
-    )
-    SELECT
-      f.id,
-      f.name,
-      f.description,
-      f.color,
-      f.icon,
-      f.project_id,
-      f.metadata,
-      f.created_at,
-      f.updated_at,
-      COALESCE(kw.keyword_count, 0) AS keyword_count,
-      COALESCE(kw.keyword_count, 0) AS item_count
-    FROM keyword_folders f
-    LEFT JOIN kw_counts kw ON kw.folder_id = f.id
-    WHERE f.project_id = ${projectId}
-    ORDER BY f.updated_at DESC, f.created_at DESC;
-  `;
+export async function listFoldersLite(sql, { projectId = 'default', workspaceId = DEFAULT_WORKSPACE_ID } = {}) {
+  const wid = parsePositiveWorkspaceId(workspaceId) || DEFAULT_WORKSPACE_ID;
+  let rows;
+  try {
+    rows = await sql`
+      WITH kw_counts AS (
+        SELECT folder_id, COUNT(keyword_id)::int AS keyword_count
+        FROM keyword_folder_items
+        GROUP BY folder_id
+      )
+      SELECT
+        f.id,
+        f.name,
+        f.description,
+        f.color,
+        f.icon,
+        f.project_id,
+        f.workspace_id,
+        f.serp_top_n,
+        f.pin_graph_rules,
+        f.metadata,
+        f.created_at,
+        f.updated_at,
+        COALESCE(kw.keyword_count, 0) AS keyword_count,
+        COALESCE(kw.keyword_count, 0) AS item_count
+      FROM keyword_folders f
+      LEFT JOIN kw_counts kw ON kw.folder_id = f.id
+      WHERE f.project_id = ${projectId}
+        AND f.workspace_id = ${wid}
+      ORDER BY f.updated_at DESC, f.created_at DESC;
+    `;
+  } catch (err) {
+    if (!isMissingWorkspaceColumnError(err)) throw err;
+    if (wid !== DEFAULT_WORKSPACE_ID) return [];
+    rows = await sql`
+      WITH kw_counts AS (
+        SELECT folder_id, COUNT(keyword_id)::int AS keyword_count
+        FROM keyword_folder_items
+        GROUP BY folder_id
+      )
+      SELECT
+        f.id,
+        f.name,
+        f.description,
+        f.color,
+        f.icon,
+        f.project_id,
+        f.metadata,
+        f.created_at,
+        f.updated_at,
+        COALESCE(kw.keyword_count, 0) AS keyword_count,
+        COALESCE(kw.keyword_count, 0) AS item_count
+      FROM keyword_folders f
+      LEFT JOIN kw_counts kw ON kw.folder_id = f.id
+      WHERE f.project_id = ${projectId}
+      ORDER BY f.updated_at DESC, f.created_at DESC;
+    `;
+  }
   return rows.map(r => ({
     ...r,
+    workspace_id: Number(r.workspace_id || wid),
+    serp_top_n: Number(r.serp_top_n || 20),
     metadata: normalizeFolderMetadata(r.metadata),
     keyword_count: Number(r.keyword_count || 0),
     item_count: Number(r.item_count || r.keyword_count || 0)
@@ -48,8 +89,9 @@ export async function listFoldersLite(sql, { projectId = 'default' } = {}) {
  * List all folders with item counts and keyword previews
  * // [INVARIANT: FOLDER-SINGLE-PASS-CTE]
  */
-export async function listFolders(sql, { projectId = 'default' } = {}) {
-  const rows = await sql`
+export async function listFolders(sql, { projectId = 'default', workspaceId = DEFAULT_WORKSPACE_ID } = {}) {
+  const wid = parsePositiveWorkspaceId(workspaceId) || DEFAULT_WORKSPACE_ID;
+  const runQuery = async (withWorkspaceFilter) => sql`
     WITH kw_counts AS (
       SELECT folder_id, COUNT(keyword_id)::int AS keyword_count
       FROM keyword_folder_items GROUP BY folder_id
@@ -72,7 +114,10 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
           ELSE 'other'
         END AS item_source,
         ksp.is_displaced,
-        LOWER(TRIM(COALESCE(ump.clean_domain, ''))) AS clean_domain,
+        CASE
+          WHEN LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic') THEN 'uploaded by user'
+          ELSE LOWER(TRIM(COALESCE(ump.clean_domain, '')))
+        END AS clean_domain,
         LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
       FROM keyword_folder_items kfi
       JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
@@ -88,8 +133,6 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
         COUNT(DISTINCT pin_id) FILTER (WHERE item_source = 'vault')::int AS vault_pins_count,
         COUNT(DISTINCT clean_domain) FILTER (
           WHERE clean_domain IS NOT NULL AND clean_domain <> ''
-            AND clean_domain NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest.com', 'www.pinterest.com', 'pin.it', 'localhost', 'direct', 'organic')
-            AND clean_domain LIKE '%.%'
         )::int AS domain_count,
         COUNT(DISTINCT clean_username) FILTER (
           WHERE clean_username IS NOT NULL AND clean_username <> ''
@@ -113,6 +156,9 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
       f.color,
       f.icon,
       f.project_id,
+      f.workspace_id,
+      f.serp_top_n,
+      f.pin_graph_rules,
       f.metadata,
       f.created_at,
       f.updated_at,
@@ -141,10 +187,117 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
     LEFT JOIN pinned_counts pd ON pd.folder_id = f.id
     LEFT JOIN combined_summary cs ON cs.folder_id = f.id
     WHERE f.project_id = ${projectId}
+      AND (${!withWorkspaceFilter} OR f.workspace_id = ${wid})
     ORDER BY f.updated_at DESC, f.created_at DESC;
   `;
+
+  let rows;
+  try {
+    rows = await runQuery(true);
+  } catch (err) {
+    if (!isMissingWorkspaceColumnError(err)) throw err;
+    if (wid !== DEFAULT_WORKSPACE_ID) return [];
+    rows = await sql`
+      WITH kw_counts AS (
+        SELECT folder_id, COUNT(keyword_id)::int AS keyword_count
+        FROM keyword_folder_items GROUP BY folder_id
+      ),
+      creator_counts AS (
+        SELECT folder_id, COUNT(competitor_id)::int AS creator_count
+        FROM folder_competitor_items GROUP BY folder_id
+      ),
+      pinned_counts AS (
+        SELECT folder_id, COUNT(id)::int AS pinned_domain_count
+        FROM folder_pinned_domains GROUP BY folder_id
+      ),
+      folder_pins AS (
+        SELECT
+          kfi.folder_id,
+          ksp.pin_id,
+          CASE
+            WHEN ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL AND ksp.rank_position >= 1 THEN 'active'
+            WHEN ksp.is_displaced = TRUE THEN 'vault'
+            ELSE 'other'
+          END AS item_source,
+          ksp.is_displaced,
+          CASE
+            WHEN LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic') THEN 'uploaded by user'
+            ELSE LOWER(TRIM(COALESCE(ump.clean_domain, '')))
+          END AS clean_domain,
+          LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
+        FROM keyword_folder_items kfi
+        JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
+        JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+        WHERE (ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL AND ksp.rank_position >= 1)
+           OR ksp.is_displaced = TRUE
+      ),
+      combined_summary AS (
+        SELECT
+          folder_id,
+          COUNT(DISTINCT pin_id)::int AS unique_pins_count,
+          COUNT(DISTINCT pin_id) FILTER (WHERE item_source = 'active')::int AS active_pins_count,
+          COUNT(DISTINCT pin_id) FILTER (WHERE item_source = 'vault')::int AS vault_pins_count,
+          COUNT(DISTINCT clean_domain) FILTER (
+            WHERE clean_domain IS NOT NULL AND clean_domain <> ''
+          )::int AS domain_count,
+          COUNT(DISTINCT clean_username) FILTER (
+            WHERE clean_username IS NOT NULL AND clean_username <> ''
+              AND clean_username NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+          )::int AS discovered_creator_count
+        FROM (
+          SELECT folder_id, pin_id, clean_domain, clean_username, item_source, is_displaced FROM folder_pins
+          UNION ALL
+          SELECT fci.folder_id, NULL AS pin_id, NULL AS clean_domain, LOWER(TRIM(cp.username)) AS clean_username, 'tracked' AS item_source, FALSE AS is_displaced
+          FROM folder_competitor_items fci
+          JOIN competitor_profiles cp ON cp.id = fci.competitor_id
+          WHERE cp.username IS NOT NULL AND cp.username <> ''
+        ) comb
+        WHERE comb.is_displaced = FALSE OR comb.item_source = 'vault'
+        GROUP BY folder_id
+      )
+      SELECT 
+        f.id,
+        f.name,
+        f.description,
+        f.color,
+        f.icon,
+        f.project_id,
+        f.metadata,
+        f.created_at,
+        f.updated_at,
+        COALESCE(kw.keyword_count, 0) AS keyword_count,
+        COALESCE(cr.creator_count, 0) AS creator_count,
+        COALESCE(pd.pinned_domain_count, 0) AS pinned_domain_count,
+        COALESCE(cs.domain_count, 0) AS domain_count,
+        COALESCE(cs.unique_pins_count, 0) AS pin_count,
+        COALESCE(cs.unique_pins_count, 0) AS unique_pins_count,
+        COALESCE(cs.unique_pins_count, 0) AS total_unique_pins,
+        COALESCE(cs.active_pins_count, 0) AS active_pins_count,
+        COALESCE(cs.vault_pins_count, 0) AS vault_pins_count,
+        COALESCE(cs.discovered_creator_count, 0) AS discovered_creator_count,
+        COALESCE(
+          (
+            SELECT json_agg(json_build_object('id', tk.id, 'keyword', tk.keyword))
+            FROM keyword_folder_items kfi
+            JOIN tracked_keywords tk ON tk.id = kfi.keyword_id
+            WHERE kfi.folder_id = f.id
+          ),
+          '[]'::json
+        ) AS keywords_preview
+      FROM keyword_folders f
+      LEFT JOIN kw_counts kw ON kw.folder_id = f.id
+      LEFT JOIN creator_counts cr ON cr.folder_id = f.id
+      LEFT JOIN pinned_counts pd ON pd.folder_id = f.id
+      LEFT JOIN combined_summary cs ON cs.folder_id = f.id
+      WHERE f.project_id = ${projectId}
+      ORDER BY f.updated_at DESC, f.created_at DESC;
+    `;
+  }
   return rows.map(r => ({
     ...r,
+    workspace_id: Number(r.workspace_id || wid),
+    serp_top_n: Number(r.serp_top_n || 20),
+    pin_graph_rules: r.pin_graph_rules && typeof r.pin_graph_rules === 'object' ? r.pin_graph_rules : null,
     metadata: normalizeFolderMetadata(r.metadata),
     keyword_count: Number(r.keyword_count || 0),
     creator_count: Number(r.creator_count || 0),
@@ -163,87 +316,174 @@ export async function listFolders(sql, { projectId = 'default' } = {}) {
  * Get single folder with all tracked keyword details
  * // [INVARIANT: FOLDER-SINGLE-PASS-CTE]
  */
-export async function getFolder(sql, folderId) {
+export async function getFolder(sql, folderId, { workspaceId = DEFAULT_WORKSPACE_ID } = {}) {
   const fid = Number(folderId);
   if (!fid) return null;
+  const wid = parsePositiveWorkspaceId(workspaceId) || DEFAULT_WORKSPACE_ID;
 
-  const [folder] = await sql`
-    WITH kw_counts AS (
-      SELECT folder_id, COUNT(keyword_id)::int AS keyword_count
-      FROM keyword_folder_items WHERE folder_id = ${fid} GROUP BY folder_id
-    ),
-    creator_counts AS (
-      SELECT folder_id, COUNT(competitor_id)::int AS creator_count
-      FROM folder_competitor_items WHERE folder_id = ${fid} GROUP BY folder_id
-    ),
-    pinned_counts AS (
-      SELECT folder_id, COUNT(id)::int AS pinned_domain_count
-      FROM folder_pinned_domains WHERE folder_id = ${fid} GROUP BY folder_id
-    ),
-    folder_pins AS (
-      SELECT
-        kfi.folder_id,
-        ksp.pin_id,
-        CASE
-          WHEN ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL AND ksp.rank_position >= 1 THEN 'active'
-          WHEN ksp.is_displaced = TRUE THEN 'vault'
-          ELSE 'other'
-        END AS item_source,
-        ksp.is_displaced,
-        LOWER(TRIM(COALESCE(ump.clean_domain, ''))) AS clean_domain,
-        LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
-      FROM keyword_folder_items kfi
-      JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
-      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
-      WHERE kfi.folder_id = ${fid}
-        AND ((ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL AND ksp.rank_position >= 1) OR ksp.is_displaced = TRUE)
-    ),
-    combined_summary AS (
-      SELECT
-        folder_id,
-        COUNT(DISTINCT pin_id)::int AS unique_pins_count,
-        COUNT(DISTINCT pin_id) FILTER (WHERE item_source = 'active')::int AS active_pins_count,
-        COUNT(DISTINCT pin_id) FILTER (WHERE item_source = 'vault')::int AS vault_pins_count,
-        COUNT(DISTINCT clean_domain) FILTER (
-          WHERE clean_domain IS NOT NULL AND clean_domain <> ''
-            AND clean_domain NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest.com', 'www.pinterest.com', 'pin.it', 'localhost', 'direct', 'organic')
-            AND clean_domain LIKE '%.%'
-        )::int AS domain_count,
-        COUNT(DISTINCT clean_username) FILTER (
-          WHERE clean_username IS NOT NULL AND clean_username <> ''
-            AND clean_username NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
-        )::int AS discovered_creator_count
-      FROM (
-        SELECT folder_id, pin_id, clean_domain, clean_username, item_source, is_displaced FROM folder_pins
-        UNION ALL
-        SELECT fci.folder_id, NULL AS pin_id, NULL AS clean_domain, LOWER(TRIM(cp.username)) AS clean_username, 'tracked' AS item_source, FALSE AS is_displaced
-        FROM folder_competitor_items fci
-        JOIN competitor_profiles cp ON cp.id = fci.competitor_id
-        WHERE fci.folder_id = ${fid} AND cp.username IS NOT NULL AND cp.username <> ''
-      ) comb
-      WHERE comb.is_displaced = FALSE OR comb.item_source = 'vault'
-      GROUP BY folder_id
-    )
-    SELECT 
-      f.*,
-      COALESCE(kw.keyword_count, 0) AS keyword_count,
-      COALESCE(cr.creator_count, 0) AS creator_count,
-      COALESCE(pd.pinned_domain_count, 0) AS pinned_domain_count,
-      COALESCE(cs.domain_count, 0) AS domain_count,
-      COALESCE(cs.unique_pins_count, 0) AS pin_count,
-      COALESCE(cs.unique_pins_count, 0) AS unique_pins_count,
-      COALESCE(cs.unique_pins_count, 0) AS total_unique_pins,
-      COALESCE(cs.active_pins_count, 0) AS active_pins_count,
-      COALESCE(cs.vault_pins_count, 0) AS vault_pins_count,
-      COALESCE(cs.discovered_creator_count, 0) AS discovered_creator_count
-    FROM keyword_folders f
-    LEFT JOIN kw_counts kw ON kw.folder_id = f.id
-    LEFT JOIN creator_counts cr ON cr.folder_id = f.id
-    LEFT JOIN pinned_counts pd ON pd.folder_id = f.id
-    LEFT JOIN combined_summary cs ON cs.folder_id = f.id
-    WHERE f.id = ${fid}
-    LIMIT 1;
-  `;
+  let rows;
+  try {
+    rows = await sql`
+      WITH kw_counts AS (
+        SELECT folder_id, COUNT(keyword_id)::int AS keyword_count
+        FROM keyword_folder_items WHERE folder_id = ${fid} GROUP BY folder_id
+      ),
+      creator_counts AS (
+        SELECT folder_id, COUNT(competitor_id)::int AS creator_count
+        FROM folder_competitor_items WHERE folder_id = ${fid} GROUP BY folder_id
+      ),
+      pinned_counts AS (
+        SELECT folder_id, COUNT(id)::int AS pinned_domain_count
+        FROM folder_pinned_domains WHERE folder_id = ${fid} GROUP BY folder_id
+      ),
+      folder_pins AS (
+        SELECT
+          kfi.folder_id,
+          ksp.pin_id,
+          CASE
+            WHEN ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL AND ksp.rank_position >= 1 THEN 'active'
+            WHEN ksp.is_displaced = TRUE THEN 'vault'
+            ELSE 'other'
+          END AS item_source,
+          ksp.is_displaced,
+          CASE
+            WHEN LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic') THEN 'uploaded by user'
+            ELSE LOWER(TRIM(COALESCE(ump.clean_domain, '')))
+          END AS clean_domain,
+          LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
+        FROM keyword_folder_items kfi
+        JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
+        JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+        WHERE kfi.folder_id = ${fid}
+          AND ((ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL AND ksp.rank_position >= 1) OR ksp.is_displaced = TRUE)
+      ),
+      combined_summary AS (
+        SELECT
+          folder_id,
+          COUNT(DISTINCT pin_id)::int AS unique_pins_count,
+          COUNT(DISTINCT pin_id) FILTER (WHERE item_source = 'active')::int AS active_pins_count,
+          COUNT(DISTINCT pin_id) FILTER (WHERE item_source = 'vault')::int AS vault_pins_count,
+          COUNT(DISTINCT clean_domain) FILTER (
+            WHERE clean_domain IS NOT NULL AND clean_domain <> ''
+          )::int AS domain_count,
+          COUNT(DISTINCT clean_username) FILTER (
+            WHERE clean_username IS NOT NULL AND clean_username <> ''
+              AND clean_username NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+          )::int AS discovered_creator_count
+        FROM (
+          SELECT folder_id, pin_id, clean_domain, clean_username, item_source, is_displaced FROM folder_pins
+          UNION ALL
+          SELECT fci.folder_id, NULL AS pin_id, NULL AS clean_domain, LOWER(TRIM(cp.username)) AS clean_username, 'tracked' AS item_source, FALSE AS is_displaced
+          FROM folder_competitor_items fci
+          JOIN competitor_profiles cp ON cp.id = fci.competitor_id
+          WHERE fci.folder_id = ${fid} AND cp.username IS NOT NULL AND cp.username <> ''
+        ) comb
+        WHERE comb.is_displaced = FALSE OR comb.item_source = 'vault'
+        GROUP BY folder_id
+      )
+      SELECT 
+        f.*,
+        COALESCE(kw.keyword_count, 0) AS keyword_count,
+        COALESCE(cr.creator_count, 0) AS creator_count,
+        COALESCE(pd.pinned_domain_count, 0) AS pinned_domain_count,
+        COALESCE(cs.domain_count, 0) AS domain_count,
+        COALESCE(cs.unique_pins_count, 0) AS pin_count,
+        COALESCE(cs.unique_pins_count, 0) AS unique_pins_count,
+        COALESCE(cs.unique_pins_count, 0) AS total_unique_pins,
+        COALESCE(cs.active_pins_count, 0) AS active_pins_count,
+        COALESCE(cs.vault_pins_count, 0) AS vault_pins_count,
+        COALESCE(cs.discovered_creator_count, 0) AS discovered_creator_count
+      FROM keyword_folders f
+      LEFT JOIN kw_counts kw ON kw.folder_id = f.id
+      LEFT JOIN creator_counts cr ON cr.folder_id = f.id
+      LEFT JOIN pinned_counts pd ON pd.folder_id = f.id
+      LEFT JOIN combined_summary cs ON cs.folder_id = f.id
+      WHERE f.id = ${fid} AND f.workspace_id = ${wid}
+      LIMIT 1;
+    `;
+  } catch (err) {
+    if (!isMissingWorkspaceColumnError(err)) throw err;
+    if (wid !== DEFAULT_WORKSPACE_ID) return null;
+    rows = await sql`
+      WITH kw_counts AS (
+        SELECT folder_id, COUNT(keyword_id)::int AS keyword_count
+        FROM keyword_folder_items WHERE folder_id = ${fid} GROUP BY folder_id
+      ),
+      creator_counts AS (
+        SELECT folder_id, COUNT(competitor_id)::int AS creator_count
+        FROM folder_competitor_items WHERE folder_id = ${fid} GROUP BY folder_id
+      ),
+      pinned_counts AS (
+        SELECT folder_id, COUNT(id)::int AS pinned_domain_count
+        FROM folder_pinned_domains WHERE folder_id = ${fid} GROUP BY folder_id
+      ),
+      folder_pins AS (
+        SELECT
+          kfi.folder_id,
+          ksp.pin_id,
+          CASE
+            WHEN ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL AND ksp.rank_position >= 1 THEN 'active'
+            WHEN ksp.is_displaced = TRUE THEN 'vault'
+            ELSE 'other'
+          END AS item_source,
+          ksp.is_displaced,
+          CASE
+            WHEN LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic') THEN 'uploaded by user'
+            ELSE LOWER(TRIM(COALESCE(ump.clean_domain, '')))
+          END AS clean_domain,
+          LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
+        FROM keyword_folder_items kfi
+        JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
+        JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+        WHERE kfi.folder_id = ${fid}
+          AND ((ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL AND ksp.rank_position >= 1) OR ksp.is_displaced = TRUE)
+      ),
+      combined_summary AS (
+        SELECT
+          folder_id,
+          COUNT(DISTINCT pin_id)::int AS unique_pins_count,
+          COUNT(DISTINCT pin_id) FILTER (WHERE item_source = 'active')::int AS active_pins_count,
+          COUNT(DISTINCT pin_id) FILTER (WHERE item_source = 'vault')::int AS vault_pins_count,
+          COUNT(DISTINCT clean_domain) FILTER (
+            WHERE clean_domain IS NOT NULL AND clean_domain <> ''
+          )::int AS domain_count,
+          COUNT(DISTINCT clean_username) FILTER (
+            WHERE clean_username IS NOT NULL AND clean_username <> ''
+              AND clean_username NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+          )::int AS discovered_creator_count
+        FROM (
+          SELECT folder_id, pin_id, clean_domain, clean_username, item_source, is_displaced FROM folder_pins
+          UNION ALL
+          SELECT fci.folder_id, NULL AS pin_id, NULL AS clean_domain, LOWER(TRIM(cp.username)) AS clean_username, 'tracked' AS item_source, FALSE AS is_displaced
+          FROM folder_competitor_items fci
+          JOIN competitor_profiles cp ON cp.id = fci.competitor_id
+          WHERE fci.folder_id = ${fid} AND cp.username IS NOT NULL AND cp.username <> ''
+        ) comb
+        WHERE comb.is_displaced = FALSE OR comb.item_source = 'vault'
+        GROUP BY folder_id
+      )
+      SELECT 
+        f.*,
+        COALESCE(kw.keyword_count, 0) AS keyword_count,
+        COALESCE(cr.creator_count, 0) AS creator_count,
+        COALESCE(pd.pinned_domain_count, 0) AS pinned_domain_count,
+        COALESCE(cs.domain_count, 0) AS domain_count,
+        COALESCE(cs.unique_pins_count, 0) AS pin_count,
+        COALESCE(cs.unique_pins_count, 0) AS unique_pins_count,
+        COALESCE(cs.unique_pins_count, 0) AS total_unique_pins,
+        COALESCE(cs.active_pins_count, 0) AS active_pins_count,
+        COALESCE(cs.vault_pins_count, 0) AS vault_pins_count,
+        COALESCE(cs.discovered_creator_count, 0) AS discovered_creator_count
+      FROM keyword_folders f
+      LEFT JOIN kw_counts kw ON kw.folder_id = f.id
+      LEFT JOIN creator_counts cr ON cr.folder_id = f.id
+      LEFT JOIN pinned_counts pd ON pd.folder_id = f.id
+      LEFT JOIN combined_summary cs ON cs.folder_id = f.id
+      WHERE f.id = ${fid}
+      LIMIT 1;
+    `;
+  }
+  const [folder] = rows || [];
 
   if (!folder) return null;
 
@@ -314,7 +554,10 @@ export async function createFolder(sql, {
   description = '', 
   color = '#ec4899', 
   icon = 'folder', 
-  projectId = 'default', 
+  projectId = 'default',
+  workspaceId = DEFAULT_WORKSPACE_ID,
+  serp_top_n = 20,
+  pin_graph_rules = {},
   status = 'active',
   metadata = {} 
 }) {
@@ -323,36 +566,78 @@ export async function createFolder(sql, {
     throw new Error('Folder name is required.');
   }
 
+  const wid = parsePositiveWorkspaceId(workspaceId) || DEFAULT_WORKSPACE_ID;
+  const rawTopN = Math.round(Number(serp_top_n));
+  const cleanSerpTopN = Number.isFinite(rawTopN) ? Math.min(100, Math.max(5, rawTopN)) : 20;
+  const cleanPinGraphRules = (pin_graph_rules && typeof pin_graph_rules === 'object' && !Array.isArray(pin_graph_rules))
+    ? pin_graph_rules
+    : {};
+
   const validStatuses = ['active', 'archived', 'paused', 'completed'];
   const cleanStatus = validStatuses.includes(String(status).toLowerCase())
     ? String(status).toLowerCase()
     : 'active';
 
   const cleanMetadata = { ...normalizeFolderMetadata(metadata), status: cleanStatus };
-  const [created] = await sql`
-    INSERT INTO keyword_folders (
-      name,
-      description,
-      color,
-      icon,
-      project_id,
-      metadata,
-      created_at,
-      updated_at
-    ) VALUES (
-      ${cleanName},
-      ${String(description || '').trim()},
-      ${String(color || '#ec4899').trim()},
-      ${String(icon || 'folder').trim()},
-      ${String(projectId || 'default').trim()},
-      ${JSON.stringify(cleanMetadata)}::jsonb,
-      NOW(),
-      NOW()
-    )
-    RETURNING *;
-  `;
+  let created;
+  try {
+    const rows = await sql`
+      INSERT INTO keyword_folders (
+        name,
+        description,
+        color,
+        icon,
+        project_id,
+        workspace_id,
+        serp_top_n,
+        pin_graph_rules,
+        metadata,
+        created_at,
+        updated_at
+      ) VALUES (
+        ${cleanName},
+        ${String(description || '').trim()},
+        ${String(color || '#ec4899').trim()},
+        ${String(icon || 'folder').trim()},
+        ${String(projectId || 'default').trim()},
+        ${wid},
+        ${cleanSerpTopN},
+        ${JSON.stringify(cleanPinGraphRules)}::jsonb,
+        ${JSON.stringify(cleanMetadata)}::jsonb,
+        NOW(),
+        NOW()
+      )
+      RETURNING *;
+    `;
+    created = rows?.[0];
+  } catch (err) {
+    if (!isMissingWorkspaceColumnError(err)) throw err;
+    const rows = await sql`
+      INSERT INTO keyword_folders (
+        name,
+        description,
+        color,
+        icon,
+        project_id,
+        metadata,
+        created_at,
+        updated_at
+      ) VALUES (
+        ${cleanName},
+        ${String(description || '').trim()},
+        ${String(color || '#ec4899').trim()},
+        ${String(icon || 'folder').trim()},
+        ${String(projectId || 'default').trim()},
+        ${JSON.stringify(cleanMetadata)}::jsonb,
+        NOW(),
+        NOW()
+      )
+      RETURNING *;
+    `;
+    created = rows?.[0];
+  }
 
-  return created ? { ...created, metadata: normalizeFolderMetadata(created.metadata) } : null;
+  return created ? { ...created, workspace_id: Number(created.workspace_id || wid), metadata: normalizeFolderMetadata(created.metadata) } : null;
 }
 
 /**
@@ -364,13 +649,26 @@ export async function updateFolder(sql, folderId, {
   color, 
   icon, 
   status,
+  serp_top_n,
+  pin_graph_rules,
+  workspaceId = DEFAULT_WORKSPACE_ID,
   metadata 
 }) {
   const fid = Number(folderId);
   if (!fid) throw new Error('Invalid folder ID');
+  const wid = parsePositiveWorkspaceId(workspaceId) || DEFAULT_WORKSPACE_ID;
 
   const cleanName = name !== undefined ? String(name).trim() : null;
   if (name !== undefined && !cleanName) throw new Error('Folder name cannot be empty');
+
+  let cleanSerpTopN = null;
+  if (serp_top_n !== undefined && serp_top_n !== null && serp_top_n !== '') {
+    const n = Math.round(Number(serp_top_n));
+    if (Number.isFinite(n)) cleanSerpTopN = Math.min(100, Math.max(5, n));
+  }
+  const cleanPinGraphRules = (pin_graph_rules !== undefined && pin_graph_rules && typeof pin_graph_rules === 'object' && !Array.isArray(pin_graph_rules))
+    ? pin_graph_rules
+    : null;
 
   let cleanMetadata = metadata !== undefined ? normalizeFolderMetadata(metadata) : null;
   if (status !== undefined) {
@@ -380,42 +678,84 @@ export async function updateFolder(sql, folderId, {
       : 'active';
     cleanMetadata = { ...(cleanMetadata || {}), status: cleanStatus };
   }
-  const [updated] = await sql`
-    UPDATE keyword_folders
-    SET 
-      name = COALESCE(${cleanName}, name),
-      description = COALESCE(${description !== undefined ? String(description).trim() : null}, description),
-      color = COALESCE(${color !== undefined ? String(color).trim() : null}, color),
-      icon = COALESCE(${icon !== undefined ? String(icon).trim() : null}, icon),
-      metadata = CASE
-        WHEN ${cleanMetadata !== null} THEN COALESCE(metadata, '{}'::jsonb) || ${cleanMetadata !== null ? JSON.stringify(cleanMetadata) : null}::jsonb
-        ELSE metadata
-      END,
-      updated_at = NOW()
-    WHERE id = ${fid}
-    RETURNING *;
-  `;
+  let updated;
+  try {
+    const rows = await sql`
+      UPDATE keyword_folders
+      SET 
+        name = COALESCE(${cleanName}, name),
+        description = COALESCE(${description !== undefined ? String(description).trim() : null}, description),
+        color = COALESCE(${color !== undefined ? String(color).trim() : null}, color),
+        icon = COALESCE(${icon !== undefined ? String(icon).trim() : null}, icon),
+        serp_top_n = COALESCE(${cleanSerpTopN}, serp_top_n),
+        pin_graph_rules = CASE
+          WHEN ${cleanPinGraphRules !== null} THEN COALESCE(pin_graph_rules, '{}'::jsonb) || ${cleanPinGraphRules !== null ? JSON.stringify(cleanPinGraphRules) : null}::jsonb
+          ELSE pin_graph_rules
+        END,
+        metadata = CASE
+          WHEN ${cleanMetadata !== null} THEN COALESCE(metadata, '{}'::jsonb) || ${cleanMetadata !== null ? JSON.stringify(cleanMetadata) : null}::jsonb
+          ELSE metadata
+        END,
+        updated_at = NOW()
+      WHERE id = ${fid} AND workspace_id = ${wid}
+      RETURNING *;
+    `;
+    updated = rows?.[0];
+  } catch (err) {
+    if (!isMissingWorkspaceColumnError(err)) throw err;
+    if (wid !== DEFAULT_WORKSPACE_ID) return null;
+    const rows = await sql`
+      UPDATE keyword_folders
+      SET 
+        name = COALESCE(${cleanName}, name),
+        description = COALESCE(${description !== undefined ? String(description).trim() : null}, description),
+        color = COALESCE(${color !== undefined ? String(color).trim() : null}, color),
+        icon = COALESCE(${icon !== undefined ? String(icon).trim() : null}, icon),
+        metadata = CASE
+          WHEN ${cleanMetadata !== null} THEN COALESCE(metadata, '{}'::jsonb) || ${cleanMetadata !== null ? JSON.stringify(cleanMetadata) : null}::jsonb
+          ELSE metadata
+        END,
+        updated_at = NOW()
+      WHERE id = ${fid}
+      RETURNING *;
+    `;
+    updated = rows?.[0];
+  }
 
-  invalidateFolderCache(fid);
+  invalidateFolderCache(fid, wid);
   if (!updated) return null;
-  const fullFolder = await getFolder(sql, fid).catch(() => null);
+  const fullFolder = await getFolder(sql, fid, { workspaceId: wid }).catch(() => null);
   return fullFolder || { ...updated, metadata: normalizeFolderMetadata(updated.metadata) };
 }
 
 /**
  * Delete folder and cascaded items
  */
-export async function deleteFolder(sql, folderId) {
+export async function deleteFolder(sql, folderId, { workspaceId = DEFAULT_WORKSPACE_ID } = {}) {
   const fid = Number(folderId);
   if (!fid) throw new Error('Invalid folder ID');
+  const wid = parsePositiveWorkspaceId(workspaceId) || DEFAULT_WORKSPACE_ID;
 
-  const [deleted] = await sql`
-    DELETE FROM keyword_folders
-    WHERE id = ${fid}
-    RETURNING id, name;
-  `;
+  let deleted;
+  try {
+    const rows = await sql`
+      DELETE FROM keyword_folders
+      WHERE id = ${fid} AND workspace_id = ${wid}
+      RETURNING id, name;
+    `;
+    deleted = rows?.[0];
+  } catch (err) {
+    if (!isMissingWorkspaceColumnError(err)) throw err;
+    if (wid !== DEFAULT_WORKSPACE_ID) return null;
+    const rows = await sql`
+      DELETE FROM keyword_folders
+      WHERE id = ${fid}
+      RETURNING id, name;
+    `;
+    deleted = rows?.[0];
+  }
 
-  invalidateFolderCache(fid);
+  invalidateFolderCache(fid, wid);
   return deleted;
 }
 
@@ -1458,24 +1798,42 @@ export async function pruneFolderPins(sql, folderId, options = {}, _context = {}
 }
 
 /**
- * Get folder membership for a keyword (which folders contain this keyword)
+ * Get folder membership for a keyword (strictly scoped to the active workspace)
  */
-export async function getFoldersForKeyword(sql, keywordId) {
+export async function getFoldersForKeyword(sql, keywordId, { workspaceId = DEFAULT_WORKSPACE_ID } = {}) {
   const kid = Number(keywordId);
   if (!kid) return [];
+  const wid = parsePositiveWorkspaceId(workspaceId) || DEFAULT_WORKSPACE_ID;
 
-  const rows = await sql`
-    SELECT 
-      f.id,
-      f.name,
-      f.color,
-      f.icon,
-      i.added_at
-    FROM keyword_folder_items i
-    JOIN keyword_folders f ON f.id = i.folder_id
-    WHERE i.keyword_id = ${kid}
-    ORDER BY f.name ASC;
-  `;
-
-  return rows;
+  try {
+    return await sql`
+      SELECT 
+        f.id,
+        f.name,
+        f.color,
+        f.icon,
+        f.workspace_id,
+        i.added_at
+      FROM keyword_folder_items i
+      JOIN keyword_folders f ON f.id = i.folder_id
+      WHERE i.keyword_id = ${kid}
+        AND f.workspace_id = ${wid}
+      ORDER BY f.name ASC;
+    `;
+  } catch (err) {
+    if (!isMissingWorkspaceColumnError(err)) throw err;
+    if (wid !== DEFAULT_WORKSPACE_ID) return [];
+    return await sql`
+      SELECT 
+        f.id,
+        f.name,
+        f.color,
+        f.icon,
+        i.added_at
+      FROM keyword_folder_items i
+      JOIN keyword_folders f ON f.id = i.folder_id
+      WHERE i.keyword_id = ${kid}
+      ORDER BY f.name ASC;
+    `;
+  }
 }

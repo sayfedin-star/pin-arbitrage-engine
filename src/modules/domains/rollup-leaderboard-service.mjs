@@ -9,14 +9,9 @@
  * - listDomainsIntelligenceFast (fast rollup-backed leaderboard with Day-0 fallback)
  */
 
-import {
-  IGNORED_INTERNAL_DOMAINS,
-  ECOMMERCE_AND_SOCIAL_DOMAINS
-} from './domain-constants.mjs';
 import { escapeSqlLike } from './whois-age-service.mjs';
 import { safeWaitUntil } from '../../http/security-and-response.mjs';
 
-const ROLLUP_EXCLUDED_INTERNAL = ['pinterest.com', 'www.pinterest.com', 'pin.it', 'localhost'];
 let rollupRefreshInflight = null;
 
 /**
@@ -56,7 +51,6 @@ export function buildDomainAggregationCtes({
   fId = null,
   kId = null,
   pillar = 'all',
-  excludeMarketplaces = true,
   searchPattern = null,
   minPins = 1,
   preset = 'all',
@@ -70,7 +64,7 @@ export function buildDomainAggregationCtes({
     ? sqlFrag`
         SELECT
           CASE
-            WHEN LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+            WHEN LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
             ELSE LOWER(TRIM(COALESCE(ump.clean_domain, '')))
           END AS clean_domain,
           ump.pin_id,
@@ -86,13 +80,12 @@ export function buildDomainAggregationCtes({
           COALESCE(NULLIF(TRIM(ump.image_signature), ''), ump.pin_id) AS creative_signature
         FROM universal_master_pins ump
         LEFT JOIN keyword_serp_positions ksp ON ksp.pin_id = ump.pin_id
-        WHERE ump.clean_domain IS NOT NULL AND ump.clean_domain <> ''
       `
     : (includeArchiveAndComp
       ? sqlFrag`
         SELECT
           CASE
-            WHEN LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+            WHEN LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
             ELSE LOWER(TRIM(COALESCE(ump.clean_domain, '')))
           END AS clean_domain,
           ump.pin_id,
@@ -110,13 +103,12 @@ export function buildDomainAggregationCtes({
         LEFT JOIN keyword_serp_positions ksp ON ksp.pin_id = ump.pin_id
           AND (${fId}::int IS NULL OR ksp.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
           AND (${kId}::int IS NULL OR ksp.keyword_id = ${kId})
-        WHERE ump.clean_domain IS NOT NULL AND ump.clean_domain <> ''
-          AND (${pillar} IN ('all', 'competitors', 'archive', 'serp', 'displaced'))
+        WHERE (${pillar} IN ('all', 'competitors', 'archive', 'serp', 'displaced'))
       `
       : sqlFrag`
         SELECT
           CASE
-            WHEN LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+            WHEN LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
             ELSE LOWER(TRIM(COALESCE(ump.clean_domain, '')))
           END AS clean_domain,
           ksp.pin_id,
@@ -133,7 +125,6 @@ export function buildDomainAggregationCtes({
         FROM keyword_serp_positions ksp
         JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
         WHERE (${pillar} IN ('all', 'serp', 'competitors', 'displaced'))
-          AND ump.clean_domain IS NOT NULL AND ump.clean_domain <> ''
           AND (${fId}::int IS NULL OR ksp.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
           AND (${kId}::int IS NULL OR ksp.keyword_id = ${kId})
       `);
@@ -142,19 +133,18 @@ export function buildDomainAggregationCtes({
     ? sqlFrag`
         WHERE clean_domain IS NOT NULL
           AND clean_domain <> ''
-          AND clean_domain <> ALL(${ROLLUP_EXCLUDED_INTERNAL}::text[])
       `
     : sqlFrag`
-        WHERE clean_domain <> ''
-          AND clean_domain <> ALL(${IGNORED_INTERNAL_DOMAINS}::text[])
-          AND (${excludeMarketplaces} = FALSE OR ${fId}::int IS NOT NULL OR clean_domain <> ALL(${ECOMMERCE_AND_SOCIAL_DOMAINS}::text[]))
-          AND clean_domain LIKE '%.%'
-          AND (${searchPattern}::text IS NULL OR clean_domain LIKE ${searchPattern} ESCAPE '\\')
+        WHERE clean_domain IS NOT NULL
+          AND clean_domain <> ''
+          AND (${searchPattern}::text IS NULL OR LOWER(clean_domain) LIKE LOWER(${searchPattern}) ESCAPE '\\')
           AND (${pillar} <> 'competitors' OR clean_domain IN (
-            SELECT ump.clean_domain
+            SELECT CASE
+              WHEN LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+              ELSE LOWER(TRIM(COALESCE(ump.clean_domain, '')))
+            END
             FROM competitor_board_pins cbp
             JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
-            WHERE ump.clean_domain IS NOT NULL AND ump.clean_domain <> ''
           ))
       `;
 
@@ -561,7 +551,6 @@ export async function listDomainsIntelligence(sql, {
   savesFilter = 'all',
   sizeFilter = 'all',
   logicMode = 'and',
-  excludeMarketplaces = true,
   minPins = 1,
   sortBy = 'visibility',
   page = 1,
@@ -580,7 +569,6 @@ export async function listDomainsIntelligence(sql, {
     fId,
     kId,
     pillar,
-    excludeMarketplaces,
     searchPattern,
     minPins: minP,
     preset,
@@ -856,7 +844,6 @@ export async function listDomainsIntelligenceFast(sql, options = {}) {
       const savesFilter = options.savesFilter || 'all';
       const sizeFilter = options.sizeFilter || 'all';
       const logicMode = options.logicMode || 'and';
-      const excludeMarketplaces = options.excludeMarketplaces !== false;
       const minPins = Math.max(1, parseInt(options.minPins, 10) || 1);
       const sortBy = options.sortBy || 'visibility';
       const page = Math.max(1, parseInt(options.page, 10) || 1);
@@ -870,10 +857,6 @@ export async function listDomainsIntelligenceFast(sql, options = {}) {
           FROM domain_intelligence_rollup r
           WHERE r.total_pins >= ${minPins}
             AND (${searchPattern}::text IS NULL OR LOWER(r.domain) LIKE ${searchPattern} ESCAPE '\\')
-            AND (
-              ${excludeMarketplaces} = FALSE
-              OR r.domain <> ALL(${ECOMMERCE_AND_SOCIAL_DOMAINS}::text[])
-            )
             AND (
               ${preset} = 'all'
               OR (${preset} = 'baby_giants' AND r.age_years IS NOT NULL AND r.age_years <= 2.0 AND (r.top10_pins >= 1 OR r.total_saves >= 1000))

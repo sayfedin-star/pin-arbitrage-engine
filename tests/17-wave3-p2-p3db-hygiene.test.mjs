@@ -32,7 +32,6 @@ import {
   resolveQualificationRules,
   qualifyPin
 } from '../src/modules/creators/competitors-crud.mjs';
-import { ECOMMERCE_AND_SOCIAL_DOMAINS } from '../src/modules/domains/domain-constants.mjs';
 import { listDomainsIntelligenceFast } from '../src/modules/domains/rollup-leaderboard-service.mjs';
 import {
   getRecgptPlaybookService,
@@ -335,7 +334,7 @@ test('Wave 3.3: resolveQualificationRules SSOT, PINTEREST_CEILING_VALUE helpers,
     assert.equal(/\b10000001\b/.test(src), false, `Found hardcoded 10000001 literal in ${relPath}`);
   }
 
-  // C. Marketplace/social domains SSOT in rollup-leaderboard-service.mjs
+  // C. V4 Zero-Exclusion Domain Policy in rollup-leaderboard-service.mjs (no hidden marketplace/social blacklists)
   const capturedRollupCalls = [];
   const mockRollupSql = async (strings, ...values) => {
     const q = buildSqlText(strings);
@@ -343,11 +342,10 @@ test('Wave 3.3: resolveQualificationRules SSOT, PINTEREST_CEILING_VALUE helpers,
     if (q.includes('COUNT(*)')) return [{ total: 1, checked: 1 }];
     return [{ domain: 'example.com', total_pins: 5, _total_count: 1 }];
   };
-  await listDomainsIntelligenceFast(mockRollupSql, { excludeMarketplaces: true, limit: 10 });
+  await listDomainsIntelligenceFast(mockRollupSql, { limit: 10 });
   const mainQuery = capturedRollupCalls.find((c) => c.sql.includes('FROM domain_intelligence_rollup r'));
   assert.ok(mainQuery, 'Expected rollup_src query');
-  assert.match(mainQuery.sql, /r\.domain\s*<>\s*ALL\(\s*\?\s*::text\[\]\)/i);
-  assert.equal(mainQuery.values.includes(ECOMMERCE_AND_SOCIAL_DOMAINS), true, 'Expected ECOMMERCE_AND_SOCIAL_DOMAINS bound parameter');
+  assert.equal(/r\.domain\s*<>\s*ALL\(/i.test(mainQuery.sql), false, 'V4: rollup query must NOT exclude marketplace/social domains by default');
   const rollupSrc = fs.readFileSync(path.resolve('src/modules/domains/rollup-leaderboard-service.mjs'), 'utf8');
   assert.equal(/r\.domain\s+NOT\s+IN\s*\(/i.test(rollupSrc), false, 'Duplicate hardcoded marketplace NOT IN list must be removed');
 

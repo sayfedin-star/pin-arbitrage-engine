@@ -205,7 +205,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
       </div>
 
       <!-- Tier 2: Refined Attribute Selects & Quick Toggles (~36px) -->
-      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-8 gap-2 pt-2 border-t border-slate-100 dark:border-[#27272A]/80 items-center">
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 pt-2 border-t border-slate-100 dark:border-[#27272A]/80 items-center">
         <!-- 1. Ad Network -->
         <div>
           <select x-model="selectedAdNetwork"
@@ -303,19 +303,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
           </select>
         </div>
 
-        <!-- 7. Blogs Only Checkbox -->
-        <div class="flex items-center justify-between px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B]">
-          <label for="marketplaces-toggle" class="text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1 cursor-pointer">
-            <span>Blogs Only</span>
-          </label>
-          <input id="marketplaces-toggle"
-                 type="checkbox"
-                 x-model="excludeMarketplaces"
-                 @change="loadDomains(true)"
-                 class="rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer">
-        </div>
-
-        <!-- 8. Logic Toggle & Reset -->
+        <!-- 7. Logic Toggle & Reset -->
         <div class="flex items-center justify-between gap-1">
           <button @click="setLogicMode(logicMode === 'and' ? 'or' : 'and')"
                   type="button"

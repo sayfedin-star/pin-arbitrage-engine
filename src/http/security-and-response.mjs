@@ -378,8 +378,12 @@ export function sendJsonResponse(reply, data, status = 200, cacheSeconds = 0, cu
     reply.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-api-key');
     if (resolvedOrigin !== '*') {
-      reply.header('Vary', 'Origin');
+      reply.header('Vary', 'Origin, Cookie');
+    } else {
+      reply.header('Vary', 'Cookie');
     }
+  } else {
+    reply.header('Vary', 'Cookie');
   }
   reply.header('X-Content-Type-Options', 'nosniff');
   reply.header('X-Frame-Options', 'DENY');
@@ -394,13 +398,12 @@ export function sendJsonResponse(reply, data, status = 200, cacheSeconds = 0, cu
   const hasExplicitCacheControl = Boolean(
     customCors && Object.keys(customCors).some(k => k.toLowerCase() === 'cache-control')
   );
-  if (cacheSeconds <= 0) {
-    if (!hasExplicitCacheControl) {
-      reply.header('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  if (!hasExplicitCacheControl) {
+    // V4 Zero-Leakage: Never allow shared CDN/proxy caching across user/workspace Cookie boundaries.
+    reply.header('Cache-Control', 'private, no-store, no-cache, must-revalidate');
+    if (cacheSeconds <= 0) {
       reply.header('Pragma', 'no-cache');
     }
-  } else if (cacheSeconds > 0) {
-    reply.header('Cache-Control', `public, max-age=${cacheSeconds}, stale-while-revalidate=${cacheSeconds * 3}`);
   }
 
   return reply.send(responsePayload);
@@ -528,6 +531,17 @@ export function buildCanonicalCacheKey(prefix, params = {}) {
   const normalizedParams = (params instanceof URLSearchParams || (params && typeof params.entries === 'function' && typeof params.get === 'function'))
     ? Object.fromEntries(params.entries())
     : (params && typeof params === 'object' ? params : {});
+  const storeWsId = requestContextStorage?.getStore?.()?.workspaceId;
+  const rawWsId = normalizedParams.workspaceId ?? normalizedParams.workspace_id ?? storeWsId;
+  const parsedWsId = Number(rawWsId);
+  const effectivePrefix = (
+    Number.isInteger(parsedWsId) &&
+    parsedWsId > 0 &&
+    !String(prefix || '').startsWith('ws:')
+  )
+    ? `ws:${parsedWsId}:${prefix}`
+    : prefix;
+
   const sortedEntries = Object.entries(normalizedParams)
     .filter(([_, v]) => v !== undefined && v !== null && v !== '')
     .sort(([a], [b]) => a.localeCompare(b))
@@ -538,7 +552,7 @@ export function buildCanonicalCacheKey(prefix, params = {}) {
         : trimmed;
       return `${encodeURIComponent(k)}=${encodeURIComponent(normalizedVal)}`;
     });
-  return sortedEntries.length > 0 ? `${prefix}?${sortedEntries.join('&')}` : prefix;
+  return sortedEntries.length > 0 ? `${effectivePrefix}?${sortedEntries.join('&')}` : effectivePrefix;
 }
 
 export async function getCachedOrFetch(key, fetcher, ttlMs = 15000, staleMs = 60000, { forceRefresh = false, timeoutMs = 18000 } = {}) {

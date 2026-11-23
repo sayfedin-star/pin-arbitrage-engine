@@ -90,7 +90,6 @@ export async function handleDomainsRoutes(routeCtx) {
         savesFilter: searchParams.get('saves_filter') || 'all',
         sizeFilter: searchParams.get('size_filter') || 'all',
         logicMode: searchParams.get('logic_mode') || 'and',
-        excludeMarketplaces: searchParams.get('exclude_marketplaces') !== 'false',
         minPins: Number(searchParams.get('min_pins') || 1),
         sortBy: searchParams.get('sort') || 'visibility',
         page: Number(searchParams.get('page') || 1),

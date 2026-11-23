@@ -14,6 +14,8 @@
 
 import { isSyntheticGarbageTitle } from '../../domain/pin-intelligence.mjs';
 import { computeAnscombeInflectionScore } from '../../lib/math.mjs';
+import { requestContextStorage } from '../../http/security-and-response.mjs';
+import { DEFAULT_WORKSPACE_ID } from '../workspaces/service.mjs';
 import {
   PULSE_MEMORY_CACHE_MAX,
   PULSE_MEMORY_TTL_MS,
@@ -101,10 +103,13 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
   const parsedFolderId = (folderId && folderId !== 'all') ? Number(folderId) : null;
   const folderIdNum = Number.isFinite(parsedFolderId) ? parsedFolderId : null;
+  const rawWsId = options.workspaceId ?? options.workspace_id ?? requestContextStorage?.getStore?.()?.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const parsedWsId = Number(rawWsId);
+  const wid = Number.isInteger(parsedWsId) && parsedWsId > 0 ? parsedWsId : DEFAULT_WORKSPACE_ID;
   const cacheKey = options.cacheKey || (
     testId
-      ? `pulse:${folderId || 'all'}:${windowParam}:${minAudience}:${testId}`
-      : `pulse:${folderId || 'all'}:${windowParam}:${minAudience}`
+      ? `ws:${wid}:pulse:${folderId || 'all'}:${windowParam}:${minAudience}:${testId}`
+      : `ws:${wid}:pulse:${folderId || 'all'}:${windowParam}:${minAudience}`
   );
 
   let effectiveRefresh = forceRefresh;
@@ -130,7 +135,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       creatorViralRows,
       matviewKpis
     ] = await Promise.all([
-      queryActiveSerp(sql, folderIdNum),
+      queryActiveSerp(sql, folderIdNum, wid),
       queryVaultAndVacuum(sql, folderIdNum, env),
       queryGuidedCapsules(sql, folderIdNum),
       queryBreakoutCreators(sql, folderIdNum),

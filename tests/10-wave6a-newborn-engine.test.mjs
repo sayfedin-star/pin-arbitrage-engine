@@ -2079,7 +2079,7 @@ test('Wave 6D.1: Pure Deep-Scroll Re-pin Hunter — Min Re-pins gate, Min Saves 
   assert.equal(deepScrollSettings.discovery.surfaces.ideas_feeds.target_pins, 2000);
   assert.equal(deepScrollSettings.discovery.surfaces.home_feed.target_pins, 2000);
   assert.equal(deepScrollSettings.discovery.surfaces.related_pin_snowball.target_pins, 1000);
-  assert.equal(deepScrollSettings.discovery.hydration.auto_fetch_accounts, false, 'Auto-fetch accounts must be OFF by default');
+  assert.equal(deepScrollSettings.discovery.hydration.auto_fetch_accounts, true, 'V4: Auto-fetch accounts must be ON by default (capped at 50)');
   assert.equal(deepScrollSettings.automation.auto_track_enabled, false, 'Daily tracking must be OFF by default');
 
   // 3. Mock Pinterest universe verifying Trends latest_available_date, Idea Page Intelligence, Home Feed,
@@ -2382,6 +2382,7 @@ test('Wave 6D.1: Pure Deep-Scroll Re-pin Hunter — Min Re-pins gate, Min Saves 
     settingsOverrides: {
       qualification: { max_age_days: 30, min_repin_count: 20, min_save_count: 0, resolve_root_pin: true },
       discovery: {
+        hydration: { auto_fetch_accounts: false },
         surfaces: {
           pin_serp_capsules: { enabled: true, target_pins: 100, max_pages: 2 },
           fresh_boards: { enabled: true, max_boards: 5, target_pins_per_board: 50 },

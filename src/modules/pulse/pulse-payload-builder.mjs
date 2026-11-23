@@ -494,8 +494,11 @@ export function buildHiddenGemsTelemetry({
   const liveDomainMap = new Map();
   for (let i = 0; i < allActivePins.length; i++) {
     const p = allActivePins[i];
-    const dom = String(p.domain || '').trim().toLowerCase();
-    if (!dom || dom === 'uploaded by user' || dom.includes('pinterest.') || dom.includes('pinimg.')) continue;
+    const rawDom = String(p.domain || '').trim();
+    const rawDomLower = rawDom.toLowerCase();
+    const dom = (!rawDomLower || rawDomLower === 'uploaded by user' || rawDomLower === 'uploaded-by-user' || rawDomLower === 'organic')
+      ? 'Uploaded by user'
+      : rawDomLower;
     let dEntry = liveDomainMap.get(dom);
     if (!dEntry) {
       dEntry = {

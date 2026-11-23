@@ -94,6 +94,7 @@ export async function handleKeywordsRoutes({
   env,
   ctx,
   sql,
+  workspaceId = 1,
   jsonResponse,
   methodNotAllowedResponse,
   clampLimit,
@@ -865,6 +866,7 @@ export async function handleKeywordsRoutes({
       env,
       ctx,
       sql,
+      workspaceId,
       jsonResponse,
       methodNotAllowedResponse,
       invalidateEdgeCache

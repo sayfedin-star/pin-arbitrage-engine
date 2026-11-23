@@ -66,6 +66,15 @@ export class TtlSingleflightCache {
     return this.store.values();
   }
 
+  _matchesPrefix(key, pfx) {
+    if (key.startsWith(pfx)) return true;
+    if (!pfx.startsWith('ws:')) {
+      const stripped = key.replace(/^ws:\d+:/, '');
+      if (stripped !== key && stripped.startsWith(pfx)) return true;
+    }
+    return false;
+  }
+
   isWriteValid(key, startEpoch) {
     const k = this._normKey(key);
     if (this.globalClearEpoch > startEpoch) return false;
@@ -81,7 +90,7 @@ export class TtlSingleflightCache {
     let matchedPrefixEpoch = 0;
     let invalidated = false;
     for (const [pfx, ep] of this.prefixEpochs.entries()) {
-      if (k.startsWith(pfx)) {
+      if (this._matchesPrefix(k, pfx)) {
         matchedPrefix = pfx;
         matchedPrefixEpoch = ep;
         if (ep > startEpoch) {
@@ -190,6 +199,28 @@ export class TtlSingleflightCache {
   }
 
   /**
+   * Deletes all keys across `store`, `inflight`, and `swrInflight` matching `predicate`,
+   * recording exact-key epoch tombstones so pre-invalidation in-flight fetches cannot write back.
+   */
+  deleteKeysMatching(predicate) {
+    if (typeof predicate !== 'function') return 0;
+    const matched = new Set();
+    for (const k of this.store.keys()) {
+      if (predicate(k)) matched.add(k);
+    }
+    for (const k of this.inflight.keys()) {
+      if (predicate(k)) matched.add(k);
+    }
+    for (const k of this.swrInflight.keys()) {
+      if (predicate(k)) matched.add(k);
+    }
+    for (const k of matched) {
+      this.delete(k);
+    }
+    return matched.size;
+  }
+
+  /**
    * Invalidates either the entire cache (`prefix === ''`) or all entries matching `prefix`.
    * Advances invalidation epoch so any pre-invalidation in-flight work cannot write stale values.
    */
@@ -211,17 +242,17 @@ export class TtlSingleflightCache {
     this.prefixEpochs.set(pfx, nextEpoch);
     this._pruneEpochMapsIfNeeded();
     for (const k of this.store.keys()) {
-      if (k.startsWith(pfx)) {
+      if (this._matchesPrefix(k, pfx)) {
         this.store.delete(k);
       }
     }
     for (const k of this.inflight.keys()) {
-      if (k.startsWith(pfx)) {
+      if (this._matchesPrefix(k, pfx)) {
         this.inflight.delete(k);
       }
     }
     for (const k of this.swrInflight.keys()) {
-      if (k.startsWith(pfx)) {
+      if (this._matchesPrefix(k, pfx)) {
         this.swrInflight.delete(k);
       }
     }

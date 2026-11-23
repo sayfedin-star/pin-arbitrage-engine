@@ -316,6 +316,61 @@ export function renderAppSidebar({
         </button>
       </div>
 
+      <!-- Mobile Workspace Switcher (V4 Multi-Workspace Isolation) -->
+      <div x-data="paeWorkspaceSwitcher()" x-init="init()" class="relative pt-1">
+        <button
+          type="button"
+          @click="open = !open"
+          :aria-expanded="open ? 'true' : 'false'"
+          aria-label="Switch Active Workspace"
+          class="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold bg-slate-100/80 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] text-slate-800 dark:text-[#FAFAFA] hover:border-rose-500/40 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
+          <div class="flex items-center space-x-2 min-w-0">
+            <span class="w-6 h-6 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+              <i data-lucide="layers" class="w-3.5 h-3.5"></i>
+            </span>
+            <span class="truncate" x-text="activeWorkspaceName()">Default Workspace</span>
+          </div>
+          <i data-lucide="chevrons-up-down" class="w-3.5 h-3.5 text-slate-400 shrink-0"></i>
+        </button>
+        <div
+          x-show="open"
+          x-cloak
+          @click.outside="open = false"
+          class="mt-1.5 p-1.5 rounded-xl bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] shadow-lg space-y-1">
+          <template x-for="ws in workspaces" :key="ws.id">
+            <button
+              type="button"
+              @click="switchWorkspace(ws.id)"
+              class="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition cursor-pointer"
+              :class="ws.id === activeWorkspaceId ? 'bg-rose-50 dark:bg-rose-500/15 text-rose-700 dark:text-rose-300 font-semibold' : 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#27272A]'">
+              <span class="truncate" x-text="ws.name"></span>
+              <span class="text-[10px] font-mono tabular-nums opacity-70" x-text="ws.campaign_count || 0"></span>
+            </button>
+          </template>
+          <div class="pt-1 mt-1 border-t border-slate-200 dark:border-[#27272A]">
+            <form x-show="creating" @submit.prevent="createNewWorkspace()" class="flex items-center space-x-1">
+              <input
+                type="text"
+                x-model="newWorkspaceName"
+                placeholder="e.g. Food Site"
+                aria-label="New Workspace Name"
+                maxlength="80"
+                class="flex-1 min-w-0 px-2 py-1 text-xs rounded-lg bg-slate-50 dark:bg-[#09090B] border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-[#FAFAFA] focus:outline-none focus:ring-1 focus:ring-rose-500" />
+              <button type="submit" :disabled="saving" class="px-2 py-1 text-[11px] font-semibold rounded-lg bg-rose-600 text-white hover:bg-rose-700 cursor-pointer">Add</button>
+            </form>
+            <button
+              type="button"
+              x-show="!creating"
+              @click="creating = true"
+              class="w-full flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition cursor-pointer">
+              <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+              <span>New Workspace</span>
+            </button>
+            <div x-show="errorMsg" x-text="errorMsg" class="mt-1 px-2 text-[10px] text-rose-500"></div>
+          </div>
+        </div>
+      </div>
+
       <!-- Mobile Navigation Links with Grouped Headers [INVARIANT: GROUPED-NAVIGATION] -->
       <nav class="space-y-4">
         <!-- Group 1: Executive -->
@@ -475,6 +530,67 @@ export function renderAppSidebar({
           <span x-show="!isSidebarCollapsed" class="inline-flex items-center justify-center"><i data-lucide="chevrons-left" class="w-4 h-4"></i></span>
           <span x-show="isSidebarCollapsed" x-cloak class="inline-flex items-center justify-center"><i data-lucide="chevrons-right" class="w-4 h-4"></i></span>
         </button>
+      </div>
+
+      <!-- Desktop Workspace Switcher (V4 Multi-Workspace Isolation) -->
+      <div x-data="paeWorkspaceSwitcher()" x-init="init()" class="relative pb-2.5 border-b border-slate-200 dark:border-[#27272A]">
+        <button
+          type="button"
+          @click="isSidebarCollapsed ? (toggleSidebar(), open = true) : (open = !open)"
+          :aria-expanded="open ? 'true' : 'false'"
+          :title="'Workspace: ' + activeWorkspaceName()"
+          aria-label="Switch Active Workspace"
+          class="w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-semibold bg-slate-100/80 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] text-slate-800 dark:text-[#FAFAFA] hover:border-rose-500/40 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+          :class="isSidebarCollapsed ? '!w-10 !h-10 !mx-auto !justify-center !p-0' : ''">
+          <div class="flex items-center space-x-2 min-w-0" :class="isSidebarCollapsed ? '!space-x-0 justify-center' : ''">
+            <span class="w-6 h-6 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center shrink-0">
+              <i data-lucide="layers" class="w-3.5 h-3.5"></i>
+            </span>
+            <div x-show="!isSidebarCollapsed" class="min-w-0 text-left">
+              <div class="text-[9px] font-mono uppercase tracking-wider text-slate-400 dark:text-[#71717A] leading-none mb-0.5">Workspace</div>
+              <div class="truncate text-xs font-semibold leading-tight" x-text="activeWorkspaceName()">Default Workspace</div>
+            </div>
+          </div>
+          <i x-show="!isSidebarCollapsed" data-lucide="chevrons-up-down" class="w-3.5 h-3.5 text-slate-400 shrink-0"></i>
+        </button>
+
+        <div
+          x-show="open && !isSidebarCollapsed"
+          x-cloak
+          @click.outside="open = false"
+          class="absolute left-0 right-0 mt-1.5 z-50 p-1.5 rounded-xl bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] shadow-xl space-y-1">
+          <template x-for="ws in workspaces" :key="ws.id">
+            <button
+              type="button"
+              @click="switchWorkspace(ws.id)"
+              class="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition cursor-pointer"
+              :class="ws.id === activeWorkspaceId ? 'bg-rose-50 dark:bg-rose-500/15 text-rose-700 dark:text-rose-300 font-semibold' : 'text-slate-600 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#27272A]'">
+              <span class="truncate" x-text="ws.name"></span>
+              <span class="text-[10px] font-mono tabular-nums opacity-70" x-text="ws.campaign_count || 0"></span>
+            </button>
+          </template>
+          <div class="pt-1 mt-1 border-t border-slate-200 dark:border-[#27272A]">
+            <form x-show="creating" @submit.prevent="createNewWorkspace()" class="flex items-center space-x-1">
+              <input
+                type="text"
+                x-model="newWorkspaceName"
+                placeholder="e.g. Home Decor"
+                aria-label="New Workspace Name"
+                maxlength="80"
+                class="flex-1 min-w-0 px-2 py-1 text-xs rounded-lg bg-slate-50 dark:bg-[#09090B] border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-[#FAFAFA] focus:outline-none focus:ring-1 focus:ring-rose-500" />
+              <button type="submit" :disabled="saving" class="px-2 py-1 text-[11px] font-semibold rounded-lg bg-rose-600 text-white hover:bg-rose-700 cursor-pointer">Add</button>
+            </form>
+            <button
+              type="button"
+              x-show="!creating"
+              @click="creating = true"
+              class="w-full flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition cursor-pointer">
+              <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+              <span>New Workspace</span>
+            </button>
+          </div>
+          <div x-show="errorMsg" x-cloak class="px-2 py-1 text-[11px] text-rose-600 dark:text-rose-400" x-text="errorMsg"></div>
+        </div>
       </div>
 
       <!-- Navigation Links (Desktop) with Grouped Headers [INVARIANT: GROUPED-NAVIGATION] -->

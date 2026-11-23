@@ -10,6 +10,8 @@ import {
   normalizeCleanDomain
 } from '../../domain/pin-intelligence.mjs';
 import { TtlSingleflightCache } from '../../lib/ttl-cache.mjs';
+import { requestContextStorage } from '../../http/security-and-response.mjs';
+import { DEFAULT_WORKSPACE_ID } from '../workspaces/service.mjs';
 import { buildFolderCrossoverMatrix, synthesizeSpokeTitle } from './folders-crossover-builders.mjs';
 export { buildFolderCrossoverMatrix, synthesizeSpokeTitle };
 
@@ -59,14 +61,36 @@ export function normalizeFolderMetadata(raw) {
   return {};
 }
 
+function buildFolderCacheKey(folderId, workspaceId = null) {
+  const fid = Number(folderId);
+  const storeWs = requestContextStorage?.getStore?.()?.workspaceId;
+  const parsedWs = Number(workspaceId ?? storeWs ?? DEFAULT_WORKSPACE_ID);
+  const wid = Number.isInteger(parsedWs) && parsedWs > 0 ? parsedWs : DEFAULT_WORKSPACE_ID;
+  return `ws:${wid}:folder:${fid}`;
+}
+
 /**
  * Invalidate in-memory crossover cache for a folder or all folders
  */
-export function invalidateFolderCache(folderId) {
+export function invalidateFolderCache(folderId, workspaceId = null) {
   if (folderId) {
-    const key = String(Number(folderId));
-    crossoverCache.delete(key);
-    folderForceRefreshCooldown.delete(key);
+    const fid = Number(folderId);
+    if (workspaceId !== null && workspaceId !== undefined) {
+      const scopedKey = buildFolderCacheKey(fid, workspaceId);
+      crossoverCache.delete(scopedKey);
+      folderForceRefreshCooldown.delete(scopedKey);
+    } else {
+      const storeWs = requestContextStorage?.getStore?.()?.workspaceId;
+      if (storeWs !== undefined && storeWs !== null) {
+        const ctxKey = buildFolderCacheKey(fid, storeWs);
+        crossoverCache.delete(ctxKey);
+        folderForceRefreshCooldown.delete(ctxKey);
+      }
+      const suffix = `:folder:${fid}`;
+      const matchesFolder = (k) => k === String(fid) || k.endsWith(suffix);
+      crossoverCache.deleteKeysMatching(matchesFolder);
+      folderForceRefreshCooldown.deleteKeysMatching(matchesFolder);
+    }
   } else {
     crossoverCache.invalidate();
     folderForceRefreshCooldown.invalidate();
@@ -218,11 +242,11 @@ export function extractAuthenticRowGains(row, safeNum) {
  * 6. Algorithmic Topic Cluster Blueprint & CSV Content Plan
  * 7. Fast edge caching (10m TTL) with ?refresh=true bypass and inflight coalescing
  */
-export async function calculateFolderCrossover(sql, folderId, { refresh = false } = {}) {
+export async function calculateFolderCrossover(sql, folderId, { refresh = false, workspaceId = null } = {}) {
   const fid = Number(folderId);
   if (!fid) throw new Error('Invalid folder ID');
 
-  const key = String(fid);
+  const key = buildFolderCacheKey(fid, workspaceId);
   let effectiveRefresh = Boolean(refresh);
 
   // [INVARIANT: FOLDER-FORCE-REFRESH-COOLDOWN]

@@ -299,9 +299,11 @@ test('Pkg 4: refreshRollingWindowGainsBatch reconciles delta_repins_24h and dail
       }];
     }
     if (callIdx === 2) {
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const yesterdayIso = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
       return [
-        { pin_id: '329888741477749727', recorded_date: '2026-11-19', save_count: 13652, repin_count: 13601, daily_save_velocity: 774 },
-        { pin_id: '329888741477749727', recorded_date: '2026-11-18', save_count: 12878, repin_count: 12829, daily_save_velocity: 0 }
+        { pin_id: '329888741477749727', recorded_date: todayIso, save_count: 13652, repin_count: 13601, daily_save_velocity: 774 },
+        { pin_id: '329888741477749727', recorded_date: yesterdayIso, save_count: 12878, repin_count: 12829, daily_save_velocity: 0 }
       ];
     }
     for (const v of values) {
@@ -337,9 +339,11 @@ test('Pkg 4b: refreshRollingWindowGainsBatch uses bigint recordset columns and r
       }];
     }
     if (callIdx === 2) {
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const twoDaysAgoIso = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
       return [
-        { pin_id: '329888741477749728', recorded_date: '2026-11-20', save_count: 105, repin_count: 23, daily_save_velocity: 2.5 },
-        { pin_id: '329888741477749728', recorded_date: '2026-11-18', save_count: 100, repin_count: 20, daily_save_velocity: 0 }
+        { pin_id: '329888741477749728', recorded_date: todayIso, save_count: 105, repin_count: 23, daily_save_velocity: 2.5 },
+        { pin_id: '329888741477749728', recorded_date: twoDaysAgoIso, save_count: 100, repin_count: 20, daily_save_velocity: 0 }
       ];
     }
     updateSqlTexts.push(strings.join(' '));

@@ -34,6 +34,13 @@ import {
   invalidateFolderCache
 } from '../modules/keywords/folders-crossover.mjs';
 import { dispatchGitHubWorkflow } from '../http/github-workflow.mjs';
+import {
+  DEFAULT_WORKSPACE_ID,
+  assertFolderInWorkspace,
+  addCampaignTrackedPins,
+  listCampaignTrackedPins,
+  removeCampaignTrackedPin
+} from '../modules/workspaces/service.mjs';
 
 /**
  * Fast URI discriminator for Campaign Folders routes
@@ -54,6 +61,7 @@ export async function handleFoldersRoutes({
   env,
   ctx,
   sql,
+  workspaceId = DEFAULT_WORKSPACE_ID,
   jsonResponse,
   methodNotAllowedResponse,
   invalidateEdgeCache
@@ -69,7 +77,8 @@ export async function handleFoldersRoutes({
       }, 400);
     }
     const refresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
-    const crossover = await calculateFolderCrossover(sql, Number(folderId), { refresh, env, ctx });
+    await assertFolderInWorkspace(sql, Number(folderId), workspaceId);
+    const crossover = await calculateFolderCrossover(sql, Number(folderId), { refresh, env, ctx, workspaceId });
     return jsonResponse({ success: true, crossover }, 200, refresh ? 0 : 30);
   }
 
@@ -87,7 +96,8 @@ export async function handleFoldersRoutes({
       }, 400);
     }
     const refresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
-    const crossover = await calculateFolderCrossover(sql, Number(folderId), { refresh, env, ctx });
+    await assertFolderInWorkspace(sql, Number(folderId), workspaceId);
+    const crossover = await calculateFolderCrossover(sql, Number(folderId), { refresh, env, ctx, workspaceId });
     return jsonResponse({ success: true, crossover }, 200, refresh ? 0 : 30);
   }
 
@@ -95,10 +105,7 @@ export async function handleFoldersRoutes({
   const folderAuditMatch = method === 'POST' && pathname.match(/^\/api\/folders\/(\d+)\/dispatch-audit$/);
   if (folderAuditMatch) {
     const folderId = folderAuditMatch[1];
-    const [folderRow] = await sql`SELECT id, name, metadata FROM keyword_folders WHERE id = ${Number(folderId)} LIMIT 1;`;
-    if (!folderRow) {
-      return jsonResponse({ success: false, error: `Folder ${folderId} not found` }, 404);
-    }
+    const folderRow = await assertFolderInWorkspace(sql, Number(folderId), workspaceId);
     const body = await request.json().catch(() => ({}));
     const folderMeta = normalizeFolderMetadata(folderRow?.metadata);
     const crawlScopeInput = String(body.crawl_scope || folderMeta.crawl_scope || 'all_pins');
@@ -148,7 +155,7 @@ export async function handleFoldersRoutes({
       if (method !== 'GET') return methodNotAllowedResponse('GET, OPTIONS');
       const keywordId = searchParams.get('keyword_id');
       if (!keywordId) return jsonResponse({ success: false, error: 'keyword_id is required' }, 400);
-      const folders = await getFoldersForKeyword(sql, keywordId);
+      const folders = await getFoldersForKeyword(sql, keywordId, { workspaceId });
       return jsonResponse({ success: true, folders });
     }
 
@@ -160,15 +167,16 @@ export async function handleFoldersRoutes({
         const body = await request.json().catch(() => ({}));
         const itemFolderId = body.folder_id || searchParams.get('folder_id');
         if (!itemFolderId) return jsonResponse({ success: false, error: 'folder_id is required' }, 400);
+        await assertFolderInWorkspace(sql, itemFolderId, workspaceId);
         if (Array.isArray(body.keyword_ids)) {
           const result = await batchAddKeywordsToFolder(sql, itemFolderId, body.keyword_ids);
-          invalidateFolderCache(itemFolderId);
+          invalidateFolderCache(itemFolderId, workspaceId);
           return jsonResponse({ success: true, ...result });
         }
         const keywordId = body.keyword_id || searchParams.get('keyword_id');
         if (!keywordId) return jsonResponse({ success: false, error: 'keyword_id or keyword_ids is required' }, 400);
         const item = await addKeywordToFolder(sql, itemFolderId, keywordId, body.notes || '');
-        invalidateFolderCache(itemFolderId);
+        invalidateFolderCache(itemFolderId, workspaceId);
         return jsonResponse({ success: true, item });
       }
       if (method === 'DELETE') {
@@ -182,11 +190,49 @@ export async function handleFoldersRoutes({
           keywordId = keywordId || body.keyword_id;
         } catch (_) {}
         if (!itemFolderId || !keywordId) return jsonResponse({ success: false, error: 'folder_id and keyword_id are required' }, 400);
+        await assertFolderInWorkspace(sql, itemFolderId, workspaceId);
         const deleted = await removeKeywordFromFolder(sql, itemFolderId, keywordId);
-        invalidateFolderCache(itemFolderId);
+        invalidateFolderCache(itemFolderId, workspaceId);
         return jsonResponse({ success: true, deleted });
       }
       return jsonResponse({ success: false, error: 'Method not allowed on /items' }, 405);
+    }
+
+    // A00. Sub-route: /api/folders/:id/tracked-pins (Unified 4-source V4 daily tracking)
+    if (parts.length >= 2 && parts[1] === 'tracked-pins') {
+      if (!folderId) return jsonResponse({ success: false, error: 'Valid folder ID is required' }, 400);
+      if (method === 'GET') {
+        const sourceType = searchParams.get('source_type') || searchParams.get('source') || null;
+        const pins = await listCampaignTrackedPins(sql, { folderId, workspaceId, sourceType });
+        return jsonResponse({ success: true, folder_id: Number(folderId), workspace_id: workspaceId, tracked_pins: pins });
+      }
+      if (method === 'POST') {
+        const body = await request.json().catch(() => ({}));
+        const pinIds = Array.isArray(body.pin_ids) ? body.pin_ids : (body.pin_id ? [body.pin_id] : []);
+        const result = await addCampaignTrackedPins(sql, {
+          folderId,
+          workspaceId,
+          pinIds,
+          sourceType: body.source_type || body.source || 'newborn',
+          sourceRef: body.source_ref || ''
+        });
+        invalidateFolderCache(folderId, workspaceId);
+        return jsonResponse({ success: true, ...result });
+      }
+      if (method === 'DELETE') {
+        let pinId = parts[2] || searchParams.get('pin_id');
+        let sourceType = searchParams.get('source_type') || searchParams.get('source') || null;
+        if (!pinId) {
+          const body = await request.json().catch(() => ({}));
+          pinId = body.pin_id || '';
+          sourceType = sourceType || body.source_type || body.source || null;
+        }
+        if (!pinId) return jsonResponse({ success: false, error: 'pin_id is required' }, 400);
+        const result = await removeCampaignTrackedPin(sql, { folderId, workspaceId, pinId, sourceType });
+        invalidateFolderCache(folderId, workspaceId);
+        return jsonResponse({ success: true, ...result });
+      }
+      return jsonResponse({ success: false, error: 'Method not allowed on /tracked-pins' }, 405);
     }
 
     // A0. Sub-route: /api/folders/:id/prune-pins (POST)
@@ -194,6 +240,7 @@ export async function handleFoldersRoutes({
       // [INVARIANT: PRUNE-TOMBSTONE-AND-EVICT] Pruning tombstones to keyword_ignored_pins
       if (!folderId) return jsonResponse({ success: false, error: 'Valid folder ID is required' }, 400);
       if (method !== 'POST') return jsonResponse({ success: false, error: 'Method not allowed' }, 405);
+      await assertFolderInWorkspace(sql, folderId, workspaceId);
       const body = await request.json().catch(() => ({}));
       const {
         dry_run,
@@ -236,6 +283,7 @@ export async function handleFoldersRoutes({
     // A. Sub-route: /api/folders/:id/creators
     if (parts.length >= 2 && parts[1] === 'creators') {
       if (!folderId) return jsonResponse({ success: false, error: 'Valid folder ID is required' }, 400);
+      await assertFolderInWorkspace(sql, folderId, workspaceId);
 
       // GET /api/folders/:id/creators -> listFolderCreators(sql, folderId) with auto-discovery
       if (method === 'GET' && parts.length === 2) {
@@ -275,14 +323,14 @@ export async function handleFoldersRoutes({
         const numericCid = Number(body.competitor_id || body.creator_id || body.id);
         if (Number.isFinite(numericCid) && numericCid > 0) {
           const linked = await linkCreatorToFolder(sql, folderId, numericCid);
-          invalidateFolderCache(folderId);
+          invalidateFolderCache(folderId, workspaceId);
           return jsonResponse({ success: true, linked, folder_id: folderId });
         }
         const rawUser = String(body.username || body.competitor_id || body.creator_id || body.id || '');
         const cleanUsername = rawUser.replace(/^serp_/, '').trim().toLowerCase().replace(/^@/, '');
         if (cleanUsername) {
           const result = await toggleFolderCreatorTracking(sql, folderId, cleanUsername);
-          invalidateFolderCache(folderId);
+          invalidateFolderCache(folderId, workspaceId);
           return jsonResponse({ success: true, linked: result.is_tracked, folder_id: folderId, ...result });
         }
         return jsonResponse({ success: false, error: 'Valid competitor_id or username is required' }, 400);
@@ -327,7 +375,7 @@ export async function handleFoldersRoutes({
           return jsonResponse({ success: false, error: 'Valid creator ID or username is required' }, 400);
         }
         const unlinked = await unlinkCreatorFromFolder(sql, folderId, competitorId);
-        invalidateFolderCache(folderId);
+        invalidateFolderCache(folderId, workspaceId);
         return jsonResponse({ success: true, unlinked, folder_id: folderId });
       }
 
@@ -337,6 +385,7 @@ export async function handleFoldersRoutes({
     // B. Sub-route: /api/folders/:id/domains
     if (parts.length >= 2 && parts[1] === 'domains') {
       if (!folderId) return jsonResponse({ success: false, error: 'Valid folder ID is required' }, 400);
+      await assertFolderInWorkspace(sql, folderId, workspaceId);
 
       // GET /api/folders/:id/domains -> listFolderPinnedDomains(sql, folderId)
       if (method === 'GET' && parts.length === 2) {
@@ -371,19 +420,20 @@ export async function handleFoldersRoutes({
     // C. Sub-route: /api/folders/:id/items
     if (parts.length >= 2 && parts[1] === 'items') {
       if (!folderId) return jsonResponse({ success: false, error: 'Valid folder ID is required' }, 400);
+      await assertFolderInWorkspace(sql, folderId, workspaceId);
       if (method === 'POST') {
         await invalidateEdgeCache('keywords');
         await invalidateEdgeCache('folders');
         const body = await request.json().catch(() => ({}));
         if (Array.isArray(body.keyword_ids)) {
           const result = await batchAddKeywordsToFolder(sql, folderId, body.keyword_ids);
-          invalidateFolderCache(folderId);
+          invalidateFolderCache(folderId, workspaceId);
           return jsonResponse({ success: true, ...result });
         }
         const keywordId = body.keyword_id || searchParams.get('keyword_id');
         if (!keywordId) return jsonResponse({ error: 'keyword_id or keyword_ids is required' }, 400);
         const item = await addKeywordToFolder(sql, folderId, keywordId, body.notes || '');
-        invalidateFolderCache(folderId);
+        invalidateFolderCache(folderId, workspaceId);
         return jsonResponse({ success: true, item });
       }
       if (method === 'DELETE') {
@@ -397,7 +447,7 @@ export async function handleFoldersRoutes({
         } catch (_) {}
         if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
         const deleted = await removeKeywordFromFolder(sql, folderId, keywordId);
-        invalidateFolderCache(folderId);
+        invalidateFolderCache(folderId, workspaceId);
         return jsonResponse({ success: true, deleted });
       }
       return jsonResponse({ success: false, error: 'Method not allowed on /items' }, 405);
@@ -414,7 +464,7 @@ export async function handleFoldersRoutes({
         let folder = null;
         if (sql) {
           try {
-            folder = await getFolder(sql, folderId);
+            folder = await getFolder(sql, folderId, { workspaceId });
           } catch (_) {}
         }
         if (!folder) return jsonResponse({ error: 'Folder not found' }, 404);
@@ -423,10 +473,11 @@ export async function handleFoldersRoutes({
 
       try {
         const folders = isLite
-          ? await listFoldersLite(sql, { projectId })
-          : await listFolders(sql, { projectId });
+          ? await listFoldersLite(sql, { projectId, workspaceId })
+          : await listFolders(sql, { projectId, workspaceId });
         return jsonResponse({
           success: true,
+          workspace_id: workspaceId,
           folders: Array.isArray(folders) ? folders : []
         }, 200, 10);
       } catch (err) {
@@ -447,7 +498,7 @@ export async function handleFoldersRoutes({
       if (body.status && !['active', 'archived', 'paused', 'completed'].includes(String(body.status).toLowerCase())) {
         return jsonResponse({ success: false, error: 'Invalid folder status. Allowed values: active, archived, paused, completed' }, 400);
       }
-      const created = await createFolder(sql, body);
+      const created = await createFolder(sql, { ...body, workspaceId });
       return jsonResponse({ success: true, folder: created });
     }
 
@@ -457,8 +508,9 @@ export async function handleFoldersRoutes({
       const body = await request.json().catch(() => ({}));
       const targetFolderId = firstSegIsNumeric ? Number(parts[0]) : (body.id || body.folder_id || searchParams.get('id') || searchParams.get('folder_id'));
       if (!targetFolderId) return jsonResponse({ success: false, error: 'Folder id is required' }, 400);
-      const updated = await updateFolder(sql, targetFolderId, body);
-      invalidateFolderCache(targetFolderId);
+      await assertFolderInWorkspace(sql, targetFolderId, workspaceId);
+      const updated = await updateFolder(sql, targetFolderId, { ...body, workspaceId });
+      invalidateFolderCache(targetFolderId, workspaceId);
       return jsonResponse({ success: true, folder: updated });
     }
 
@@ -475,8 +527,9 @@ export async function handleFoldersRoutes({
         } catch (_) {}
       }
       if (!delFolderId) return jsonResponse({ success: false, error: 'Folder id is required' }, 400);
-      const deleted = await deleteFolder(sql, delFolderId);
-      invalidateFolderCache(delFolderId);
+      await assertFolderInWorkspace(sql, delFolderId, workspaceId);
+      const deleted = await deleteFolder(sql, delFolderId, { workspaceId });
+      invalidateFolderCache(delFolderId, workspaceId);
       return jsonResponse({ success: true, deleted });
     }
   }

@@ -242,8 +242,8 @@ export const DEFAULT_NEWBORN_SETTINGS = Object.freeze({
     hydration: {
       enable_pidgets_pretriage: true,
       max_pin_hydrations_per_run: 500,
-      auto_fetch_accounts: false,
-      max_user_hydrations_per_run: 25
+      auto_fetch_accounts: true,
+      max_user_hydrations_per_run: 50
     }
   },
   qualification: {
@@ -263,8 +263,8 @@ export const DEFAULT_NEWBORN_SETTINGS = Object.freeze({
     provenance: {
       allowed_sources: [...VALID_UPLOAD_PROVENANCE],
       excluded_sources: [],
-      ai_disclosure_policy: 'exclude',
-      exclude_products: true,
+      ai_disclosure_policy: 'include',
+      exclude_products: false,
       exclude_videos: false
     },
     linkless_vacuum: {
@@ -568,8 +568,8 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
     ? normalizeProvenanceArray(patchProv.excluded_sources, [])
     : normalizeProvenanceArray(baseProv.excluded_sources || [], []);
 
-  const rawAiPolicy = String(patchProv.ai_disclosure_policy ?? baseProv.ai_disclosure_policy ?? 'exclude').trim().toLowerCase();
-  const aiDisclosurePolicy = VALID_AI_POLICIES.has(rawAiPolicy) ? rawAiPolicy : 'exclude';
+  const rawAiPolicy = String(patchProv.ai_disclosure_policy ?? baseProv.ai_disclosure_policy ?? 'include').trim().toLowerCase();
+  const aiDisclosurePolicy = VALID_AI_POLICIES.has(rawAiPolicy) ? rawAiPolicy : 'include';
 
   const baseVacuum = baseQual.linkless_vacuum || DEFAULT_NEWBORN_SETTINGS.qualification.linkless_vacuum;
   const patchVacuum = patchQual.linkless_vacuum && typeof patchQual.linkless_vacuum === 'object' ? patchQual.linkless_vacuum : {};
@@ -657,13 +657,13 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
         ),
         auto_fetch_accounts: cleanBool(
           patchHyd.auto_fetch_accounts,
-          cleanBool(baseHyd.auto_fetch_accounts, false)
+          cleanBool(baseHyd.auto_fetch_accounts, true)
         ),
         max_user_hydrations_per_run: clampInt(
           patchHyd.max_user_hydrations_per_run,
-          baseHyd.max_user_hydrations_per_run ?? 25,
+          baseHyd.max_user_hydrations_per_run ?? 50,
           0,
-          500
+          100
         )
       }
     },
@@ -691,7 +691,7 @@ export function normalizeNewbornSettings(patch = {}, base = DEFAULT_NEWBORN_SETT
         allowed_sources: allowedSources,
         excluded_sources: excludedSources,
         ai_disclosure_policy: aiDisclosurePolicy,
-        exclude_products: cleanBool(patchProv.exclude_products, cleanBool(baseProv.exclude_products, true)),
+        exclude_products: cleanBool(patchProv.exclude_products, cleanBool(baseProv.exclude_products, false)),
         exclude_videos: cleanBool(patchProv.exclude_videos, cleanBool(baseProv.exclude_videos, false))
       },
       linkless_vacuum: {

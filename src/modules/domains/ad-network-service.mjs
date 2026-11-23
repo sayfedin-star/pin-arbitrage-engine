@@ -15,11 +15,7 @@
 import { sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import { chunkArray } from '../../utils.mjs';
 import { safeExternalFetch, SsrfBlockedError } from '../../lib/net-guard.mjs';
-import {
-  normalizeCleanDomain,
-  IGNORED_INTERNAL_DOMAINS,
-  ECOMMERCE_AND_SOCIAL_DOMAINS
-} from './domain-constants.mjs';
+import { normalizeCleanDomain } from './domain-constants.mjs';
 
 export const KNOWN_AD_NETWORKS = {
   RAPTIVE: 'raptive',
@@ -729,7 +725,9 @@ export async function getDatabaseMonetizationStats(sql) {
         COUNT(*) FILTER (WHERE ad_network = 'protected')::int AS protected_count,
         COUNT(*) FILTER (WHERE ad_network = 'failed')::int AS failed_count,
         COUNT(*) FILTER (WHERE ad_switched_at IS NOT NULL)::int AS switched_count
-      FROM domain_intelligence_rollup;
+      FROM domain_intelligence_rollup
+      WHERE domain <> 'Uploaded by user'
+        AND COALESCE(age_status, '') <> 'organic_unlinked';
     `.catch(() => []);
 
     if (rollupStats && Number(rollupStats.total_domains) > 0) {
@@ -776,8 +774,6 @@ export async function getDatabaseMonetizationStats(sql) {
           AND clean_domain LIKE '%.%'
           AND clean_domain NOT LIKE '% %'
           AND LENGTH(clean_domain) >= 4
-          AND clean_domain <> ALL(${IGNORED_INTERNAL_DOMAINS}::text[])
-          AND clean_domain <> ALL(${ECOMMERCE_AND_SOCIAL_DOMAINS}::text[])
       ),
       dir_agg AS (
         SELECT
@@ -904,8 +900,6 @@ export async function enrichNextUncheckedAdsBatch(sql, { batchSize = 15, concurr
         AND clean_domain LIKE '%.%'
         AND clean_domain NOT LIKE '% %'
         AND LENGTH(clean_domain) >= 4
-        AND clean_domain <> ALL(${IGNORED_INTERNAL_DOMAINS}::text[])
-        AND clean_domain <> ALL(${ECOMMERCE_AND_SOCIAL_DOMAINS}::text[])
       GROUP BY clean_domain
     )
     SELECT agg.domain

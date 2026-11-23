@@ -19,65 +19,137 @@
  * Query 1: Active SERP & Folder Mapping (Zero-Cartesian CTE)
  * Strictly obeys Hub Skeletal Compaction: does NOT select description, alt_text, or seo_title from ksp.
  */
-export async function queryActiveSerp(sql, folderIdNum) {
-  return await sql`
-    WITH kw_folders AS (
+export async function queryActiveSerp(sql, folderIdNum, workspaceId = 1) {
+  const parsedWs = Number(workspaceId);
+  const wid = Number.isInteger(parsedWs) && parsedWs > 0 ? parsedWs : 1;
+
+  try {
+    return await sql`
+      WITH kw_folders AS (
+        SELECT
+          kfi.keyword_id,
+          jsonb_agg(
+            jsonb_build_object('folder_id', kf.id, 'folder_name', kf.name, 'folder_color', kf.color)
+            ORDER BY kf.name ASC
+          ) AS folders
+        FROM keyword_folder_items kfi
+        JOIN keyword_folders kf ON kf.id = kfi.folder_id
+        WHERE kf.workspace_id = ${wid}
+        GROUP BY kfi.keyword_id
+      )
       SELECT
-        kfi.keyword_id,
-        jsonb_agg(
-          jsonb_build_object('folder_id', kf.id, 'folder_name', kf.name, 'folder_color', kf.color)
-          ORDER BY kf.name ASC
-        ) AS folders
-      FROM keyword_folder_items kfi
-      JOIN keyword_folders kf ON kf.id = kfi.folder_id
-      GROUP BY kfi.keyword_id
-    )
-    SELECT
-      COUNT(*) OVER()::int AS full_count,
-      ksp.keyword_id,
-      tk.keyword AS keyword_text,
-      tk.category AS keyword_category,
-      COALESCE(kwf.folders, '[]'::jsonb) AS folders,
-      ksp.pin_id,
-      ksp.rank_position,
-      ksp.prev_rank_position,
-      COALESCE(NULLIF(ump.title, ''), '') AS title,
-      COALESCE(NULLIF(ump.domain, ''), '') AS domain,
-      COALESCE(NULLIF(ump.destination_url, ''), '') AS destination_url,
-      COALESCE(NULLIF(ump.image_url, ''), '') AS image_url,
-      COALESCE(NULLIF(ump.creator_username, ''), '') AS creator_username,
-      COALESCE(NULLIF(ump.board_name, ''), '') AS board_name,
-      LEFT(COALESCE(ump.description, ''), 80) AS description,
-      LEFT(COALESCE(ump.alt_text, ''), 60) AS alt_text,
-      ump.save_count,
-      ump.repin_count,
-      COALESCE(ump.daily_save_velocity, 0) AS daily_save_velocity,
-      COALESCE(ump.delta_saves_24h, 0) AS delta_saves_24h,
-      COALESCE(ump.delta_repins_24h, 0) AS delta_repins_24h,
-      COALESCE(ump.gains_5d, 0) AS gains_5d,
-      COALESCE(ump.gains_7d, 0) AS gains_7d,
-      COALESCE(ump.gains_10d, 0) AS gains_10d,
-      COALESCE(ump.gains_15d, 0) AS gains_15d,
-      COALESCE(ump.url_global_saves, 0) AS url_global_saves,
-      CASE WHEN ump.dominant_color NOT IN ('', '#888888', '#1e1e24', '#000000', '#18181b') THEN ump.dominant_color ELSE NULL END AS dominant_color,
-      COALESCE(NULLIF(ump.visual_annotations, '[]'::jsonb), '[]'::jsonb) AS visual_annotations,
-      ump.created_at_pinterest,
-      COALESCE(NULLIF(ump.creation_method, ''), NULLIF(ump.metadata->>'creation_method', ''), 'pinterest_platform') AS creation_method,
-      ksp.crawled_at
-    FROM keyword_serp_positions ksp
-    JOIN tracked_keywords tk ON tk.id = ksp.keyword_id
-    JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
-    LEFT JOIN kw_folders kwf ON kwf.keyword_id = ksp.keyword_id
-    WHERE ksp.is_displaced = FALSE
-      AND ksp.rank_position IS NOT NULL
-      AND ksp.rank_position >= 1
-      AND (${folderIdNum}::int IS NULL OR EXISTS (
-        SELECT 1 FROM keyword_folder_items fi 
-        WHERE fi.keyword_id = ksp.keyword_id AND fi.folder_id = ${folderIdNum}::int
-      ))
-    ORDER BY ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST
-    LIMIT 2500;
-  `;
+        COUNT(*) OVER()::int AS full_count,
+        ksp.keyword_id,
+        tk.keyword AS keyword_text,
+        tk.category AS keyword_category,
+        COALESCE(kwf.folders, '[]'::jsonb) AS folders,
+        ksp.pin_id,
+        ksp.rank_position,
+        ksp.prev_rank_position,
+        COALESCE(NULLIF(ump.title, ''), '') AS title,
+        COALESCE(NULLIF(ump.domain, ''), '') AS domain,
+        COALESCE(NULLIF(ump.destination_url, ''), '') AS destination_url,
+        COALESCE(NULLIF(ump.image_url, ''), '') AS image_url,
+        COALESCE(NULLIF(ump.creator_username, ''), '') AS creator_username,
+        COALESCE(NULLIF(ump.board_name, ''), '') AS board_name,
+        LEFT(COALESCE(ump.description, ''), 80) AS description,
+        LEFT(COALESCE(ump.alt_text, ''), 60) AS alt_text,
+        ump.save_count,
+        ump.repin_count,
+        COALESCE(ump.daily_save_velocity, 0) AS daily_save_velocity,
+        COALESCE(ump.delta_saves_24h, 0) AS delta_saves_24h,
+        COALESCE(ump.delta_repins_24h, 0) AS delta_repins_24h,
+        COALESCE(ump.gains_5d, 0) AS gains_5d,
+        COALESCE(ump.gains_7d, 0) AS gains_7d,
+        COALESCE(ump.gains_10d, 0) AS gains_10d,
+        COALESCE(ump.gains_15d, 0) AS gains_15d,
+        COALESCE(ump.url_global_saves, 0) AS url_global_saves,
+        CASE WHEN ump.dominant_color NOT IN ('', '#888888', '#1e1e24', '#000000', '#18181b') THEN ump.dominant_color ELSE NULL END AS dominant_color,
+        COALESCE(NULLIF(ump.visual_annotations, '[]'::jsonb), '[]'::jsonb) AS visual_annotations,
+        ump.created_at_pinterest,
+        COALESCE(NULLIF(ump.creation_method, ''), NULLIF(ump.metadata->>'creation_method', ''), 'pinterest_platform') AS creation_method,
+        ksp.crawled_at
+      FROM keyword_serp_positions ksp
+      JOIN tracked_keywords tk ON tk.id = ksp.keyword_id
+      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+      LEFT JOIN kw_folders kwf ON kwf.keyword_id = ksp.keyword_id
+      WHERE ksp.is_displaced = FALSE
+        AND ksp.rank_position IS NOT NULL
+        AND ksp.rank_position >= 1
+        AND (${folderIdNum}::int IS NULL OR EXISTS (
+          SELECT 1 FROM keyword_folder_items fi
+          JOIN keyword_folders kf_scope ON kf_scope.id = fi.folder_id
+          WHERE fi.keyword_id = ksp.keyword_id
+            AND fi.folder_id = ${folderIdNum}::int
+            AND kf_scope.workspace_id = ${wid}
+        ))
+      ORDER BY ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST
+      LIMIT 2500;
+    `;
+  } catch (err) {
+    if (!/column\s+["']?[\w.]*workspace_id["']?\s+does\s+not\s+exist/i.test(err?.message || '')) {
+      throw err;
+    }
+    return await sql`
+      WITH kw_folders AS (
+        SELECT
+          kfi.keyword_id,
+          jsonb_agg(
+            jsonb_build_object('folder_id', kf.id, 'folder_name', kf.name, 'folder_color', kf.color)
+            ORDER BY kf.name ASC
+          ) AS folders
+        FROM keyword_folder_items kfi
+        JOIN keyword_folders kf ON kf.id = kfi.folder_id
+        WHERE ${wid === 1}
+        GROUP BY kfi.keyword_id
+      )
+      SELECT
+        COUNT(*) OVER()::int AS full_count,
+        ksp.keyword_id,
+        tk.keyword AS keyword_text,
+        tk.category AS keyword_category,
+        COALESCE(kwf.folders, '[]'::jsonb) AS folders,
+        ksp.pin_id,
+        ksp.rank_position,
+        ksp.prev_rank_position,
+        COALESCE(NULLIF(ump.title, ''), '') AS title,
+        COALESCE(NULLIF(ump.domain, ''), '') AS domain,
+        COALESCE(NULLIF(ump.destination_url, ''), '') AS destination_url,
+        COALESCE(NULLIF(ump.image_url, ''), '') AS image_url,
+        COALESCE(NULLIF(ump.creator_username, ''), '') AS creator_username,
+        COALESCE(NULLIF(ump.board_name, ''), '') AS board_name,
+        LEFT(COALESCE(ump.description, ''), 80) AS description,
+        LEFT(COALESCE(ump.alt_text, ''), 60) AS alt_text,
+        ump.save_count,
+        ump.repin_count,
+        COALESCE(ump.daily_save_velocity, 0) AS daily_save_velocity,
+        COALESCE(ump.delta_saves_24h, 0) AS delta_saves_24h,
+        COALESCE(ump.delta_repins_24h, 0) AS delta_repins_24h,
+        COALESCE(ump.gains_5d, 0) AS gains_5d,
+        COALESCE(ump.gains_7d, 0) AS gains_7d,
+        COALESCE(ump.gains_10d, 0) AS gains_10d,
+        COALESCE(ump.gains_15d, 0) AS gains_15d,
+        COALESCE(ump.url_global_saves, 0) AS url_global_saves,
+        CASE WHEN ump.dominant_color NOT IN ('', '#888888', '#1e1e24', '#000000', '#18181b') THEN ump.dominant_color ELSE NULL END AS dominant_color,
+        COALESCE(NULLIF(ump.visual_annotations, '[]'::jsonb), '[]'::jsonb) AS visual_annotations,
+        ump.created_at_pinterest,
+        COALESCE(NULLIF(ump.creation_method, ''), NULLIF(ump.metadata->>'creation_method', ''), 'pinterest_platform') AS creation_method,
+        ksp.crawled_at
+      FROM keyword_serp_positions ksp
+      JOIN tracked_keywords tk ON tk.id = ksp.keyword_id
+      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+      LEFT JOIN kw_folders kwf ON kwf.keyword_id = ksp.keyword_id
+      WHERE ksp.is_displaced = FALSE
+        AND ksp.rank_position IS NOT NULL
+        AND ksp.rank_position >= 1
+        AND (${folderIdNum}::int IS NULL OR EXISTS (
+          SELECT 1 FROM keyword_folder_items fi
+          WHERE fi.keyword_id = ksp.keyword_id AND fi.folder_id = ${folderIdNum}::int
+        ))
+      ORDER BY ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST
+      LIMIT 2500;
+    `;
+  }
 }
 
 /**
@@ -519,9 +591,10 @@ export async function queryKPIs(sql, folderIdNum = null) {
       const folderRows = await sql`
         SELECT
           COUNT(DISTINCT ump.pin_id)::bigint AS active_pins_24h,
-          COUNT(DISTINCT NULLIF(BTRIM(ump.clean_domain), '')) FILTER (
-            WHERE LOWER(BTRIM(COALESCE(ump.clean_domain, ''))) NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pinterest.com', 'www.pinterest.com')
-          )::bigint AS active_domains_24h,
+          COUNT(DISTINCT CASE
+            WHEN LOWER(BTRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+            ELSE LOWER(BTRIM(ump.clean_domain))
+          END)::bigint AS active_domains_24h,
           COUNT(DISTINCT NULLIF(BTRIM(ump.creator_username), ''))::bigint AS active_creators_24h,
           COALESCE(ROUND(AVG(ump.daily_save_velocity)::numeric, 2), 0)::numeric(12,2) AS avg_velocity_24h,
           COALESCE(MAX(ump.daily_save_velocity), 0)::numeric(12,2) AS max_velocity_24h,
@@ -593,9 +666,10 @@ export async function queryKPIs(sql, folderIdNum = null) {
       const fallbackRows = await sql`
         SELECT
           COUNT(DISTINCT ump.pin_id)::bigint AS active_pins_24h,
-          COUNT(DISTINCT NULLIF(BTRIM(ump.clean_domain), '')) FILTER (
-            WHERE LOWER(BTRIM(COALESCE(ump.clean_domain, ''))) NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pinterest.com', 'www.pinterest.com')
-          )::bigint AS active_domains_24h,
+          COUNT(DISTINCT CASE
+            WHEN LOWER(BTRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+            ELSE LOWER(BTRIM(ump.clean_domain))
+          END)::bigint AS active_domains_24h,
           COUNT(DISTINCT NULLIF(BTRIM(ump.creator_username), ''))::bigint AS active_creators_24h,
           COALESCE(ROUND(AVG(ump.daily_save_velocity)::numeric, 2), 0)::numeric(12,2) AS avg_velocity_24h,
           COALESCE(MAX(ump.daily_save_velocity), 0)::numeric(12,2) AS max_velocity_24h,

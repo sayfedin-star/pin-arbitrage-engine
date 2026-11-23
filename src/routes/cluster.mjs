@@ -34,6 +34,7 @@ import {
 } from '../modules/cluster/service.mjs';
 
 import { getGlobal24hPulseService, synthesizePinBlueprint } from '../modules/pulse/service.mjs';
+import { DEFAULT_WORKSPACE_ID, assertFolderInWorkspace } from '../modules/workspaces/service.mjs';
 import { dispatchGitHubWorkflow, resolveGitHubAuth } from '../http/github-workflow.mjs';
 
 /**
@@ -70,6 +71,7 @@ export async function handleClusterRoutes({
   env,
   ctx,
   sql,
+  workspaceId = DEFAULT_WORKSPACE_ID,
   jsonResponse,
   methodNotAllowedResponse,
   clampLimit,
@@ -89,8 +91,12 @@ export async function handleClusterRoutes({
     const minAudience = Number(searchParams.get('min_audience') || searchParams.get('minAudience') || 0);
 
     try {
+      if (folderId && folderId !== 'all' && /^\d+$/.test(String(folderId))) {
+        await assertFolderInWorkspace(sql, Number(folderId), workspaceId);
+      }
       const payload = await getGlobal24hPulseService(sql, env, {
         folderId,
+        workspaceId,
         window: windowParam,
         forceRefresh,
         minAudience,
@@ -98,6 +104,9 @@ export async function handleClusterRoutes({
       });
       return jsonResponse(payload, 200, 10);
     } catch (err) {
+      if (err?.status === 404 || err?.status === 400) {
+        return jsonResponse({ success: false, error: err.status === 404 ? 'NOT_FOUND' : 'BAD_REQUEST', message: err.message }, err.status);
+      }
       console.error('[Pulse 24h Route Error]', err.message);
       return jsonResponse({
         success: false,
@@ -120,8 +129,12 @@ export async function handleClusterRoutes({
     const windowParam = searchParams.get('window') || '24h';
 
     try {
+      if (folderId && folderId !== 'all' && /^\d+$/.test(String(folderId))) {
+        await assertFolderInWorkspace(sql, Number(folderId), workspaceId);
+      }
       const pulseData = await getGlobal24hPulseService(sql, env, {
         folderId,
+        workspaceId,
         window: windowParam,
         ctx
       });
@@ -131,6 +144,9 @@ export async function handleClusterRoutes({
       }
       return jsonResponse({ success: true, blueprint }, 200, 10);
     } catch (err) {
+      if (err?.status === 404 || err?.status === 400) {
+        return jsonResponse({ success: false, error: err.status === 404 ? 'NOT_FOUND' : 'BAD_REQUEST', message: err.message }, err.status);
+      }
       console.error('[Pulse Blueprint Route Error]', err.message);
       return jsonResponse({
         success: false,

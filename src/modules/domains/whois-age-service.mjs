@@ -10,11 +10,7 @@ import { StringDecoder } from 'node:string_decoder';
 import { sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import { escapeSqlWildcards, chunkArray } from '../../utils.mjs';
 import { connectSafeTcpSocket, safeExternalFetch } from '../../lib/net-guard.mjs';
-import {
-  IGNORED_INTERNAL_DOMAINS,
-  ECOMMERCE_AND_SOCIAL_DOMAINS,
-  normalizeCleanDomain
-} from './domain-constants.mjs';
+import { normalizeCleanDomain } from './domain-constants.mjs';
 
 export const CRT_SH_MAX_BYTES = 2 * 1024 * 1024; // 2 MB hard cap for crt.sh JSON responses
 
@@ -602,7 +598,9 @@ export async function getDatabaseEnrichmentStats(sql) {
         COUNT(*) FILTER (WHERE age_status = 'failed')::int AS failed_domains,
         (COUNT(*) - COUNT(*) FILTER (WHERE age_status IN ('resolved', 'failed') OR age_days IS NOT NULL))::int AS unchecked_domains,
         ROUND((COUNT(*) FILTER (WHERE age_status IN ('resolved', 'failed') OR age_days IS NOT NULL)::numeric / GREATEST(1, COUNT(*))) * 100, 1) AS percent_complete
-      FROM domain_intelligence_rollup;
+      FROM domain_intelligence_rollup
+      WHERE domain <> 'Uploaded by user'
+        AND COALESCE(age_status, '') <> 'organic_unlinked';
     `.catch(() => []);
 
     if (rollupStats && Number(rollupStats.total_domains) > 0) {
@@ -625,8 +623,6 @@ export async function getDatabaseEnrichmentStats(sql) {
           AND ump.clean_domain LIKE '%.%'
           AND ump.clean_domain NOT LIKE '% %'
           AND LENGTH(ump.clean_domain) >= 4
-          AND ump.clean_domain <> ALL(${IGNORED_INTERNAL_DOMAINS}::text[])
-          AND ump.clean_domain <> ALL(${ECOMMERCE_AND_SOCIAL_DOMAINS}::text[])
       )
       SELECT
         COUNT(*)::int AS total_domains,
@@ -690,8 +686,6 @@ export async function enrichNextUncheckedBatch(sql, { batchSize = 20, concurrenc
         AND clean_domain LIKE '%.%'
         AND clean_domain NOT LIKE '% %'
         AND LENGTH(clean_domain) >= 4
-        AND clean_domain <> ALL(${IGNORED_INTERNAL_DOMAINS}::text[])
-        AND clean_domain <> ALL(${ECOMMERCE_AND_SOCIAL_DOMAINS}::text[])
       GROUP BY clean_domain
     )
     SELECT agg.domain

@@ -13,6 +13,8 @@ import { isKeywordsRoute, handleKeywordsRoutes } from '../routes/keywords.mjs';
 import { isPinsRoute, handlePinsRoutes } from '../routes/pins.mjs';
 import { handleDomainsRoutes } from '../routes/domains.mjs';
 import { isNewbornRoute, handleNewbornRoutes, NEWBORN_CRAWLER_PATHS } from '../routes/newborn.mjs';
+import { isWorkspacesRoute, handleWorkspacesRoutes } from '../routes/workspaces.mjs';
+import { parseWorkspaceIdFromRequest, resolveActiveWorkspaceId, DEFAULT_WORKSPACE_ID } from '../modules/workspaces/service.mjs';
 import { invalidateFolderCache } from '../modules/keywords/folders-crossover.mjs';
 import { invalidateGlobalPulseCache } from '../modules/pulse/service.mjs';
 import {
@@ -126,6 +128,7 @@ export async function apiRoutesPlugin(app, options = {}) {
         ctx: effectiveCtx,
         customCtx: externalCustomCtx,
         origin,
+        workspaceId: DEFAULT_WORKSPACE_ID,
         bgPromises: []
       },
       async () => {
@@ -133,6 +136,11 @@ export async function apiRoutesPlugin(app, options = {}) {
           const url = new URL(fullUrl);
           const pathname = normalizePath(url.pathname);
           const { searchParams } = url;
+          let workspaceId = parseWorkspaceIdFromRequest(request, searchParams);
+          const activeStore = requestContextStorage.getStore();
+          if (activeStore) {
+            activeStore.workspaceId = workspaceId;
+          }
 
           // 0. Decommissioned Endpoints Gate (RFC 404 compliance before auth gate)
           if (
@@ -268,12 +276,15 @@ export async function apiRoutesPlugin(app, options = {}) {
               pathname === '/api/urls/global-saves' ||
               pathname === '/api/urls/batch-global-saves' ||
               (method === 'GET' && (
+                pathname === '/api/workspaces' ||
+                pathname === '/api/workspaces/settings' ||
                 pathname === '/api/newborn/settings' ||
                 pathname === '/api/newborn/cookie' ||
                 pathname === '/api/newborn/launchpad' ||
                 pathname === '/api/newborn/idea-intelligence' ||
                 pathname === '/api/newborn/clusters'
               )) ||
+              (method === 'POST' && pathname === '/api/workspaces/switch') ||
               pathname.startsWith('/api/boards') ||
               pathname.endsWith('/latest-pins');
 
@@ -283,9 +294,32 @@ export async function apiRoutesPlugin(app, options = {}) {
                 hint: 'Configure DATABASE_URL in .env or environment settings.'
               }, 500);
             }
+          } else {
+            workspaceId = await resolveActiveWorkspaceId(sql, request, searchParams);
+            if (activeStore) {
+              activeStore.workspaceId = workspaceId;
+            }
           }
 
           // 5. Native Sub-Router Dispatch
+          if (isWorkspacesRoute(pathname)) {
+            const workspacesRes = await handleWorkspacesRoutes({
+              pathname,
+              method,
+              request,
+              reply,
+              searchParams,
+              env,
+              ctx,
+              sql,
+              workspaceId,
+              jsonResponse: boundJsonResponse,
+              methodNotAllowedResponse: boundMethodNotAllowed,
+              invalidateEdgeCache
+            });
+            if (workspacesRes) return workspacesRes;
+          }
+
           if (isClusterRoute(pathname)) {
             const clusterRes = await handleClusterRoutes({
               pathname,
@@ -296,6 +330,7 @@ export async function apiRoutesPlugin(app, options = {}) {
               env,
               ctx,
               sql,
+              workspaceId,
               jsonResponse: boundJsonResponse,
               methodNotAllowedResponse: boundMethodNotAllowed,
               clampLimit,
@@ -318,6 +353,7 @@ export async function apiRoutesPlugin(app, options = {}) {
               env,
               ctx,
               sql,
+              workspaceId,
               jsonResponse: boundJsonResponse,
               methodNotAllowedResponse: boundMethodNotAllowed,
               clampLimit,
@@ -340,6 +376,7 @@ export async function apiRoutesPlugin(app, options = {}) {
               env,
               ctx,
               sql,
+              workspaceId,
               jsonResponse: boundJsonResponse,
               methodNotAllowedResponse: boundMethodNotAllowed,
               clampLimit,
@@ -364,6 +401,7 @@ export async function apiRoutesPlugin(app, options = {}) {
               env,
               ctx,
               sql,
+              workspaceId,
               jsonResponse: boundJsonResponse,
               methodNotAllowedResponse: boundMethodNotAllowed,
               buildCanonicalCacheKey,
@@ -386,6 +424,7 @@ export async function apiRoutesPlugin(app, options = {}) {
               searchParams,
               sql,
               ctx,
+              workspaceId,
               jsonResponse: boundJsonResponse,
               methodNotAllowedResponse: boundMethodNotAllowed,
               clampLimit,
@@ -408,6 +447,7 @@ export async function apiRoutesPlugin(app, options = {}) {
               env,
               ctx,
               sql,
+              workspaceId,
               jsonResponse: boundJsonResponse,
               methodNotAllowedResponse: boundMethodNotAllowed,
               clampLimit,

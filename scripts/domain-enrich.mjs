@@ -21,11 +21,7 @@ import {
   getDatabaseMonetizationStats,
   AD_NETWORK_DISPLAY_CONFIG
 } from '../src/modules/domains/ad-network-service.mjs';
-import {
-  normalizeCleanDomain,
-  IGNORED_INTERNAL_DOMAINS,
-  ECOMMERCE_AND_SOCIAL_DOMAINS
-} from '../src/modules/domains/domain-constants.mjs';
+import { normalizeCleanDomain } from '../src/modules/domains/domain-constants.mjs';
 import { refreshDomainIntelligenceRollup } from '../src/modules/domains/rollup-leaderboard-service.mjs';
 import { sleep, randomJitterMs } from '../src/core/pinterest/index.mjs';
 import {
@@ -209,8 +205,6 @@ export async function runDomainAdsEnrich(sql, {
         AND clean_domain LIKE '%.%'
         AND clean_domain NOT LIKE '% %'
         AND LENGTH(clean_domain) >= 4
-        AND clean_domain <> ALL(${IGNORED_INTERNAL_DOMAINS}::text[])
-        AND clean_domain <> ALL(${ECOMMERCE_AND_SOCIAL_DOMAINS}::text[])
       GROUP BY clean_domain
     )
     SELECT agg.domain
