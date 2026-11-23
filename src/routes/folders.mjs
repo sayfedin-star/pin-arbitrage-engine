@@ -34,12 +34,17 @@ import {
   invalidateFolderCache
 } from '../modules/keywords/folders-crossover.mjs';
 import { dispatchGitHubWorkflow } from '../http/github-workflow.mjs';
+import { addKeyword } from '../modules/keywords/service.mjs';
 import {
   DEFAULT_WORKSPACE_ID,
   assertFolderInWorkspace,
   addCampaignTrackedPins,
-  listCampaignTrackedPins,
-  removeCampaignTrackedPin
+  getCampaignTrackedPinsSummary,
+  syncCampaignTopNSerpPins,
+  removeCampaignTrackedPin,
+  listCampaignPinGraphSeeds,
+  addCampaignPinGraphSeeds,
+  removeCampaignPinGraphSeed
 } from '../modules/workspaces/service.mjs';
 
 /**
@@ -201,10 +206,32 @@ export async function handleFoldersRoutes({
     // A00. Sub-route: /api/folders/:id/tracked-pins (Unified 4-source V4 daily tracking)
     if (parts.length >= 2 && parts[1] === 'tracked-pins') {
       if (!folderId) return jsonResponse({ success: false, error: 'Valid folder ID is required' }, 400);
+      if (parts.length === 3 && parts[2] === 'sync-top-n') {
+        if (method !== 'POST') return jsonResponse({ success: false, error: 'Method not allowed on /tracked-pins/sync-top-n' }, 405);
+        const body = await request.json().catch(() => ({}));
+        const result = await syncCampaignTopNSerpPins(sql, {
+          folderId,
+          workspaceId,
+          topN: body?.top_n ?? body?.serp_top_n ?? null
+        });
+        invalidateFolderCache(folderId, workspaceId);
+        return jsonResponse({ success: true, ...result });
+      }
       if (method === 'GET') {
         const sourceType = searchParams.get('source_type') || searchParams.get('source') || null;
-        const pins = await listCampaignTrackedPins(sql, { folderId, workspaceId, sourceType });
-        return jsonResponse({ success: true, folder_id: Number(folderId), workspace_id: workspaceId, tracked_pins: pins });
+        const limit = Number(searchParams.get('limit') || 250);
+        const offset = Number(searchParams.get('offset') || 0);
+        const summary = await getCampaignTrackedPinsSummary(sql, { folderId, workspaceId, sourceType, limit, offset });
+        return jsonResponse({
+          success: true,
+          folder_id: summary.folder_id,
+          workspace_id: summary.workspace_id,
+          serp_top_n: summary.serp_top_n,
+          total: summary.total,
+          source_counts: summary.source_counts,
+          tracked_pins: summary.items,
+          items: summary.items
+        });
       }
       if (method === 'POST') {
         const body = await request.json().catch(() => ({}));
@@ -233,6 +260,42 @@ export async function handleFoldersRoutes({
         return jsonResponse({ success: true, ...result });
       }
       return jsonResponse({ success: false, error: 'Method not allowed on /tracked-pins' }, 405);
+    }
+
+    // A00b. Sub-route: /api/folders/:id/pin-graph-seeds (Related Pins seed queue)
+    if (parts.length >= 2 && parts[1] === 'pin-graph-seeds') {
+      if (!folderId) return jsonResponse({ success: false, error: 'Valid folder ID is required' }, 400);
+      if (method === 'GET') {
+        const status = searchParams.get('status') || null;
+        const seeds = await listCampaignPinGraphSeeds(sql, { folderId, workspaceId, status });
+        return jsonResponse({ success: true, folder_id: Number(folderId), workspace_id: workspaceId, seeds });
+      }
+      if (method === 'POST') {
+        const body = await request.json().catch(() => ({}));
+        const pinIds = Array.isArray(body.pin_ids)
+          ? body.pin_ids
+          : (Array.isArray(body.seed_pin_ids) ? body.seed_pin_ids : (body.pin_id || body.seed_pin_id ? [body.pin_id || body.seed_pin_id] : []));
+        const result = await addCampaignPinGraphSeeds(sql, {
+          folderId,
+          workspaceId,
+          pinIds,
+          depth: body.depth ?? 1
+        });
+        invalidateFolderCache(folderId, workspaceId);
+        return jsonResponse({ success: true, ...result });
+      }
+      if (method === 'DELETE') {
+        let pinId = parts[2] || searchParams.get('pin_id') || searchParams.get('seed_pin_id');
+        if (!pinId) {
+          const body = await request.json().catch(() => ({}));
+          pinId = body.pin_id || body.seed_pin_id || '';
+        }
+        if (!pinId) return jsonResponse({ success: false, error: 'pin_id is required' }, 400);
+        const result = await removeCampaignPinGraphSeed(sql, { folderId, workspaceId, pinId });
+        invalidateFolderCache(folderId, workspaceId);
+        return jsonResponse({ success: true, ...result });
+      }
+      return jsonResponse({ success: false, error: 'Method not allowed on /pin-graph-seeds' }, 405);
     }
 
     // A0. Sub-route: /api/folders/:id/prune-pins (POST)
@@ -425,13 +488,38 @@ export async function handleFoldersRoutes({
         await invalidateEdgeCache('keywords');
         await invalidateEdgeCache('folders');
         const body = await request.json().catch(() => ({}));
+        if (Array.isArray(body.keywords) && body.keywords.length > 0) {
+          const cleanTerms = Array.from(new Set(
+            body.keywords
+              .map((k) => String(typeof k === 'string' ? k : (k?.keyword || '')).trim())
+              .filter(Boolean)
+          )).slice(0, 200);
+          if (cleanTerms.length === 0) {
+            return jsonResponse({ success: false, error: 'keywords must contain at least one non-empty keyword' }, 400);
+          }
+          const createdIds = [];
+          for (const term of cleanTerms) {
+            const row = await addKeyword(sql, { keyword: term });
+            if (row?.id) createdIds.push(Number(row.id));
+          }
+          const result = createdIds.length > 0
+            ? await batchAddKeywordsToFolder(sql, folderId, createdIds)
+            : { added: 0 };
+          invalidateFolderCache(folderId, workspaceId);
+          return jsonResponse({
+            success: true,
+            keyword_ids: createdIds,
+            added_count: createdIds.length,
+            ...result
+          });
+        }
         if (Array.isArray(body.keyword_ids)) {
           const result = await batchAddKeywordsToFolder(sql, folderId, body.keyword_ids);
           invalidateFolderCache(folderId, workspaceId);
           return jsonResponse({ success: true, ...result });
         }
         const keywordId = body.keyword_id || searchParams.get('keyword_id');
-        if (!keywordId) return jsonResponse({ error: 'keyword_id or keyword_ids is required' }, 400);
+        if (!keywordId) return jsonResponse({ error: 'keyword_id, keyword_ids, or keywords is required' }, 400);
         const item = await addKeywordToFolder(sql, folderId, keywordId, body.notes || '');
         invalidateFolderCache(folderId, workspaceId);
         return jsonResponse({ success: true, item });

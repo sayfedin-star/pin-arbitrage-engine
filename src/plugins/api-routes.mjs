@@ -14,6 +14,7 @@ import { isPinsRoute, handlePinsRoutes } from '../routes/pins.mjs';
 import { handleDomainsRoutes } from '../routes/domains.mjs';
 import { isNewbornRoute, handleNewbornRoutes, NEWBORN_CRAWLER_PATHS } from '../routes/newborn.mjs';
 import { isWorkspacesRoute, handleWorkspacesRoutes } from '../routes/workspaces.mjs';
+import { isWatchlistRoute, handleWatchlistRoutes } from '../routes/watchlist.mjs';
 import { parseWorkspaceIdFromRequest, resolveActiveWorkspaceId, DEFAULT_WORKSPACE_ID } from '../modules/workspaces/service.mjs';
 import { invalidateFolderCache } from '../modules/keywords/folders-crossover.mjs';
 import { invalidateGlobalPulseCache } from '../modules/pulse/service.mjs';
@@ -318,6 +319,23 @@ export async function apiRoutesPlugin(app, options = {}) {
               invalidateEdgeCache
             });
             if (workspacesRes) return workspacesRes;
+          }
+
+          if (isWatchlistRoute(pathname)) {
+            const watchlistRes = await handleWatchlistRoutes({
+              pathname,
+              method,
+              request,
+              reply,
+              searchParams,
+              env,
+              ctx,
+              sql,
+              workspaceId,
+              jsonResponse: boundJsonResponse,
+              methodNotAllowedResponse: boundMethodNotAllowed
+            });
+            if (watchlistRes) return watchlistRes;
           }
 
           if (isClusterRoute(pathname)) {

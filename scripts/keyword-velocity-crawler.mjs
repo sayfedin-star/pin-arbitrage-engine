@@ -1033,6 +1033,188 @@ export async function markNewbornAnchorsCrawled(targetSql, pinIds = []) {
 }
 
 /**
+ * Fetches active V4 4-source Campaign tracked pins (`campaign_tracked_pins`: search/newborn/creator/related)
+ * shard-partitioned across the 20-runner 01:00 UTC Daily Pulse fleet so every tracked campaign pin
+ * receives daily `pins_daily_metrics` velocity updates even without a tracked keyword SERP hit.
+ */
+export async function fetchCampaignTrackedPinsForWorker(targetSql, { workerIndex = 0, workerTotal = 20 } = {}) {
+  if (!targetSql || typeof targetSql !== 'function') return [];
+  const wTotal = Math.max(1, Number(workerTotal) || 20);
+  const wIdx = Math.max(0, Math.min(wTotal - 1, Number(workerIndex) || 0));
+
+  try {
+    if (wTotal === 20) {
+      return await targetSql`
+        SELECT DISTINCT ON (ctp.pin_id)
+          ctp.pin_id,
+          NULL::int AS keyword_id,
+          NULL::int AS rank_position,
+          NULL::int AS last_known_rank,
+          ump.creator_username,
+          ump.board_name,
+          ump.description,
+          ump.alt_text,
+          ump.dominant_color,
+          ump.comment_count,
+          ump.share_count,
+          ump.save_count,
+          ump.repin_count,
+          ump.daily_save_velocity,
+          ump.daily_repin_velocity,
+          ump.created_at_pinterest,
+          ump.creation_method,
+          COALESCE(ump.is_hydrated, FALSE) AS is_hydrated,
+          COALESCE(ump.is_hydrated, FALSE) AS is_deep_hydrated,
+          ump.last_scraped_at,
+          ump.visual_annotations,
+          ump.image_signature,
+          ump.metadata,
+          ump.title,
+          COALESCE(ump.clean_domain, ump.domain, '') AS domain,
+          ump.destination_url,
+          ump.image_url,
+          COALESCE(ump.last_scraped_at, ctp.added_at) AS crawled_at,
+          ctp.added_at AS updated_at,
+          FALSE AS is_displaced,
+          TRUE AS is_campaign_tracked,
+          CASE
+            WHEN ump.last_scraped_at IS NOT NULL
+             AND (ump.last_scraped_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
+            THEN ump.save_count
+            ELSE NULL
+          END AS baseline_day_saves,
+          CASE
+            WHEN ump.last_scraped_at IS NOT NULL
+             AND (ump.last_scraped_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
+            THEN (ump.last_scraped_at AT TIME ZONE 'UTC')::date
+            ELSE NULL
+          END AS baseline_day_date,
+          '[]'::jsonb AS folder_positions
+        FROM campaign_tracked_pins ctp
+        LEFT JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
+        WHERE ctp.is_active = TRUE
+          AND (ABS(hashtext(ctp.pin_id::text)::bigint) % 20) = ${wIdx}
+        ORDER BY ctp.pin_id ASC, ctp.added_at DESC;
+      `;
+    }
+    if (wTotal > 1) {
+      return await targetSql`
+        SELECT DISTINCT ON (ctp.pin_id)
+          ctp.pin_id,
+          NULL::int AS keyword_id,
+          NULL::int AS rank_position,
+          NULL::int AS last_known_rank,
+          ump.creator_username,
+          ump.board_name,
+          ump.description,
+          ump.alt_text,
+          ump.dominant_color,
+          ump.comment_count,
+          ump.share_count,
+          ump.save_count,
+          ump.repin_count,
+          ump.daily_save_velocity,
+          ump.daily_repin_velocity,
+          ump.created_at_pinterest,
+          ump.creation_method,
+          COALESCE(ump.is_hydrated, FALSE) AS is_hydrated,
+          COALESCE(ump.is_hydrated, FALSE) AS is_deep_hydrated,
+          ump.last_scraped_at,
+          ump.visual_annotations,
+          ump.image_signature,
+          ump.metadata,
+          ump.title,
+          COALESCE(ump.clean_domain, ump.domain, '') AS domain,
+          ump.destination_url,
+          ump.image_url,
+          COALESCE(ump.last_scraped_at, ctp.added_at) AS crawled_at,
+          ctp.added_at AS updated_at,
+          FALSE AS is_displaced,
+          TRUE AS is_campaign_tracked,
+          CASE
+            WHEN ump.last_scraped_at IS NOT NULL
+             AND (ump.last_scraped_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
+            THEN ump.save_count
+            ELSE NULL
+          END AS baseline_day_saves,
+          CASE
+            WHEN ump.last_scraped_at IS NOT NULL
+             AND (ump.last_scraped_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
+            THEN (ump.last_scraped_at AT TIME ZONE 'UTC')::date
+            ELSE NULL
+          END AS baseline_day_date,
+          '[]'::jsonb AS folder_positions
+        FROM campaign_tracked_pins ctp
+        LEFT JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
+        WHERE ctp.is_active = TRUE
+          AND (ABS(hashtext(ctp.pin_id::text)::bigint) % ${wTotal}) = ${wIdx}
+        ORDER BY ctp.pin_id ASC, ctp.added_at DESC;
+      `;
+    }
+    return await targetSql`
+      SELECT DISTINCT ON (ctp.pin_id)
+        ctp.pin_id,
+        NULL::int AS keyword_id,
+        NULL::int AS rank_position,
+        NULL::int AS last_known_rank,
+        ump.creator_username,
+        ump.board_name,
+        ump.description,
+        ump.alt_text,
+        ump.dominant_color,
+        ump.comment_count,
+        ump.share_count,
+        ump.save_count,
+        ump.repin_count,
+        ump.daily_save_velocity,
+        ump.daily_repin_velocity,
+        ump.created_at_pinterest,
+        ump.creation_method,
+        COALESCE(ump.is_hydrated, FALSE) AS is_hydrated,
+        COALESCE(ump.is_hydrated, FALSE) AS is_deep_hydrated,
+        ump.last_scraped_at,
+        ump.visual_annotations,
+        ump.image_signature,
+        ump.metadata,
+        ump.title,
+        COALESCE(ump.clean_domain, ump.domain, '') AS domain,
+        ump.destination_url,
+        ump.image_url,
+        COALESCE(ump.last_scraped_at, ctp.added_at) AS crawled_at,
+        ctp.added_at AS updated_at,
+        FALSE AS is_displaced,
+        TRUE AS is_campaign_tracked,
+        CASE
+          WHEN ump.last_scraped_at IS NOT NULL
+           AND (ump.last_scraped_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
+          THEN ump.save_count
+          ELSE NULL
+        END AS baseline_day_saves,
+        CASE
+          WHEN ump.last_scraped_at IS NOT NULL
+           AND (ump.last_scraped_at AT TIME ZONE 'UTC')::date < (NOW() AT TIME ZONE 'UTC')::date
+          THEN (ump.last_scraped_at AT TIME ZONE 'UTC')::date
+          ELSE NULL
+        END AS baseline_day_date,
+        '[]'::jsonb AS folder_positions
+      FROM campaign_tracked_pins ctp
+      LEFT JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
+      WHERE ctp.is_active = TRUE
+      ORDER BY ctp.pin_id ASC, ctp.added_at DESC;
+    `;
+  } catch (err) {
+    if (String(err?.code || '') === '42P01') {
+      return [];
+    }
+    console.error('[keyword-velocity-crawler] fetchCampaignTrackedPinsForWorker SQL error:', err?.message || err);
+    if (classifyFatalSerpSqlError(err)) {
+      throw err;
+    }
+    throw err;
+  }
+}
+
+/**
  * Atomic Multi-Recordset Batch Flush to Central Metadata Hub
  * Supports single-keyword, folder cluster, global fleet cross-keyword fan-out, and standalone Newborn anchors.
  */
@@ -1998,12 +2180,15 @@ async function run() {
       }
     }
 
-    const preCheckAnchors = allFleetKeywordIds.length === 0
-      ? await fetchStandaloneNewbornAnchorsForWorker(sql?.noRetry || sql, { workerIndex, workerTotal })
-      : [];
+    const [preCheckAnchors, preCheckCampaignTracked] = allFleetKeywordIds.length === 0
+      ? await Promise.all([
+          fetchStandaloneNewbornAnchorsForWorker(sql?.noRetry || sql, { workerIndex, workerTotal }),
+          fetchCampaignTrackedPinsForWorker(sql?.noRetry || sql, { workerIndex, workerTotal })
+        ])
+      : [[], []];
 
-    if (allFleetKeywordIds.length === 0 && preCheckAnchors.length === 0) {
-      console.log('[!] No active keywords or standalone Newborn daily anchors in this worker slice. Exiting cleanly.');
+    if (allFleetKeywordIds.length === 0 && preCheckAnchors.length === 0 && preCheckCampaignTracked.length === 0) {
+      console.log('[!] No active keywords, Newborn daily anchors, or Campaign tracked pins in this worker slice. Exiting cleanly.');
       await closeCrawlerDb(0);
     }
 
@@ -2181,17 +2366,21 @@ async function run() {
         `, phase1bRetryOpts)
       : [];
 
-    // Union standalone Newborn daily crawler anchors (`newborn_daily_anchors`) assigned to this shard
-    const standaloneAnchors = allFleetKeywordIds.length === 0
-      ? preCheckAnchors
-      : await fetchStandaloneNewbornAnchorsForWorker(phase1bSqlA, { workerIndex, workerTotal });
+    // Union standalone Newborn daily crawler anchors + V4 4-source Campaign tracked pins assigned to this shard
+    const [standaloneAnchors, campaignTrackedPins] = allFleetKeywordIds.length === 0
+      ? [preCheckAnchors, preCheckCampaignTracked]
+      : await Promise.all([
+          fetchStandaloneNewbornAnchorsForWorker(phase1bSqlA, { workerIndex, workerTotal }),
+          fetchCampaignTrackedPinsForWorker(phase1bSqlA, { workerIndex, workerTotal })
+        ]);
 
-    if (standaloneAnchors.length > 0) {
+    const extraTrackedPins = [...standaloneAnchors, ...campaignTrackedPins];
+    if (extraTrackedPins.length > 0) {
       const existingPinIds = new Set(myPins.map((p) => String(p.pin_id)));
-      for (const anchorPin of standaloneAnchors) {
-        if (anchorPin?.pin_id && !existingPinIds.has(String(anchorPin.pin_id))) {
-          existingPinIds.add(String(anchorPin.pin_id));
-          myPins.push(anchorPin);
+      for (const extraPin of extraTrackedPins) {
+        if (extraPin?.pin_id && !existingPinIds.has(String(extraPin.pin_id))) {
+          existingPinIds.add(String(extraPin.pin_id));
+          myPins.push(extraPin);
         }
       }
     }

@@ -323,6 +323,8 @@ export function getDashboardClientAppScript() {
         creatorMoMTargetMonth: '',
         creatorChartMode: 'reach',
         selectedCreatorPinIds: [],
+        creatorPinsTargetFolderId: '',
+        sendingPinsToCampaign: false,
         isPinSelected(pinId) {
           if (!pinId) return false;
           return this.selectedCreatorPinIds.includes(String(pinId));

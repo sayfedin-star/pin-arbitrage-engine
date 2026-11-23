@@ -244,6 +244,23 @@ export function getNewbornCandidatesAndRookiesHtml() {
                   <i data-lucide="user-check" class="w-3.5 h-3.5" aria-hidden="true"></i>
                   <span x-text="isPullingBulkAccounts ? 'Pulling...' : 'Pull Account Reach'"></span>
                 </button>
+                <div class="inline-flex items-center gap-1.5 pl-1 border-l border-slate-200 dark:border-[#27272A]">
+                  <select x-model="targetCampaignFolderId"
+                          aria-label="Target campaign folder"
+                          class="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs text-slate-700 dark:text-[#FAFAFA] max-w-[165px] cursor-pointer">
+                    <option value="">Campaign...</option>
+                    <template x-for="f in foldersList" :key="f.id">
+                      <option :value="String(f.id)" x-text="f.name"></option>
+                    </template>
+                  </select>
+                  <button type="button"
+                          @click="sendSelectedNewbornPinsToCampaign()"
+                          :disabled="isSendingToCampaign || !targetCampaignFolderId"
+                          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-xs font-semibold text-white cursor-pointer">
+                    <i data-lucide="folder-plus" class="w-3.5 h-3.5" aria-hidden="true"></i>
+                    <span x-text="isSendingToCampaign ? 'Sending...' : 'Send to Campaign'"></span>
+                  </button>
+                </div>
                 <button type="button"
                         @click="openPromoteModal(selectedPinIds)"
                         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-xs font-semibold text-white cursor-pointer">

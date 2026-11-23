@@ -577,6 +577,14 @@ function createStatefulNewbornSqlMock() {
     if (/FROM tracked_keywords/i.test(q)) {
       return Array.from(state.trackedKeywords.values()).filter((k) => k.is_active);
     }
+    if (/FROM keyword_folders/i.test(q)) {
+      const fid = Number(values[0]);
+      const wid = values.length > 1 ? Number(values[1]) : 1;
+      if (fid > 0 && wid === 1) {
+        return [{ id: fid, name: `Folder ${fid}`, workspace_id: 1, serp_top_n: 20, metadata: {} }];
+      }
+      return [];
+    }
     if (/INSERT INTO keyword_folder_items/i.test(q)) {
       state.folderItems.push({ folder_id: Number(values[0]), keyword_id: Number(values[1]) });
       return [];

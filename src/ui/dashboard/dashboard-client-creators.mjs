@@ -341,6 +341,10 @@ export function getDashboardCreatorsFleetMethods() {
                   this.folderFilter = String(this.scopedFolderId);
                 });
               }
+              if (!this.creatorPinsTargetFolderId) {
+                const defaultFid = this.scopedFolderId || (this.foldersList[0] ? String(this.foldersList[0].id) : '');
+                if (defaultFid) this.creatorPinsTargetFolderId = String(defaultFid);
+              }
             }
           } catch (_) {}
         },
@@ -1548,5 +1552,84 @@ export function getDashboardCreatorsDossierMethods() {
 
         async harvestAllAccountPinsAction(creator) {
           return this.openGhaCrawlerModal(creator);
+        },
+
+        async addCreatorToWatchlist(creator) {
+          const rawHandle = typeof creator === 'string'
+            ? creator
+            : (creator?.username || creator?.creator_username || '');
+          const cleanHandle = String(rawHandle || '').replace(/^@+/, '').trim();
+          if (!cleanHandle) return;
+          const displayLabel = (typeof creator === 'object' && creator?.display_name)
+            ? creator.display_name
+            : ('@' + cleanHandle);
+          try {
+            const res = await (window.safeApiFetch || window.apiFetch || fetch)(this.getApiUrl('/api/watchlist'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                entity_type: 'creator',
+                entity_key: cleanHandle,
+                display_label: displayLabel,
+                creator_tracking_mode: 'metrics_only'
+              })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.success) {
+              this.showToast('Added @' + cleanHandle + ' to Workspace Watchlist', 'success');
+            } else {
+              this.showToast(data.error || 'Failed to add creator to watchlist', 'error');
+            }
+          } catch (e) {
+            this.showToast('Network error adding to watchlist: ' + (e.message || 'Unknown error'), 'error');
+          }
+        },
+
+        async sendCreatorPinsToCampaign() {
+          const targetFolderId = Number(this.creatorPinsTargetFolderId || this.scopedFolderId || 0);
+          if (!Number.isFinite(targetFolderId) || targetFolderId <= 0) {
+            this.showToast('Select a target campaign first', 'warning');
+            return;
+          }
+          const pinIds = Array.isArray(this.selectedCreatorPinIds) && this.selectedCreatorPinIds.length > 0
+            ? this.selectedCreatorPinIds.map(String).filter(Boolean)
+            : (this.activeCreatorAllPins || []).map(p => String(p?.pin_id || '')).filter(Boolean);
+          if (pinIds.length === 0) {
+            this.showToast('No creator pins available to send', 'warning');
+            return;
+          }
+          const handle = (this.activeCreator?.username || '').replace(/^@+/, '').trim();
+          this.sendingPinsToCampaign = true;
+          try {
+            const res = await (window.safeApiFetch || window.apiFetch || fetch)(
+              this.getApiUrl('/api/folders/' + encodeURIComponent(targetFolderId) + '/tracked-pins'),
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  pin_ids: pinIds,
+                  source_type: 'creator',
+                  source_ref: handle ? ('@' + handle) : 'creator_ledger'
+                })
+              }
+            );
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.success) {
+              const targetName = (this.foldersList || []).find(f => Number(f.id) === targetFolderId)?.name || ('Campaign #' + targetFolderId);
+              this.showToast('Sent ' + (data?.added ?? data?.added_count ?? pinIds.length) + ' pin(s) to "' + targetName + '" for daily tracking', 'success');
+              if (typeof this.clearSelectedCreatorPins === 'function') {
+                this.clearSelectedCreatorPins();
+              } else {
+                this.selectedCreatorPinIds = [];
+              }
+            } else {
+              this.showToast(data.error || 'Failed to send pins to campaign', 'error');
+            }
+          } catch (e) {
+            this.showToast('Network error sending pins to campaign: ' + (e.message || 'Unknown error'), 'error');
+          } finally {
+            this.sendingPinsToCampaign = false;
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
+          }
         },`;
 }

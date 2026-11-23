@@ -7,6 +7,7 @@ import {
   extractCanonicalAnnotations,
   formatTagTitleCase
 } from '../../domain/pin-intelligence.mjs';
+import { decodeHtmlEntities } from '../newborn/surface-normalizers.mjs';
 import {
   folderTrendsCache,
   isSyntheticPinTitle,
@@ -136,14 +137,14 @@ export async function buildFolderCrossoverMatrix({
 
     if (!pinMap.has(pid)) {
       const pinner = meta.pinner || {};
-      const candidateRawTitle = String(row.title || meta.title || '').trim();
+      const candidateRawTitle = decodeHtmlEntities(String(row.title || meta.title || '').trim());
       const authenticTitle = !isSyntheticPinTitle(candidateRawTitle) ? candidateRawTitle : '';
 
       pinMap.set(pid, {
         pin_id: pid,
         raw_title: authenticTitle,
         title: authenticTitle,
-        seo_title: row.seo_title || meta.seo_title || '',
+        seo_title: decodeHtmlEntities(row.seo_title || meta.seo_title || ''),
         image_url: row.image_url || meta.image_url || '',
         domain: row.domain || meta.domain || '',
         destination_url: row.destination_url || meta.destination_url || '',
@@ -151,12 +152,12 @@ export async function buildFolderCrossoverMatrix({
         domain_age_years: null,
         save_count: rowSaves,
         is_vacuum_pin: Boolean(row.image_url || meta.image_url) && (!row.domain || row.domain === 'Uploaded by user') && rowSaves >= 100,
-        board_name: row.board_name || meta.board_name || '',
+        board_name: decodeHtmlEntities(row.board_name || meta.board_name || ''),
         visual_annotations: rowVisualAnnotations,
         dominant_color: row.dominant_color || meta.dominant_color || null,
         created_at_pinterest: row.created_at_pinterest || meta.created_at_pinterest || null,
-        alt_text: row.alt_text || meta.alt_text || '',
-        description: row.description || meta.description || '',
+        alt_text: decodeHtmlEntities(row.alt_text || meta.alt_text || ''),
+        description: decodeHtmlEntities(row.description || meta.description || ''),
         aspect_ratio: row.aspect_ratio || meta.aspect_ratio || '2:3',
         creation_method: row.creation_method || meta.creation_method || null,
         repin_count: rowRepins,
@@ -165,7 +166,7 @@ export async function buildFolderCrossoverMatrix({
         effective_velocity: effectiveVel,
         velocity_source: vel > 0 ? 'saves' : (safeNum(row.delta_repins_24h, 0) > 0 ? 'repins' : 'saves'),
         creator_username: row.creator_username || pinner.username || '',
-        creator_name: pinner.full_name || row.creator_username || '',
+        creator_name: decodeHtmlEntities(pinner.full_name || row.creator_username || ''),
         format: row.format || meta.format || (row.creation_method ? String(row.creation_method).toUpperCase() : 'ORGANIC PIN'),
         crawled_at: row.crawled_at,
         pin_age_days: pinAgeDays,
@@ -181,13 +182,13 @@ export async function buildFolderCrossoverMatrix({
       });
     } else {
       const existingPin = pinMap.get(pid);
-      const incomingTitle = String(row.title || meta.title || '').trim();
+      const incomingTitle = decodeHtmlEntities(String(row.title || meta.title || '').trim());
       if (!existingPin.raw_title && !isSyntheticPinTitle(incomingTitle)) {
         existingPin.raw_title = incomingTitle;
         existingPin.title = incomingTitle;
       }
       if (!existingPin.seo_title && (row.seo_title || meta.seo_title)) {
-        existingPin.seo_title = row.seo_title || meta.seo_title;
+        existingPin.seo_title = decodeHtmlEntities(row.seo_title || meta.seo_title);
       }
       if (!existingPin.image_url && (row.image_url || meta.image_url)) {
         existingPin.image_url = row.image_url || meta.image_url;
@@ -196,13 +197,13 @@ export async function buildFolderCrossoverMatrix({
         existingPin.destination_url = row.destination_url || meta.destination_url;
       }
       if (!existingPin.board_name && (row.board_name || meta.board_name)) {
-        existingPin.board_name = row.board_name || meta.board_name;
+        existingPin.board_name = decodeHtmlEntities(row.board_name || meta.board_name);
       }
       if (!existingPin.alt_text && (row.alt_text || meta.alt_text)) {
-        existingPin.alt_text = row.alt_text || meta.alt_text;
+        existingPin.alt_text = decodeHtmlEntities(row.alt_text || meta.alt_text);
       }
       if (!existingPin.description && (row.description || meta.description)) {
-        existingPin.description = row.description || meta.description;
+        existingPin.description = decodeHtmlEntities(row.description || meta.description);
       }
       const incomingColor = row.dominant_color || meta.dominant_color || null;
       if (incomingColor && (!existingPin.dominant_color || existingPin.dominant_color === '#888888' || existingPin.dominant_color === '#000000' || existingPin.dominant_color === '#1e1e24')) {
@@ -293,7 +294,7 @@ export async function buildFolderCrossoverMatrix({
     if (!p.aspect_ratio) p.aspect_ratio = '2:3';
     if (!p.title || isSyntheticPinTitle(p.title)) {
       const pinKw = p.rankings[0]?.keyword || primaryKeyword;
-      p.title = derivePinTitle(
+      p.title = decodeHtmlEntities(derivePinTitle(
         p.raw_title || '',
         p.destination_url || p.domain || '',
         pinKw,
@@ -302,7 +303,9 @@ export async function buildFolderCrossoverMatrix({
         p.description || '',
         p.alt_text || '',
         p.seo_title || ''
-      );
+      ));
+    } else {
+      p.title = decodeHtmlEntities(p.title);
     }
 
     // [INVARIANT: VACUUM-PIN-CALCULATION]
@@ -504,7 +507,7 @@ export async function buildFolderCrossoverMatrix({
   // =========================================================================
   const formatMatrixPin = (pin) => ({
     pin_id: pin.pin_id,
-    title: pin.title || 'Untitled Pin',
+    title: decodeHtmlEntities(pin.title || 'Untitled Pin') || 'Untitled Pin',
     image_url: pin.image_url,
     domain: pin.domain || '',
     creator_username: pin.creator_username || '',
@@ -515,7 +518,10 @@ export async function buildFolderCrossoverMatrix({
     effective_velocity: Number(pin.effective_velocity ?? pin.daily_save_velocity ?? pin.delta_saves_24h ?? 0),
     delta_saves_24h: Number(pin.delta_saves_24h || 0),
     delta_repins_24h: Number(pin.delta_repins_24h || 0),
+    gains_5d: pin.gains_5d != null ? Number(pin.gains_5d) : null,
     gains_7d: pin.gains_7d != null ? Number(pin.gains_7d) : null,
+    gains_10d: pin.gains_10d != null ? Number(pin.gains_10d) : null,
+    gains_15d: pin.gains_15d != null ? Number(pin.gains_15d) : null,
     pin_age_days: pin.pin_age_days,
     folder_age_days: pin.folder_age_days,
     dominant_color: pin.dominant_color || null,

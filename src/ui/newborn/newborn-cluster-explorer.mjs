@@ -197,6 +197,24 @@ export function getNewbornClusterExplorerHtml() {
                     </button>
                   </template>
 
+                  <div class="inline-flex items-center gap-1.5">
+                    <select x-model="targetCampaignFolderId"
+                            aria-label="Target campaign folder"
+                            class="px-2.5 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs font-medium text-slate-700 dark:text-[#FAFAFA] max-w-[170px] cursor-pointer">
+                      <option value="">Campaign...</option>
+                      <template x-for="f in foldersList" :key="f.id">
+                        <option :value="String(f.id)" x-text="f.name"></option>
+                      </template>
+                    </select>
+                    <button type="button"
+                            @click="addClusterKeywordsToCampaign()"
+                            :disabled="isSendingToCampaign || !targetCampaignFolderId || selectedClusterKeywords.length === 0"
+                            class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer">
+                      <i data-lucide="folder-plus" class="w-3.5 h-3.5" aria-hidden="true"></i>
+                      <span x-text="isSendingToCampaign ? 'Adding...' : ('Add to Campaign (' + selectedClusterKeywords.length + ')')"></span>
+                    </button>
+                  </div>
+
                   <button type="button"
                           @click="launchClusterHunt()"
                           :disabled="isLaunchingClusterHunt || selectedClusterKeywords.length === 0"
@@ -416,12 +434,21 @@ export function getNewbornClusterExplorerHtml() {
                       </td>
 
                       <td class="py-2.5 pl-3 pr-4 text-right whitespace-nowrap">
-                        <button type="button"
-                                @click="huntSingleClusterKeyword(kw.keyword)"
-                                class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] hover:border-rose-400 hover:text-rose-600 text-[11px] font-semibold text-slate-700 dark:text-[#FAFAFA] cursor-pointer">
-                          <i data-lucide="radar" class="w-3 h-3 text-rose-500" aria-hidden="true"></i>
-                          <span>Hunt</span>
-                        </button>
+                        <div class="inline-flex items-center justify-end gap-1.5">
+                          <button type="button"
+                                  @click="addClusterKeywordsToCampaign([kw.keyword])"
+                                  :disabled="isSendingToCampaign || !targetCampaignFolderId"
+                                  title="Add keyword to selected Campaign"
+                                  class="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/30 hover:bg-indigo-600 hover:text-white disabled:opacity-40 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 cursor-pointer">
+                            <i data-lucide="folder-plus" class="w-3 h-3" aria-hidden="true"></i>
+                          </button>
+                          <button type="button"
+                                  @click="huntSingleClusterKeyword(kw.keyword)"
+                                  class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] hover:border-rose-400 hover:text-rose-600 text-[11px] font-semibold text-slate-700 dark:text-[#FAFAFA] cursor-pointer">
+                            <i data-lucide="radar" class="w-3 h-3 text-rose-500" aria-hidden="true"></i>
+                            <span>Hunt</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   </template>

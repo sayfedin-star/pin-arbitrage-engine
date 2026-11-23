@@ -263,6 +263,32 @@ export function renderCreatorsProfilePins() {
               </div>
             </div>
 
+            <!-- Creator -> Campaign 4-Source Daily Tracking Bar -->
+            <div x-show="activeCreatorAllPins.length > 0" class="rounded-2xl border border-indigo-200/80 dark:border-indigo-900/50 bg-indigo-50/50 dark:bg-indigo-950/20 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2.5 text-xs">
+              <div class="flex items-center gap-2">
+                <i data-lucide="send" class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0"></i>
+                <span class="font-semibold text-slate-800 dark:text-slate-200" x-text="selectedCreatorPinIds.length > 0 ? (selectedCreatorPinIds.length + ' selected pin(s) ready for Campaign Tracking') : ('Send filtered pins (' + activeCreatorAllPins.length + ' on page) to a Campaign')"></span>
+                <template x-if="selectedCreatorPinIds.length > 0">
+                  <button type="button" @click="clearSelectedCreatorPins()" class="text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-white underline cursor-pointer">Clear</button>
+                </template>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <select x-model="creatorPinsTargetFolderId" aria-label="Target campaign folder" class="py-1.5 px-2.5 text-xs rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer max-w-[200px]">
+                  <option value="">Select Campaign...</option>
+                  <template x-for="f in foldersList" :key="f.id">
+                    <option :value="String(f.id)" x-text="f.name"></option>
+                  </template>
+                </select>
+                <button type="button"
+                        @click="sendCreatorPinsToCampaign()"
+                        :disabled="sendingPinsToCampaign || !creatorPinsTargetFolderId"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold transition shadow-xs cursor-pointer">
+                  <i data-lucide="folder-plus" class="w-3.5 h-3.5" :class="sendingPinsToCampaign ? 'animate-pulse' : ''"></i>
+                  <span x-text="sendingPinsToCampaign ? 'Sending...' : (selectedCreatorPinIds.length > 0 ? ('Send ' + selectedCreatorPinIds.length + ' to Campaign') : 'Send Filtered to Campaign')"></span>
+                </button>
+              </div>
+            </div>
+
             <!-- Loading Spinner -->
             <div x-show="isLoadingAllPins" class="py-12 flex flex-col items-center justify-center space-y-3">
               <i data-lucide="loader" class="w-8 h-8 text-indigo-500 animate-spin"></i>

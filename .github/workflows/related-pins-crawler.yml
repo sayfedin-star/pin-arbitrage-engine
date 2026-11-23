@@ -1,4 +1,4 @@
-name: Related Pins Crawler
+name: Related Pins
 run-name: "Related Pins Crawler [${{ inputs.mode || 'seed_deep' }}]${{ inputs.target_account && format(' (@{0})', inputs.target_account) || (inputs.seed_pin_id && format(' (seed {0})', inputs.seed_pin_id) || '') }}"
 
 on:

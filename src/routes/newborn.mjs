@@ -11,6 +11,7 @@
 
 import { CircuitBreakerOpenError } from '../core/pinterest/client.mjs';
 import { dispatchGitHubWorkflow, resolveGitHubAuth } from '../http/github-workflow.mjs';
+import { assertFolderInWorkspace } from '../modules/workspaces/service.mjs';
 import {
   SURFACES_CATALOG,
   VALID_UPLOAD_PROVENANCE,
@@ -322,6 +323,7 @@ export async function handleNewbornRoutes({
   env,
   ctx,
   sql,
+  workspaceId = 1,
   jsonResponse,
   methodNotAllowedResponse,
   clampLimit,
@@ -540,7 +542,7 @@ export async function handleNewbornRoutes({
     if (method !== 'GET') {
       return methodNotAllowedResponse('GET, OPTIONS');
     }
-    const payload = await getNewbornOverview(sql, env);
+    const payload = await getNewbornOverview(sql, env, { workspaceId });
     return jsonResponse(payload, 200, -1);
   }
 
@@ -735,7 +737,7 @@ export async function handleNewbornRoutes({
     }
     const limit = clampLimit(searchParams.get('limit'), 30, 100);
     const folderId = searchParams.get('folder_id') || null;
-    const runs = await listNewbornRuns(sql, { limit, folderId });
+    const runs = await listNewbornRuns(sql, { limit, folderId, workspaceId });
     return jsonResponse({ success: true, runs }, 200, -1);
   }
 
@@ -753,7 +755,7 @@ export async function handleNewbornRoutes({
         message: `Invalid run ID "${rawRunId}". Expected a positive integer.`
       }, 400, -1);
     }
-    const cancelRes = await cancelNewbornRun(sql, Number(rawRunId), { env });
+    const cancelRes = await cancelNewbornRun(sql, Number(rawRunId), { env, workspaceId });
     if (!cancelRes.ok) {
       return jsonResponse({
         success: false,
@@ -779,7 +781,7 @@ export async function handleNewbornRoutes({
       }, 400, -1);
     }
     const lite = searchParams.get('lite') === '1' || searchParams.get('lite') === 'true';
-    const run = await getNewbornRunById(sql, Number(rawRunId), { lite });
+    const run = await getNewbornRunById(sql, Number(rawRunId), { lite, workspaceId });
     if (!run) {
       return jsonResponse({
         success: false,
@@ -859,7 +861,8 @@ export async function handleNewbornRoutes({
       return methodNotAllowedResponse('GET, OPTIONS');
     }
     const limit = clampLimit(searchParams.get('limit'), 20, 100);
-    const clusters = await listNewbornKeywordClusters(sql, { limit });
+    const folderId = searchParams.get('folder_id') || null;
+    const clusters = await listNewbornKeywordClusters(sql, { limit, workspaceId, folderId });
     return jsonResponse({ success: true, clusters }, 200, -1);
   }
 
@@ -868,7 +871,7 @@ export async function handleNewbornRoutes({
     if (method !== 'GET') {
       return methodNotAllowedResponse('GET, OPTIONS');
     }
-    const cluster = await getNewbornKeywordClusterById(sql, Number(clusterByIdMatch[1]));
+    const cluster = await getNewbornKeywordClusterById(sql, Number(clusterByIdMatch[1]), { workspaceId });
     if (!cluster) {
       return jsonResponse({
         success: false,
@@ -887,6 +890,19 @@ export async function handleNewbornRoutes({
 
     const body = await request.json().catch(() => ({}));
     try {
+      const folderScopedPaths = new Set([
+        '/api/newborn/cluster/build',
+        '/api/newborn/cluster/hunt',
+        '/api/newborn/discover',
+        '/api/newborn/snowball',
+        '/api/newborn/watchlist/poll',
+        '/api/newborn/auto-run'
+      ]);
+      const rawBodyFolderId = body?.folder_id != null && body.folder_id !== '' ? Number(body.folder_id) : null;
+      if (folderScopedPaths.has(pathname) && rawBodyFolderId !== null && Number.isFinite(rawBodyFolderId) && rawBodyFolderId > 0) {
+        await assertFolderInWorkspace(sql, rawBodyFolderId, workspaceId);
+      }
+
       if (pathname === '/api/newborn/candidates/fetch-accounts') {
         const pinIds = body?.pin_ids || body?.pinIds || (body?.pin_id ? [body.pin_id] : []);
         const result = await fetchNewbornCandidateAccounts(sql, pinIds, {
@@ -905,6 +921,8 @@ export async function handleNewbornRoutes({
 
       if (pathname === '/api/newborn/cluster/build') {
         const cluster = await buildNewbornKeywordCluster(sql, {
+          workspaceId,
+          folderId: body?.folder_id ?? null,
           seedKeyword: body?.seed_keyword ?? body?.keyword ?? body?.query,
           country: body?.country || 'US',
           l1Interest: body?.l1_interest ?? body?.interest ?? 'all',
@@ -927,6 +945,7 @@ export async function handleNewbornRoutes({
           }, 400, -1);
         }
         const cluster = await enrichClusterRemainingVolumes(sql, clusterId, {
+          workspaceId,
           batchLimit: body?.batch_limit ?? body?.limit ?? 25,
           routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
           env
@@ -989,6 +1008,7 @@ export async function handleNewbornRoutes({
             selectedKeywords,
             profileId: body?.profile_id ?? body?.profile ?? null,
             folderId: body?.folder_id ?? null,
+            workspaceId,
             clusterId,
             settingsOverrides: clusterOverrides,
             shards: requestedShards,
@@ -1018,6 +1038,7 @@ export async function handleNewbornRoutes({
           seedQueries: selectedKeywords,
           profileId: body?.profile_id ?? body?.profile ?? null,
           folderId: body?.folder_id ?? null,
+          workspaceId,
           clusterId,
           settingsOverrides: clusterOverrides,
           routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
@@ -1106,6 +1127,7 @@ export async function handleNewbornRoutes({
             selectedKeywords,
             profileId: body?.profile_id ?? body?.profile ?? null,
             folderId: body?.folder_id ?? null,
+            workspaceId,
             settingsOverrides: fleetOverrides,
             shards: requestedShards,
             env
@@ -1130,6 +1152,7 @@ export async function handleNewbornRoutes({
           seedBoards: parsedBoards,
           profileId: body?.profile_id ?? body?.profile ?? null,
           folderId: body?.folder_id ?? null,
+          workspaceId,
           settingsOverrides: mergedOverrides,
           routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
           env,
@@ -1149,6 +1172,7 @@ export async function handleNewbornRoutes({
           seedPinIds,
           profileId: body?.profile_id ?? body?.profile ?? null,
           folderId: body?.folder_id ?? null,
+          workspaceId,
           settingsOverrides: mergedOverrides,
           routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
           env,
@@ -1162,6 +1186,7 @@ export async function handleNewbornRoutes({
           runType: 'watchlist_poll',
           profileId: body?.profile_id ?? null,
           folderId: body?.folder_id ?? null,
+          workspaceId,
           workerIndex: body?.worker_index ?? 0,
           workerTotal: body?.worker_total ?? 1,
           autoPromote: body?.auto_promote ?? null,
@@ -1181,6 +1206,7 @@ export async function handleNewbornRoutes({
           seedQueries: body?.seed_queries || [],
           profileId: body?.profile_id ?? null,
           folderId: body?.folder_id ?? null,
+          workspaceId,
           routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
           env,
           ctx
@@ -1188,6 +1214,14 @@ export async function handleNewbornRoutes({
         return jsonResponse({ success: true, ...queued }, 202, -1);
       }
     } catch (err) {
+      if (err?.status >= 400 && err?.status < 500) {
+        const msg = err.message || 'Request error.';
+        return jsonResponse({
+          success: false,
+          error: err.code || (err.status === 404 ? 'NOT_FOUND' : 'REQUEST_ERROR'),
+          message: typeof redactSecrets === 'function' ? redactSecrets(msg) : String(msg)
+        }, err.status, -1);
+      }
       if (err?.status === 503 || err?.code === 'QUEUE_SATURATED') {
         return jsonResponse({
           success: false,

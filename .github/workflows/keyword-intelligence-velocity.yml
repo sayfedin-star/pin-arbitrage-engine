@@ -1,4 +1,4 @@
-name: Keyword Intelligence & Velocity Pipeline
+name: Daily Pulse
 
 on:
   schedule:

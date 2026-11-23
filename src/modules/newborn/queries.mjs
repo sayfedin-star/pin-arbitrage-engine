@@ -37,7 +37,41 @@ function decodeCandidateAnnotations(annotations) {
 /**
  * Single-pass Executive Overview for `/api/newborn/overview`.
  */
-export async function getNewbornOverview(sql, env = {}) {
+export async function getNewbornOverview(sql, env = {}, { workspaceId = 1 } = {}) {
+  const wid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
+  const fetchRecentRuns = async () => {
+    try {
+      return await sql`
+        SELECT id, run_type, status, execution_mode, progress_stage, progress_detail, progress_pct, error_message,
+               workspace_id, folder_id, cluster_id, seed_queries, surfaces_used, cookie_mode,
+               candidates_discovered, candidates_qualified,
+               golden_pins_count, rookie_creators_count, auto_watchlisted_count, auto_promoted_count,
+               snowball_hops_executed, shards_total, shards_completed, shards_failed,
+               github_run_id, github_run_url, cancel_requested_at,
+               telemetry, started_at, completed_at
+        FROM newborn_runs
+        WHERE workspace_id = ${wid}
+        ORDER BY started_at DESC
+        LIMIT 12;
+      `;
+    } catch (err) {
+      if (String(err?.code || '') !== '42703') throw err;
+      if (wid !== 1) return [];
+      return await sql`
+        SELECT id, run_type, status, execution_mode, progress_stage, progress_detail, progress_pct, error_message,
+               folder_id, cluster_id, seed_queries, surfaces_used, cookie_mode,
+               candidates_discovered, candidates_qualified,
+               golden_pins_count, rookie_creators_count, auto_watchlisted_count, auto_promoted_count,
+               snowball_hops_executed, shards_total, shards_completed, shards_failed,
+               github_run_id, github_run_url, cancel_requested_at,
+               telemetry, started_at, completed_at
+        FROM newborn_runs
+        ORDER BY started_at DESC
+        LIMIT 12;
+      `;
+    }
+  };
+
   const [settings, cookieStatus, statsRows, recentRuns, topCandidates] = await Promise.all([
     getNewbornSettings(sql),
     getNewbornCookieStatus(sql, env),
@@ -59,18 +93,7 @@ export async function getNewbornOverview(sql, env = {}) {
         (SELECT COUNT(*)::int FROM newborn_rule_profiles WHERE is_active = TRUE) AS active_profiles_count
       FROM newborn_candidates;
     `,
-    sql`
-      SELECT id, run_type, status, execution_mode, progress_stage, progress_detail, progress_pct, error_message,
-             folder_id, cluster_id, seed_queries, surfaces_used, cookie_mode,
-             candidates_discovered, candidates_qualified,
-             golden_pins_count, rookie_creators_count, auto_watchlisted_count, auto_promoted_count,
-             snowball_hops_executed, shards_total, shards_completed, shards_failed,
-             github_run_id, github_run_url, cancel_requested_at,
-             telemetry, started_at, completed_at
-      FROM newborn_runs
-      ORDER BY started_at DESC
-      LIMIT 12;
-    `,
+    fetchRecentRuns(),
     sql`
       SELECT pin_id, title, board_name, is_golden_pin, is_linkless, golden_score, repin_count, save_count, repin_per_day, visual_annotations
       FROM newborn_candidates
@@ -494,26 +517,49 @@ export async function listNewbornRookies(sql, filters = {}) {
 }
 
 /**
- * Lists recent execution runs from `newborn_runs`.
+ * Lists recent execution runs from `newborn_runs`, scoped by active `workspaceId`.
  */
-export async function listNewbornRuns(sql, { limit = 30, folderId = null } = {}) {
+export async function listNewbornRuns(sql, { limit = 30, folderId = null, workspaceId = 1 } = {}) {
   const clamped = Math.min(100, Math.max(1, Number(limit) || 30));
   const numericFolderId = folderId !== null && folderId !== undefined && Number(folderId) > 0 ? Number(folderId) : null;
-  const rows = numericFolderId !== null
-    ? await sql`
-        SELECT *
-        FROM newborn_runs
-        WHERE folder_id = ${numericFolderId}
-        ORDER BY started_at DESC
-        LIMIT ${clamped};
-      `
-    : await sql`
-        SELECT *
-        FROM newborn_runs
-        ORDER BY started_at DESC
-        LIMIT ${clamped};
-      `;
-  return rows || [];
+  const wid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
+
+  try {
+    const rows = numericFolderId !== null
+      ? await sql`
+          SELECT *
+          FROM newborn_runs
+          WHERE workspace_id = ${wid} AND folder_id = ${numericFolderId}
+          ORDER BY started_at DESC
+          LIMIT ${clamped};
+        `
+      : await sql`
+          SELECT *
+          FROM newborn_runs
+          WHERE workspace_id = ${wid}
+          ORDER BY started_at DESC
+          LIMIT ${clamped};
+        `;
+    return rows || [];
+  } catch (err) {
+    if (String(err?.code || '') !== '42703') throw err;
+    if (wid !== 1) return [];
+    const rows = numericFolderId !== null
+      ? await sql`
+          SELECT *
+          FROM newborn_runs
+          WHERE folder_id = ${numericFolderId}
+          ORDER BY started_at DESC
+          LIMIT ${clamped};
+        `
+      : await sql`
+          SELECT *
+          FROM newborn_runs
+          ORDER BY started_at DESC
+          LIMIT ${clamped};
+        `;
+    return rows || [];
+  }
 }
 
 /**

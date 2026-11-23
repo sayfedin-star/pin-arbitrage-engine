@@ -367,6 +367,10 @@ export function renderCreatorsLedgerView({ safeFolderId = '' } = {}) {
                         <button @click.stop="openGhaCrawlerModal(c)" class="p-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 transition cursor-pointer" title="Fleet Crawl: Launch distributed crawler on GitHub Actions (Recent Pins vs Full Catalog)">
                           <i data-lucide="rocket" class="w-3.5 h-3.5 text-indigo-500"></i>
                         </button>
+                        <!-- Send to Workspace Watchlist -->
+                        <button type="button" @click.stop="addCreatorToWatchlist(c)" class="p-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 transition cursor-pointer" title="Send Creator to Workspace Watchlist">
+                          <i data-lucide="bookmark-plus" class="w-3.5 h-3.5"></i>
+                        </button>
                         <!-- Folder Assignment Menu -->
                         <div class="relative inline-block text-left" x-data="{ openFolderMenu: false }">
                           <button @click.stop="openFolderMenu = !openFolderMenu" class="p-1.5 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-950/40 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer" title="Assign to Campaign Folder">

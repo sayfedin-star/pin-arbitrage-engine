@@ -6,6 +6,7 @@
  */
 
 import { isAggregatedClusterPin } from '../../domain/pin-intelligence.mjs';
+import { decodeHtmlEntities } from '../newborn/surface-normalizers.mjs';
 import { PULSE_MAX_PAYLOAD_BYTES } from './pulse-cache.mjs';
 import {
   fastParseIsoDateMs,
@@ -51,9 +52,9 @@ export function formatPinSummary(p) {
   const rawDest = p.destination_url || '';
   const qIdx = rawDest.indexOf('?');
   const cleanDest = isDomainless ? '' : (qIdx > 0 ? rawDest.slice(0, qIdx) : rawDest);
-  const rawTitle = String(p.title || '').trim();
+  const rawTitle = decodeHtmlEntities(String(p.title || '').trim());
   const compactTitle = rawTitle.length > 105 ? `${rawTitle.slice(0, 104)}…` : rawTitle;
-  const rawBoard = String(p.board_name || '').trim();
+  const rawBoard = decodeHtmlEntities(String(p.board_name || '').trim());
   const compactBoard = rawBoard.length > 48 ? `${rawBoard.slice(0, 47)}…` : rawBoard;
 
   const summary = {
@@ -114,7 +115,7 @@ export function formatMatrixPinSummary(p) {
   const effectiveSaves24h = (p.daily_save_velocity > p.delta_saves_24h) ? p.daily_save_velocity : p.delta_saves_24h;
   const dailyVel = p.daily_save_velocity > 0 ? p.daily_save_velocity : effectiveSaves24h;
   const winGain = p.window_saves_gain ?? dailyVel;
-  const rawTitle = String(p.title || '').trim();
+  const rawTitle = decodeHtmlEntities(String(p.title || '').trim());
   const compactTitle = rawTitle.length > 80 ? `${rawTitle.slice(0, 79)}…` : rawTitle;
 
   const matrixSummary = {
@@ -654,10 +655,10 @@ export function assemblePulsePayload({
     pinarchive_winners: paWinners.slice(0, 10).map(p => ({
       pin_id: p.pin_id,
       account_username: p.account_username || '',
-      title: String(p.title || '').slice(0, 105),
+      title: decodeHtmlEntities(String(p.title || '')).slice(0, 105),
       link: p.link || '',
       domain: p.domain || '',
-      board_name: p.board_name || '',
+      board_name: decodeHtmlEntities(p.board_name || ''),
       image_url: p.image_url || '',
       dominant_color: p.dominant_color || null,
       saves: Number(p.saves || 0),

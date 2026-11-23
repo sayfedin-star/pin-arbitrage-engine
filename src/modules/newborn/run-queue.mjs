@@ -149,7 +149,7 @@ function pruneProgressCache(nowMs = Date.now()) {
   }
 }
 
-function setInMemoryRunProgress(runId, patch = {}) {
+export function setInMemoryRunProgress(runId, patch = {}) {
   const numericId = Number(runId);
   if (!Number.isInteger(numericId) || numericId <= 0) return null;
   const existing = inMemoryRunProgressCache.get(numericId) || {};
@@ -159,10 +159,14 @@ function setInMemoryRunProgress(runId, patch = {}) {
   };
   const nextStatus = patch.status ?? existing.status ?? 'running';
   const isTerminal = TERMINAL_RUN_STATUSES.has(nextStatus);
+  const resolvedWsId = Number.isInteger(Number(patch.workspace_id ?? existing.workspace_id)) && Number(patch.workspace_id ?? existing.workspace_id) > 0
+    ? Number(patch.workspace_id ?? existing.workspace_id)
+    : 1;
   const nextEntry = {
     ...existing,
     ...patch,
     id: numericId,
+    workspace_id: resolvedWsId,
     execution_mode: patch.execution_mode ?? existing.execution_mode ?? 'direct',
     status: nextStatus,
     telemetry: mergedTelemetry,
@@ -215,7 +219,7 @@ export function clearNewbornInflightRunsForTest() {
 
 export function buildNewbornDedupeKey(
   runType,
-  { seedQueries = [], seedPinIds = [], seedBoards = [], folderId = null, settingsOverrides = null } = {}
+  { seedQueries = [], seedPinIds = [], seedBoards = [], folderId = null, workspaceId = 1, settingsOverrides = null } = {}
 ) {
   const cleanQueries = Array.from(new Set(
     (Array.isArray(seedQueries) ? seedQueries : [seedQueries])
@@ -234,9 +238,10 @@ export function buildNewbornDedupeKey(
   )).sort();
   const normalizedSeeds = JSON.stringify({ q: cleanQueries, p: cleanPins, b: cleanBoards });
   const fid = folderId !== null && folderId !== undefined && Number(folderId) > 0 ? Number(folderId) : 'global';
+  const wid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
   const hasOverrides = settingsOverrides && typeof settingsOverrides === 'object' && Object.keys(settingsOverrides).length > 0;
   const overrideSig = hasOverrides ? `|${JSON.stringify(settingsOverrides)}` : '';
-  return `${String(runType || 'discovery').toLowerCase()}|${normalizedSeeds}|${fid}${overrideSig}`;
+  return `${String(runType || 'discovery').toLowerCase()}|ws:${wid}|${normalizedSeeds}|${fid}${overrideSig}`;
 }
 
 /**
@@ -245,13 +250,21 @@ export function buildNewbornDedupeKey(
  * in <2ms with zero PostgreSQL queries; on cache miss with `lite: true`, projects only lightweight
  * polling fields while preserving nested `telemetry.funnel` compatibility.
  */
-export async function getNewbornRunById(sql, runId, { lite = false } = {}) {
+export async function getNewbornRunById(sql, runId, { lite = false, workspaceId = null } = {}) {
   const numericId = Number(runId);
   if (!Number.isInteger(numericId) || numericId <= 0) return null;
+  const wid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0
+    ? Number(workspaceId)
+    : null;
 
   const cached = getInMemoryRunProgress(numericId);
-  if (cached && cached.execution_mode !== 'fleet' && (lite || ACTIVE_RUN_STATUSES.has(cached.status))) {
-    return cached;
+  if (cached) {
+    if (wid !== null && Number(cached.workspace_id || 1) !== wid) {
+      return null;
+    }
+    if (cached.execution_mode !== 'fleet' && (lite || ACTIVE_RUN_STATUSES.has(cached.status))) {
+      return cached;
+    }
   }
 
   if (!sql || typeof sql !== 'function') {
@@ -259,23 +272,64 @@ export async function getNewbornRunById(sql, runId, { lite = false } = {}) {
   }
 
   if (lite) {
-    const rows = await sql`
-      SELECT
-        id, run_type, status, execution_mode,
-        progress_stage, progress_detail, progress_pct, error_message,
-        cookie_mode, candidates_discovered, candidates_qualified,
-        golden_pins_count, rookie_creators_count,
-        shards_total, shards_completed, shards_failed,
-        github_run_id, github_run_url, cancel_requested_at,
-        started_at, completed_at,
-        telemetry->'funnel' AS telemetry_funnel,
-        telemetry->'idea_page' AS telemetry_idea_page,
-        telemetry->>'stop_reason' AS stop_reason,
-        telemetry->'surface_diagnostics' AS surface_diagnostics
-      FROM newborn_runs
-      WHERE id = ${numericId}
-      LIMIT 1;
-    `;
+    let rows;
+    try {
+      rows = wid !== null
+        ? await sql`
+            SELECT
+              id, workspace_id, run_type, status, execution_mode,
+              progress_stage, progress_detail, progress_pct, error_message,
+              cookie_mode, candidates_discovered, candidates_qualified,
+              golden_pins_count, rookie_creators_count,
+              shards_total, shards_completed, shards_failed,
+              github_run_id, github_run_url, cancel_requested_at,
+              started_at, completed_at,
+              telemetry->'funnel' AS telemetry_funnel,
+              telemetry->'idea_page' AS telemetry_idea_page,
+              telemetry->>'stop_reason' AS stop_reason,
+              telemetry->'surface_diagnostics' AS surface_diagnostics
+            FROM newborn_runs
+            WHERE id = ${numericId} AND workspace_id = ${wid}
+            LIMIT 1;
+          `
+        : await sql`
+            SELECT
+              id, run_type, status, execution_mode,
+              progress_stage, progress_detail, progress_pct, error_message,
+              cookie_mode, candidates_discovered, candidates_qualified,
+              golden_pins_count, rookie_creators_count,
+              shards_total, shards_completed, shards_failed,
+              github_run_id, github_run_url, cancel_requested_at,
+              started_at, completed_at,
+              telemetry->'funnel' AS telemetry_funnel,
+              telemetry->'idea_page' AS telemetry_idea_page,
+              telemetry->>'stop_reason' AS stop_reason,
+              telemetry->'surface_diagnostics' AS surface_diagnostics
+            FROM newborn_runs
+            WHERE id = ${numericId}
+            LIMIT 1;
+          `;
+    } catch (err) {
+      if (String(err?.code || '') !== '42703') throw err;
+      if (wid !== null && wid !== 1) return null;
+      rows = await sql`
+        SELECT
+          id, run_type, status, execution_mode,
+          progress_stage, progress_detail, progress_pct, error_message,
+          cookie_mode, candidates_discovered, candidates_qualified,
+          golden_pins_count, rookie_creators_count,
+          shards_total, shards_completed, shards_failed,
+          github_run_id, github_run_url, cancel_requested_at,
+          started_at, completed_at,
+          telemetry->'funnel' AS telemetry_funnel,
+          telemetry->'idea_page' AS telemetry_idea_page,
+          telemetry->>'stop_reason' AS stop_reason,
+          telemetry->'surface_diagnostics' AS surface_diagnostics
+        FROM newborn_runs
+        WHERE id = ${numericId}
+        LIMIT 1;
+      `;
+    }
     const row = rows?.[0];
     if (!row) return null;
     const {
@@ -297,12 +351,31 @@ export async function getNewbornRunById(sql, runId, { lite = false } = {}) {
     };
   }
 
-  const rows = await sql`
-    SELECT *
-    FROM newborn_runs
-    WHERE id = ${numericId}
-    LIMIT 1;
-  `;
+  let rows;
+  try {
+    rows = wid !== null
+      ? await sql`
+          SELECT *
+          FROM newborn_runs
+          WHERE id = ${numericId} AND workspace_id = ${wid}
+          LIMIT 1;
+        `
+      : await sql`
+          SELECT *
+          FROM newborn_runs
+          WHERE id = ${numericId}
+          LIMIT 1;
+        `;
+  } catch (err) {
+    if (String(err?.code || '') !== '42703') throw err;
+    if (wid !== null && wid !== 1) return null;
+    rows = await sql`
+      SELECT *
+      FROM newborn_runs
+      WHERE id = ${numericId}
+      LIMIT 1;
+    `;
+  }
   return rows?.[0] || null;
 }
 
@@ -313,7 +386,7 @@ export async function getNewbornRunById(sql, runId, { lite = false } = {}) {
  * - Cancels GitHub Actions workflow run for Fleet runs when `github_run_id` is recorded
  * - Immediately transitions `queued` / Fleet / orphaned runs to `status = 'cancelled'`
  */
-export async function cancelNewbornRun(sql, runId, { env = null } = {}) {
+export async function cancelNewbornRun(sql, runId, { env = null, workspaceId = null } = {}) {
   const numericId = Number(runId);
   if (!Number.isInteger(numericId) || numericId <= 0) {
     return {
@@ -324,18 +397,55 @@ export async function cancelNewbornRun(sql, runId, { env = null } = {}) {
     };
   }
 
+  const wid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0
+    ? Number(workspaceId)
+    : null;
+
   let row = null;
+  let dbQueried = false;
   if (sql && typeof sql === 'function') {
-    const rows = await sql`
-      SELECT id, run_type, status, execution_mode, github_run_id, github_run_url, cancel_requested_at
-      FROM newborn_runs
-      WHERE id = ${numericId}
-      LIMIT 1;
-    `;
-    row = rows?.[0] || null;
+    dbQueried = true;
+    try {
+      const rows = wid !== null
+        ? await sql`
+            SELECT id, workspace_id, run_type, status, execution_mode, github_run_id, github_run_url, cancel_requested_at
+            FROM newborn_runs
+            WHERE id = ${numericId} AND workspace_id = ${wid}
+            LIMIT 1;
+          `
+        : await sql`
+            SELECT id, run_type, status, execution_mode, github_run_id, github_run_url, cancel_requested_at
+            FROM newborn_runs
+            WHERE id = ${numericId}
+            LIMIT 1;
+          `;
+      row = rows?.[0] || null;
+    } catch (err) {
+      if (String(err?.code || '') !== '42703') throw err;
+      if (wid !== null && wid !== 1) {
+        return {
+          ok: false,
+          status: 404,
+          error: 'NOT_FOUND',
+          message: `Newborn run #${numericId} not found.`
+        };
+      }
+      const rows = await sql`
+        SELECT id, run_type, status, execution_mode, github_run_id, github_run_url, cancel_requested_at
+        FROM newborn_runs
+        WHERE id = ${numericId}
+        LIMIT 1;
+      `;
+      row = rows?.[0] || null;
+    }
   }
   if (!row) {
-    row = getInMemoryRunProgress(numericId);
+    const memRow = getInMemoryRunProgress(numericId);
+    if (memRow && (wid === null || Number(memRow.workspace_id || 1) === wid)) {
+      if (!dbQueried || wid === null || Number(memRow.workspace_id || 1) === wid) {
+        row = memRow;
+      }
+    }
   }
   if (!row) {
     return {
@@ -359,11 +469,29 @@ export async function cancelNewbornRun(sql, runId, { env = null } = {}) {
 
   const nowIso = new Date().toISOString();
   if (sql && typeof sql === 'function') {
-    await sql`
-      UPDATE newborn_runs
-      SET cancel_requested_at = COALESCE(cancel_requested_at, NOW())
-      WHERE id = ${numericId};
-    `.catch(() => {});
+    try {
+      if (wid !== null) {
+        await sql`
+          UPDATE newborn_runs
+          SET cancel_requested_at = COALESCE(cancel_requested_at, NOW())
+          WHERE id = ${numericId} AND workspace_id = ${wid};
+        `;
+      } else {
+        await sql`
+          UPDATE newborn_runs
+          SET cancel_requested_at = COALESCE(cancel_requested_at, NOW())
+          WHERE id = ${numericId};
+        `;
+      }
+    } catch (err) {
+      if (String(err?.code || '') === '42703' && (wid === null || wid === 1)) {
+        await sql`
+          UPDATE newborn_runs
+          SET cancel_requested_at = COALESCE(cancel_requested_at, NOW())
+          WHERE id = ${numericId};
+        `.catch(() => {});
+      }
+    }
   }
 
   const controller = activeRunAbortControllers.get(numericId);
@@ -386,17 +514,48 @@ export async function cancelNewbornRun(sql, runId, { env = null } = {}) {
   const immediateCancel = row.status === 'queued' || row.execution_mode === 'fleet' || !abortedInProcess;
   if (immediateCancel) {
     if (sql && typeof sql === 'function') {
-      await sql`
-        UPDATE newborn_runs
-        SET
-          status = 'cancelled',
-          progress_stage = 'cancelled',
-          progress_detail = 'Cancelled by operator.',
-          cancel_requested_at = COALESCE(cancel_requested_at, NOW()),
-          completed_at = COALESCE(completed_at, NOW())
-        WHERE id = ${numericId}
-          AND status IN ('queued', 'running');
-      `.catch(() => {});
+      try {
+        if (wid !== null) {
+          await sql`
+            UPDATE newborn_runs
+            SET
+              status = 'cancelled',
+              progress_stage = 'cancelled',
+              progress_detail = 'Cancelled by operator.',
+              cancel_requested_at = COALESCE(cancel_requested_at, NOW()),
+              completed_at = COALESCE(completed_at, NOW())
+            WHERE id = ${numericId}
+              AND workspace_id = ${wid}
+              AND status IN ('queued', 'running');
+          `;
+        } else {
+          await sql`
+            UPDATE newborn_runs
+            SET
+              status = 'cancelled',
+              progress_stage = 'cancelled',
+              progress_detail = 'Cancelled by operator.',
+              cancel_requested_at = COALESCE(cancel_requested_at, NOW()),
+              completed_at = COALESCE(completed_at, NOW())
+            WHERE id = ${numericId}
+              AND status IN ('queued', 'running');
+          `;
+        }
+      } catch (err) {
+        if (String(err?.code || '') === '42703' && (wid === null || wid === 1)) {
+          await sql`
+            UPDATE newborn_runs
+            SET
+              status = 'cancelled',
+              progress_stage = 'cancelled',
+              progress_detail = 'Cancelled by operator.',
+              cancel_requested_at = COALESCE(cancel_requested_at, NOW()),
+              completed_at = COALESCE(completed_at, NOW())
+            WHERE id = ${numericId}
+              AND status IN ('queued', 'running');
+          `.catch(() => {});
+        }
+      }
     }
     if (inMemoryRunProgressCache.has(numericId)) {
       setInMemoryRunProgress(numericId, {
@@ -449,6 +608,7 @@ export async function createFleetBackedNewbornRun(sql, options = {}) {
     selectedKeywords = [],
     profileId = null,
     folderId = null,
+    workspaceId = 1,
     clusterId = null,
     settingsOverrides = null,
     shards = 4,
@@ -481,6 +641,7 @@ export async function createFleetBackedNewbornRun(sql, options = {}) {
 
   const numericFolderId = folderId !== null && folderId !== undefined && Number(folderId) > 0 ? Number(folderId) : null;
   const numericClusterId = clusterId !== null && clusterId !== undefined && Number(clusterId) > 0 ? Number(clusterId) : null;
+  const wid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
 
   let resolvedProfileId = null;
   if (profileId !== null && profileId !== undefined && profileId !== '') {
@@ -493,34 +654,70 @@ export async function createFleetBackedNewbornRun(sql, options = {}) {
   if (normalizedPinIds.length > 0) baseSnapshot.seed_pin_ids = normalizedPinIds;
   const configSnapshot = sanitizeForJsonb(baseSnapshot);
 
-  const [createdRow] = await sql`
-    INSERT INTO newborn_runs (
-      run_type, status, execution_mode, progress_stage, progress_detail, progress_pct,
-      profile_id, folder_id, cluster_id, seed_queries, selected_keywords, config_snapshot,
-      shards_total, shards_completed, shards_failed, cookie_mode, telemetry, started_at
-    )
-    VALUES (
-      ${runType},
-      'queued',
-      'fleet',
-      'queued',
-      ${`Queued — dispatching ${clampedShards} GitHub Actions Fleet runner${clampedShards === 1 ? '' : 's'}…`},
-      2,
-      ${resolvedProfileId},
-      ${numericFolderId},
-      ${numericClusterId},
-      ${JSON.stringify(combinedKeywords)}::jsonb,
-      ${JSON.stringify(combinedKeywords)}::jsonb,
-      ${JSON.stringify(configSnapshot)}::jsonb,
-      ${clampedShards},
-      0,
-      0,
-      'pending',
-      '{"shards":{},"funnel":{}}'::jsonb,
-      NOW()
-    )
-    RETURNING *;
-  `;
+  let createdRow;
+  try {
+    const rows = await sql`
+      INSERT INTO newborn_runs (
+        run_type, status, execution_mode, progress_stage, progress_detail, progress_pct,
+        profile_id, folder_id, cluster_id, seed_queries, selected_keywords, config_snapshot,
+        shards_total, shards_completed, shards_failed, cookie_mode, telemetry, started_at, workspace_id
+      )
+      VALUES (
+        ${runType},
+        'queued',
+        'fleet',
+        'queued',
+        ${`Queued — dispatching ${clampedShards} GitHub Actions Fleet runner${clampedShards === 1 ? '' : 's'}…`},
+        2,
+        ${resolvedProfileId},
+        ${numericFolderId},
+        ${numericClusterId},
+        ${JSON.stringify(combinedKeywords)}::jsonb,
+        ${JSON.stringify(combinedKeywords)}::jsonb,
+        ${JSON.stringify(configSnapshot)}::jsonb,
+        ${clampedShards},
+        0,
+        0,
+        'pending',
+        '{"shards":{},"funnel":{}}'::jsonb,
+        NOW(),
+        ${wid}
+      )
+      RETURNING *;
+    `;
+    createdRow = rows?.[0];
+  } catch (err) {
+    if (String(err?.code || '') !== '42703') throw err;
+    const rows = await sql`
+      INSERT INTO newborn_runs (
+        run_type, status, execution_mode, progress_stage, progress_detail, progress_pct,
+        profile_id, folder_id, cluster_id, seed_queries, selected_keywords, config_snapshot,
+        shards_total, shards_completed, shards_failed, cookie_mode, telemetry, started_at
+      )
+      VALUES (
+        ${runType},
+        'queued',
+        'fleet',
+        'queued',
+        ${`Queued — dispatching ${clampedShards} GitHub Actions Fleet runner${clampedShards === 1 ? '' : 's'}…`},
+        2,
+        ${resolvedProfileId},
+        ${numericFolderId},
+        ${numericClusterId},
+        ${JSON.stringify(combinedKeywords)}::jsonb,
+        ${JSON.stringify(combinedKeywords)}::jsonb,
+        ${JSON.stringify(configSnapshot)}::jsonb,
+        ${clampedShards},
+        0,
+        0,
+        'pending',
+        '{"shards":{},"funnel":{}}'::jsonb,
+        NOW()
+      )
+      RETURNING *;
+    `;
+    createdRow = rows?.[0];
+  }
 
   const runRowId = Number(createdRow.id);
 
@@ -603,6 +800,7 @@ export async function enqueueNewbornRun(sql, options = {}) {
     seedBoards = [],
     profileId = null,
     folderId = null,
+    workspaceId = 1,
     clusterId = null,
     settingsOverrides = null,
     workerIndex = 0,
@@ -632,12 +830,14 @@ export async function enqueueNewbornRun(sql, options = {}) {
     : [];
   const numericFolderId = folderId !== null && folderId !== undefined && Number(folderId) > 0 ? Number(folderId) : null;
   const numericClusterId = clusterId !== null && clusterId !== undefined && Number(clusterId) > 0 ? Number(clusterId) : null;
+  const wid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
 
   const dedupeKey = buildNewbornDedupeKey(runType, {
     seedQueries: cleanSeeds,
     seedPinIds: cleanPinIds,
     seedBoards: cleanBoards,
     folderId: numericFolderId,
+    workspaceId: wid,
     clusterId: numericClusterId,
     settingsOverrides
   });
@@ -735,26 +935,54 @@ export async function enqueueNewbornRun(sql, options = {}) {
       ...cleanPinIds.map((id) => `pin:${id}`)
     ];
 
-    const [createdRow] = await sql`
-      INSERT INTO newborn_runs (
-        run_type, status, progress_stage, progress_detail, progress_pct,
-        profile_id, folder_id, cluster_id, seed_queries, cookie_mode, started_at
-      )
-      VALUES (
-        ${runType},
-        'running',
-        'queued',
-        'Queued — starting Newborn hunt...',
-        0,
-        ${resolvedProfileId},
-        ${numericFolderId},
-        ${numericClusterId},
-        ${JSON.stringify(displaySeedList)}::jsonb,
-        'pending',
-        NOW()
-      )
-      RETURNING *;
-    `;
+    let createdRow;
+    try {
+      const rows = await sql`
+        INSERT INTO newborn_runs (
+          run_type, status, progress_stage, progress_detail, progress_pct,
+          profile_id, folder_id, cluster_id, seed_queries, cookie_mode, started_at, workspace_id
+        )
+        VALUES (
+          ${runType},
+          'running',
+          'queued',
+          'Queued — starting Newborn hunt...',
+          0,
+          ${resolvedProfileId},
+          ${numericFolderId},
+          ${numericClusterId},
+          ${JSON.stringify(displaySeedList)}::jsonb,
+          'pending',
+          NOW(),
+          ${wid}
+        )
+        RETURNING *;
+      `;
+      createdRow = rows?.[0];
+    } catch (err) {
+      if (String(err?.code || '') !== '42703') throw err;
+      const rows = await sql`
+        INSERT INTO newborn_runs (
+          run_type, status, progress_stage, progress_detail, progress_pct,
+          profile_id, folder_id, cluster_id, seed_queries, cookie_mode, started_at
+        )
+        VALUES (
+          ${runType},
+          'running',
+          'queued',
+          'Queued — starting Newborn hunt...',
+          0,
+          ${resolvedProfileId},
+          ${numericFolderId},
+          ${numericClusterId},
+          ${JSON.stringify(displaySeedList)}::jsonb,
+          'pending',
+          NOW()
+        )
+        RETURNING *;
+      `;
+      createdRow = rows?.[0];
+    }
     insertedRun = createdRow;
     runRowId = Number(insertedRun.id);
 
@@ -771,6 +999,7 @@ export async function enqueueNewbornRun(sql, options = {}) {
 
     setInMemoryRunProgress(runRowId, {
       id: runRowId,
+      workspace_id: wid,
       run_type: runType,
       status: 'running',
       execution_mode: 'direct',

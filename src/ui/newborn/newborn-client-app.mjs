@@ -240,6 +240,8 @@ export function getNewbornClientAppScript() {
         },
         foldersList: [],
         isPromoting: false,
+        targetCampaignFolderId: scopedFolderId || '',
+        isSendingToCampaign: false,
 
         // Rule Profile Modal
         profileModalOpen: false,
@@ -577,7 +579,74 @@ export function getNewbornClientAppScript() {
           try {
             const { data } = await this.apiJson('/api/folders');
             this.foldersList = Array.isArray(data?.folders) ? data.folders : (Array.isArray(data) ? data : []);
+            if (!this.targetCampaignFolderId && this.foldersList.length > 0) {
+              this.targetCampaignFolderId = String(this.scopedFolderId || this.foldersList[0].id);
+            }
           } catch (_) {}
+        },
+
+        async sendSelectedNewbornPinsToCampaign(pinIdsOverride = null) {
+          const targetId = Number(this.targetCampaignFolderId || this.scopedFolderId || 0);
+          if (!Number.isFinite(targetId) || targetId <= 0) {
+            this.toast('Select a target campaign first', 'warning');
+            return;
+          }
+          const pinIds = Array.isArray(pinIdsOverride) && pinIdsOverride.length > 0
+            ? pinIdsOverride.map(String).filter(Boolean)
+            : (this.selectedPinIds || []).map(String).filter(Boolean);
+          if (pinIds.length === 0) {
+            this.toast('Select at least one pin first', 'warning');
+            return;
+          }
+          this.isSendingToCampaign = true;
+          try {
+            const { data } = await this.apiJson('/api/folders/' + encodeURIComponent(targetId) + '/tracked-pins', {
+              method: 'POST',
+              body: JSON.stringify({
+                pin_ids: pinIds,
+                source_type: 'newborn',
+                source_ref: this.activeRunId ? ('run:' + this.activeRunId) : 'newborn_hunt'
+              })
+            });
+            const campaignName = (this.foldersList || []).find((f) => Number(f.id) === targetId)?.name || ('Campaign #' + targetId);
+            this.toast('Sent ' + (data?.added ?? data?.added_count ?? pinIds.length) + ' pin(s) to "' + campaignName + '" for daily tracking', 'success');
+            this.selectedPinIds = [];
+          } catch (err) {
+            this.toast('Send to campaign failed: ' + err.message, 'error');
+          } finally {
+            this.isSendingToCampaign = false;
+            this.refreshIcons();
+          }
+        },
+
+        async addClusterKeywordsToCampaign(keywordsOverride = null) {
+          const targetId = Number(this.targetCampaignFolderId || this.scopedFolderId || 0);
+          if (!Number.isFinite(targetId) || targetId <= 0) {
+            this.toast('Select a target campaign first', 'warning');
+            return;
+          }
+          const rawList = Array.isArray(keywordsOverride) && keywordsOverride.length > 0
+            ? keywordsOverride
+            : (this.selectedClusterKeywords || []);
+          const cleanKeywords = Array.from(new Set(rawList.map((k) => String(k || '').trim()).filter(Boolean)));
+          if (cleanKeywords.length === 0) {
+            this.toast('Select at least one keyword first', 'warning');
+            return;
+          }
+          this.isSendingToCampaign = true;
+          try {
+            const { data } = await this.apiJson('/api/folders/' + encodeURIComponent(targetId) + '/items', {
+              method: 'POST',
+              body: JSON.stringify({ keywords: cleanKeywords })
+            });
+            const campaignName = (this.foldersList || []).find((f) => Number(f.id) === targetId)?.name || ('Campaign #' + targetId);
+            this.toast('Added ' + (data?.added_count ?? cleanKeywords.length) + ' keyword(s) to "' + campaignName + '"', 'success');
+          } catch (err) {
+            this.toast('Add to campaign failed: ' + err.message, 'error');
+          } finally {
+            this.isSendingToCampaign = false;
+            this.refreshIcons();
+          }
         },
 
         async switchView(view) {

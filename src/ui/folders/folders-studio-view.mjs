@@ -142,6 +142,50 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
         </div>
       </div>
 
+      <!-- SECTION 0B: Unified 4-Source Daily Tracked Pins & Pin Graph Queue -->
+      <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-4 shadow-sm space-y-3">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <div class="flex items-center gap-2">
+            <i data-lucide="radar" class="w-4 h-4 text-indigo-500"></i>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-100">Daily Tracked Pins (4 Sources)</h3>
+            <span class="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400" x-text="'· Seeds: ' + formatNumber(pinGraphSeeds.length)"></span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button type="button" @click="syncTopNSerpPins()" :disabled="syncingTopN" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"><i data-lucide="refresh-cw" class="w-3 h-3" :class="syncingTopN ? 'animate-spin' : ''"></i><span x-text="syncingTopN ? 'Syncing...' : ('Sync Top ' + (trackedPinsSummary.serp_top_n || folderSettings.serp_top_n || 20))"></span></button>
+            <button type="button" @click="trackedPinsExpanded = !trackedPinsExpanded" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] cursor-pointer" x-text="trackedPinsExpanded ? 'Hide List' : ('Tracked (' + formatNumber(trackedPinsSummary.source_counts?.all || 0) + ')')"></button>
+          </div>
+        </div>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <template x-for="src in [{k:'all',l:'All'},{k:'search',l:'Search Top-N'},{k:'newborn',l:'Newborn'},{k:'creator',l:'Creators'},{k:'related',l:'Related'}]" :key="src.k">
+            <button type="button" @click="loadTrackedPinsSummary(src.k); trackedPinsExpanded = true" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition cursor-pointer" :class="trackedPinsSourceFilter === src.k ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A]'"><span x-text="src.l + ' (' + formatNumber(trackedPinsSummary.source_counts?.[src.k] || 0) + ')'"></span></button>
+          </template>
+        </div>
+        <template x-if="trackedPinsExpanded">
+          <div class="border-t border-slate-200 dark:border-[#27272A] pt-3">
+            <div x-show="trackedPinsLoading" class="text-xs text-slate-500">Loading tracked pins...</div>
+            <div x-show="!trackedPinsLoading && !(trackedPinsSummary.items || []).length" class="text-xs text-slate-500">No tracked pins in this source yet.</div>
+            <div x-show="!trackedPinsLoading && (trackedPinsSummary.items || []).length > 0" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 max-h-60 overflow-y-auto">
+              <template x-for="tp in (trackedPinsSummary.items || []).slice(0, 30)" :key="tp.pin_id + ':' + tp.source_type">
+                <div class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/70 dark:bg-[#18181B]/70 flex items-center justify-between gap-2">
+                  <div class="min-w-0">
+                    <a :href="'/pin/' + tp.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '')" class="text-xs font-semibold text-slate-900 dark:text-white hover:text-indigo-500 truncate block" x-text="tp.title || ('Pin #' + tp.pin_id)"></a>
+                    <div class="flex items-center gap-1.5 mt-0.5 text-[10px] font-mono tabular-nums">
+                      <span class="uppercase text-slate-500" x-text="tp.source_type"></span>
+                      <span class="text-emerald-600 dark:text-emerald-400" x-text="formatNumber(tp.save_count || 0) + ' saves'"></span>
+                      <span class="text-amber-600 dark:text-amber-400" x-text="formatPinWindowPrimary(tp)"></span>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1 shrink-0">
+                    <button type="button" @click="queueSelectedForRelatedPins([tp.pin_id])" class="p-1 rounded text-slate-400 hover:text-emerald-500 cursor-pointer" title="Queue Related Pins Seed"><i data-lucide="git-branch" class="w-3.5 h-3.5"></i></button>
+                    <button type="button" @click="removeTrackedPin(tp.pin_id, tp.source_type)" class="p-1 rounded text-slate-400 hover:text-rose-500 cursor-pointer" title="Untrack"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+
       <!-- SECTION 1: Full Pins Table (Paginated 1,788 Unique Pins / Super-Pins) -->
       <div id="pins-table-section" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl overflow-hidden shadow-sm dark:shadow-xl flex flex-col transition-colors">
         
@@ -265,26 +309,45 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
            </div>
          </div>
 
-         <div class="overflow-x-auto">
-           <table class="w-full text-left text-xs font-mono tabular-nums">
-             <thead class="bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-[#27272A] text-slate-500 dark:text-slate-400 uppercase text-[10px]">
-               <tr>
-                 <th class="p-3.5 w-12 text-center">#</th>
-                 <th class="p-3.5">Pin Image & Dossier</th>
-                 <th class="p-3.5">Cross-SERP Overlap & Ranks</th>
-                 <th class="p-3.5">Domain & Creator</th>
-                 <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-white transition-colors" @click="toggleSort('pin_age')">
-                   Pin Age &amp; Tenure <span x-text="sortBy === 'pin_age_asc' ? '↑' : (sortBy === 'pin_age_desc' ? '↓' : '↕')"></span>
-                 </th>
-                 <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-white transition-colors" @click="toggleSort('saves')">
-                   Total Saves <span x-text="sortBy === 'saves_desc' ? '↓' : (sortBy === 'saves_asc' ? '↑' : '↕')"></span>
-                 </th>
-                 <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-white transition-colors" @click="toggleSort('velocity')">
-                   Daily Velocity <span x-text="sortBy === 'velocity_desc' ? '↓' : '↕'"></span>
-                 </th>
-                 <th class="p-3.5 text-right">Actions</th>
-               </tr>
-             </thead>
+          <!-- Selection Action Bar for Related Pins Extraction -->
+          <div x-show="selectedStudioPinIds.length > 0" x-cloak class="px-4 py-2.5 bg-emerald-500/10 dark:bg-emerald-950/30 border-b border-emerald-500/20 flex items-center justify-between flex-wrap gap-2 text-xs">
+            <div class="flex items-center gap-2 font-semibold text-emerald-800 dark:text-emerald-200">
+              <i data-lucide="check-square" class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400"></i>
+              <span x-text="selectedStudioPinIds.length + ' pin(s) selected'"></span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button type="button" @click="queueSelectedForRelatedPins()" :disabled="queueingPinGraphSeeds"
+                      class="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold inline-flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50">
+                <i data-lucide="git-branch" class="w-3.5 h-3.5"></i>
+                <span x-text="queueingPinGraphSeeds ? 'Queuing...' : 'Extract Related Pins'"></span>
+              </button>
+              <button type="button" @click="clearStudioPinSelection()"
+                      class="px-2.5 py-1 rounded-lg bg-slate-200 dark:bg-[#27272A] text-slate-700 dark:text-slate-200 font-semibold transition cursor-pointer">
+                Clear
+              </button>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs font-mono tabular-nums">
+              <thead class="bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-[#27272A] text-slate-500 dark:text-slate-400 uppercase text-[10px]">
+                <tr>
+                  <th class="p-3.5 w-16 text-center">#</th>
+                  <th class="p-3.5">Pin Image & Dossier</th>
+                  <th class="p-3.5">Cross-SERP Overlap & Ranks</th>
+                  <th class="p-3.5">Domain & Creator</th>
+                  <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-white transition-colors" @click="toggleSort('pin_age')">
+                    Pin Age &amp; Tenure <span x-text="sortBy === 'pin_age_asc' ? '↑' : (sortBy === 'pin_age_desc' ? '↓' : '↕')"></span>
+                  </th>
+                  <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-white transition-colors" @click="toggleSort('saves')">
+                    Total Saves <span x-text="sortBy === 'saves_desc' ? '↓' : (sortBy === 'saves_asc' ? '↑' : '↕')"></span>
+                  </th>
+                  <th class="p-3.5 cursor-pointer hover:text-indigo-600 dark:hover:text-white transition-colors" @click="toggleSort('velocity')">
+                    <span x-text="getSelectedWindowLabel()">Daily Velocity</span> <span x-text="sortBy === 'velocity_desc' ? '↓' : '↕'"></span>
+                  </th>
+                  <th class="p-3.5 text-right">Actions</th>
+                </tr>
+              </thead>
              <tbody class="divide-y divide-slate-200 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
                <template x-for="(sp, idx) in paginatedPins()" :key="sp.pin_id">
                  ${renderPinRowTemplate({
@@ -305,7 +368,16 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                    showActions: true,
                    rowClass: 'hover:bg-slate-50 dark:hover:bg-[#27272A]/40 transition-colors',
                    rankHtml: `
-                   <td class="p-3.5 text-center font-mono tabular-nums text-slate-400 dark:text-slate-500 text-[11px]" x-text="(currentPage - 1) * pageSize + idx + 1"></td>`,
+                   <td class="p-3.5 text-center font-mono tabular-nums text-slate-400 dark:text-slate-500 text-[11px]">
+                     <div class="inline-flex items-center justify-center gap-1.5">
+                       <input type="checkbox"
+                              :checked="selectedStudioPinIds.includes(String(sp.pin_id))"
+                              @change="toggleSelectStudioPin(sp.pin_id)"
+                              :aria-label="'Select pin ' + sp.pin_id"
+                              class="rounded border-slate-300 dark:border-[#3F3F46] text-indigo-600 focus:ring-indigo-500 cursor-pointer" />
+                       <span x-text="(currentPage - 1) * pageSize + idx + 1"></span>
+                     </div>
+                   </td>`,
                    titleHtml: `
                    <td class="p-3.5">
                      <div class="flex items-center gap-3">
@@ -394,11 +466,19 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                                  class="text-[11px] text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 text-left transition-colors truncate max-w-[120px]" 
                                  x-text="'@' + (sp.creator_username || 'anonymous')"></button>
                          <template x-if="sp.creator_username">
-                           <button @click.stop="openCreatorVisualFeed(sp.creator_username)"
-                                   class="p-0.5 rounded text-slate-400 hover:text-emerald-500 hover:bg-emerald-500/10 transition"
-                                   title="Instant 50-Pin Visual Feed (<350ms)">
-                             <i data-lucide="layout-grid" class="w-3 h-3 text-emerald-500"></i>
-                           </button>
+                           <div class="inline-flex items-center gap-0.5">
+                             <button @click.stop="openCreatorVisualFeed(sp.creator_username)"
+                                     class="p-0.5 rounded text-slate-400 hover:text-emerald-500 hover:bg-emerald-500/10 transition cursor-pointer"
+                                     title="Instant 50-Pin Visual Feed (<350ms)">
+                               <i data-lucide="layout-grid" class="w-3 h-3 text-emerald-500"></i>
+                             </button>
+                             <button type="button"
+                                     @click.stop="sendCreatorToWatchlist(sp.creator_username, sp.creator_name || sp.creator_username)"
+                                     class="p-0.5 rounded text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-500/10 transition cursor-pointer"
+                                     title="Send Creator to Workspace Watchlist">
+                               <i data-lucide="bookmark-plus" class="w-3 h-3"></i>
+                             </button>
+                           </div>
                          </template>
                        </div>
                      </div>
@@ -425,18 +505,24 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                    velocityHtml: `
                    <td class="p-3.5 font-mono tabular-nums text-amber-600 dark:text-amber-400">
                      <div class="flex flex-col gap-0.5">
-                       <span class="font-bold" x-text="'+' + formatNumber(sp.effective_velocity ?? sp.daily_save_velocity ?? 0) + '/d'"></span>
-                       <template x-if="(sp.delta_repins_24h || 0) > 0">
-                         <span class="text-[10px] text-sky-500 dark:text-sky-400 font-semibold" x-text="'+' + formatNumber(sp.delta_repins_24h) + ' repins (24h)'"></span>
+                       <span class="font-bold" x-text="formatPinWindowPrimary(sp)"></span>
+                       <template x-if="getPinWindowRepins(sp) > 0">
+                         <span class="text-[10px] text-sky-500 dark:text-sky-400 font-semibold" x-text="'+' + formatNumber(getPinWindowRepins(sp)) + ' repins (' + (selectedTimeWindow === 'all' ? 'total' : selectedTimeWindow) + ')'"></span>
                        </template>
-                       <template x-if="sp.gains_7d != null">
+                       <template x-if="selectedTimeWindow === '24h' && sp.gains_7d != null">
                          <span class="text-[9px] text-slate-400" x-text="'+' + formatNumber(sp.gains_7d) + ' (7d)'"></span>
+                       </template>
+                       <template x-if="selectedTimeWindow !== '24h'">
+                         <span class="text-[9px] text-slate-400" x-text="'+' + formatNumber(sp.effective_velocity ?? sp.daily_save_velocity ?? 0) + '/d avg'"></span>
                        </template>
                      </div>
                    </td>`,
                    actionsHtml: `
                    <td class="p-3.5 text-right font-sans">
                      <div class="flex items-center justify-end gap-1.5">
+                       <button type="button" @click="queueSelectedForRelatedPins([sp.pin_id])" class="p-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-600 hover:text-white dark:bg-indigo-950/40 dark:hover:bg-indigo-600 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/80 transition-colors inline-flex items-center cursor-pointer shadow-2xs" title="Extract Related Pins (Queue as Campaign Pin Graph Seed)">
+                         <i data-lucide="git-branch" class="w-3 h-3 shrink-0"></i>
+                       </button>
                        <button type="button" @click="copyPinBlueprint(sp)" class="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-600 hover:text-white dark:bg-rose-950/40 dark:hover:bg-rose-600 text-rose-700 dark:text-rose-300 text-xs font-semibold border border-rose-200 dark:border-rose-800/80 transition-colors inline-flex items-center gap-1 cursor-pointer shadow-2xs" title="Copy Scientific Pin Blueprint">
                          <i data-lucide="zap" class="w-3 h-3 shrink-0"></i>
                          <span>Blueprint</span>
@@ -950,6 +1036,19 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                   <span>10 (Min)</span>
                   <span>100 (Standard)</span>
                   <span>500 (Deep)</span>
+                </div>
+              </div>
+
+              <div class="p-4 rounded-xl border border-indigo-500/20 bg-indigo-50/30 dark:bg-indigo-950/10 space-y-3">
+                <div class="flex items-center justify-between">
+                  <label class="text-xs font-semibold text-slate-900 dark:text-white">Daily Tracked SERP Top-N</label>
+                  <span class="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400" x-text="'Top ' + (folderSettings.serp_top_n || 20) + ' pins / keyword'"></span>
+                </div>
+                <input type="range" min="5" max="100" step="5" x-model.number="folderSettings.serp_top_n" class="w-full accent-indigo-600">
+                <div class="flex justify-between text-[10px] text-slate-400 font-mono">
+                  <span>Top 5</span>
+                  <span>Top 20 (Default)</span>
+                  <span>Top 100</span>
                 </div>
               </div>
 

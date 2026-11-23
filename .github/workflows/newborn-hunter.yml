@@ -1,4 +1,4 @@
-name: Newborn Breakout Hunter & Watchlist Pipeline
+name: Newborn Hunt
 
 on:
   schedule:

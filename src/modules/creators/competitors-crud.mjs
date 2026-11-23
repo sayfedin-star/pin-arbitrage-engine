@@ -91,7 +91,7 @@ export async function getCompetitorsOverview(sql) {
         COALESCE(SUM(monthly_reach), 0)::bigint AS total_audience,
         COALESCE(SUM(profile_views), 0)::bigint AS total_impressions,
         COALESCE(SUM(monthly_reach), 0)::bigint AS combined_reach,
-        COALESCE(SUM(total_pins), 0)::int AS total_pins_tracked
+        COALESCE(SUM(total_pins), 0)::bigint AS total_pins_tracked
       FROM competitor_profiles
       WHERE COALESCE(account_type, 'competitor') <> 'system';
     `;
@@ -116,7 +116,7 @@ export async function getCompetitorsOverview(sql) {
       total_audience: Number(totals.total_audience || 0),
       total_impressions: Number(totals.total_impressions || 0),
       combined_reach: Number(totals.combined_reach || totals.total_audience || 0),
-      pins_tracked: totals.total_pins_tracked || 0,
+      pins_tracked: Number(totals.total_pins_tracked || 0),
       top_competitor: topProfile ? {
         handle: `@${topProfile.username}`,
         reach: formatMetric(topProfile.monthly_reach, true)

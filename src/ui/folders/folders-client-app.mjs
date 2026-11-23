@@ -38,6 +38,19 @@ export function getFoldersClientAppScript() {
         isSettingsModalOpen: false,
         settingsLoading: false,
         selectedTimeWindow: '24h',
+        trackedPinsSummary: {
+          items: [],
+          total: 0,
+          serp_top_n: 20,
+          source_counts: { all: 0, search: 0, newborn: 0, creator: 0, related: 0 }
+        },
+        trackedPinsSourceFilter: 'all',
+        trackedPinsExpanded: false,
+        trackedPinsLoading: false,
+        syncingTopN: false,
+        selectedStudioPinIds: [],
+        pinGraphSeeds: [],
+        queueingPinGraphSeeds: false,
         pruningLoading: false,
         prunePreviewResult: null,
         pinterestCookieInput: '',
@@ -50,27 +63,63 @@ export function getFoldersClientAppScript() {
           keyword_ids: []
         },
 
+        getSelectedWindowLabel() {
+          const map = {
+            '24h': '24h Velocity',
+            '5d': '5d Gains',
+            '7d': '7d Gains',
+            '10d': '10d Gains',
+            '15d': '15d Gains',
+            'all': 'All-Time Saves'
+          };
+          return map[this.selectedTimeWindow] || 'Daily Velocity';
+        },
+
+        getPinWindowGain(sp) {
+          if (!sp) return 0;
+          const win = this.selectedTimeWindow;
+          const d24 = Number(sp.effective_velocity ?? sp.delta_saves_24h ?? sp.daily_save_velocity ?? 0);
+          if (win === '24h') return Math.max(0, Math.round(d24));
+          if (win === '5d') return Math.max(0, Math.round(sp.gains_5d != null ? Number(sp.gains_5d) : (Number(sp.daily_save_velocity || d24) * 5)));
+          if (win === '7d') return Math.max(0, Math.round(sp.gains_7d != null ? Number(sp.gains_7d) : (Number(sp.daily_save_velocity || d24) * 7)));
+          if (win === '10d') return Math.max(0, Math.round(sp.gains_10d != null ? Number(sp.gains_10d) : (Number(sp.daily_save_velocity || d24) * 10)));
+          if (win === '15d') return Math.max(0, Math.round(sp.gains_15d != null ? Number(sp.gains_15d) : (Number(sp.daily_save_velocity || d24) * 15)));
+          return Math.max(0, Math.round(Number(sp.save_count || 0)));
+        },
+
+        getPinWindowRepins(sp) {
+          if (!sp) return 0;
+          const win = this.selectedTimeWindow;
+          if (win === 'all') return Math.max(0, Math.round(Number(sp.repin_count || 0)));
+          const mult = win === '24h' ? 1 : win === '5d' ? 5 : win === '7d' ? 7 : win === '10d' ? 10 : win === '15d' ? 15 : 1;
+          return Math.max(0, Math.round(Number(sp.delta_repins_24h || sp.daily_repin_velocity || 0) * mult));
+        },
+
+        formatPinWindowPrimary(sp) {
+          const gain = this.getPinWindowGain(sp);
+          if (this.selectedTimeWindow === '24h') return '+' + this.formatNumber(gain) + '/d';
+          if (this.selectedTimeWindow === 'all') return this.formatNumber(gain) + ' saves';
+          return '+' + this.formatNumber(gain) + ' (' + this.selectedTimeWindow + ')';
+        },
+
         get clusterWindowSavesGains() {
           const pins = this.crossoverData?.all_pins || this.crossoverData?.super_pins || [];
           if (!pins.length) return 0;
-          const win = this.selectedTimeWindow;
-          return pins.reduce((sum, p) => {
-            let delta = 0;
-            if (win === '24h') delta = Number(p.delta_saves_24h || p.daily_save_velocity || 0);
-            else if (win === '5d') delta = Number(p.gains_5d || (p.daily_save_velocity ? p.daily_save_velocity * 5 : 0));
-            else if (win === '7d') delta = Number(p.gains_7d || (p.daily_save_velocity ? p.daily_save_velocity * 7 : 0));
-            else if (win === '10d') delta = Number(p.gains_10d || (p.daily_save_velocity ? p.daily_save_velocity * 10 : 0));
-            else if (win === '15d') delta = Number(p.gains_15d || (p.daily_save_velocity ? p.daily_save_velocity * 15 : 0));
-            else delta = Number(p.save_count || 0);
-            return sum + Math.max(0, delta);
-          }, 0);
+          return pins.reduce((sum, p) => sum + this.getPinWindowGain(p), 0);
         },
 
         get clusterWindowRepinsGains() {
+          const win = this.selectedTimeWindow;
+          const sqlSummaryRepins = this.crossoverData?.summary?.multi_window_gains?.[win]?.repins;
+          if (sqlSummaryRepins !== undefined && sqlSummaryRepins !== null && Number.isFinite(Number(sqlSummaryRepins))) {
+            return Math.max(0, Math.round(Number(sqlSummaryRepins)));
+          }
           const pins = this.crossoverData?.all_pins || this.crossoverData?.super_pins || [];
           if (!pins.length) return 0;
-          const win = this.selectedTimeWindow;
-          const mult = win === '24h' ? 1 : win === '5d' ? 5 : win === '7d' ? 7 : win === '10d' ? 10 : win === '15d' ? 15 : 30;
+          if (win === 'all') {
+            return Math.round(pins.reduce((sum, p) => sum + Number(p.repin_count || 0), 0));
+          }
+          const mult = win === '24h' ? 1 : win === '5d' ? 5 : win === '7d' ? 7 : win === '10d' ? 10 : win === '15d' ? 15 : 1;
           return Math.round(pins.reduce((sum, p) => sum + (Number(p.delta_repins_24h || p.daily_repin_velocity || 0) * mult), 0));
         },
 
@@ -98,6 +147,153 @@ export function getFoldersClientAppScript() {
             else val = d30 || Number(c.monthly_reach || 0);
             return sum + Math.max(0, val);
           }, 0);
+        },
+
+        toggleSelectStudioPin(pinId) {
+          const pid = String(pinId || '').trim();
+          if (!pid) return;
+          if (this.selectedStudioPinIds.includes(pid)) {
+            this.selectedStudioPinIds = this.selectedStudioPinIds.filter(id => id !== pid);
+          } else {
+            this.selectedStudioPinIds = [...this.selectedStudioPinIds, pid];
+          }
+        },
+
+        clearStudioPinSelection() {
+          this.selectedStudioPinIds = [];
+        },
+
+        async loadTrackedPinsSummary(sourceType = null) {
+          if (!this.activeFolderId) return;
+          const activeSource = sourceType !== null ? sourceType : this.trackedPinsSourceFilter;
+          this.trackedPinsSourceFilter = activeSource || 'all';
+          this.trackedPinsLoading = true;
+          try {
+            const qs = this.trackedPinsSourceFilter && this.trackedPinsSourceFilter !== 'all'
+              ? ('?source_type=' + encodeURIComponent(this.trackedPinsSourceFilter))
+              : '';
+            const res = await (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId + '/tracked-pins' + qs);
+            if (res.ok) {
+              const data = await res.json().catch(() => ({}));
+              this.trackedPinsSummary = {
+                items: Array.isArray(data.items) ? data.items : (Array.isArray(data.tracked_pins) ? data.tracked_pins : []),
+                total: Number(data.total || 0),
+                serp_top_n: Number(data.serp_top_n || this.activeFolder?.serp_top_n || 20),
+                source_counts: data.source_counts || { all: 0, search: 0, newborn: 0, creator: 0, related: 0 }
+              };
+            }
+          } catch (_) {
+          } finally {
+            this.trackedPinsLoading = false;
+            if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
+          }
+        },
+
+        async syncTopNSerpPins() {
+          if (!this.activeFolderId || this.syncingTopN) return;
+          this.syncingTopN = true;
+          try {
+            const topN = Number(this.folderSettings?.serp_top_n || this.activeFolder?.serp_top_n || 20);
+            const res = await (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId + '/tracked-pins/sync-top-n', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ top_n: topN })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.success) {
+              this.showToast('Synced ' + (data.synced || 0) + ' Top-' + (data.top_n || topN) + ' SERP pins into daily tracking', 'success');
+              await this.loadTrackedPinsSummary(this.trackedPinsSourceFilter);
+            } else {
+              this.showToast(data.error || 'Failed to sync Top-N SERP pins', 'error');
+            }
+          } catch (err) {
+            this.showToast('Sync failed: ' + err.message, 'error');
+          } finally {
+            this.syncingTopN = false;
+          }
+        },
+
+        async removeTrackedPin(pinId, sourceType = null) {
+          if (!this.activeFolderId || !pinId) return;
+          try {
+            const qs = sourceType ? ('?source_type=' + encodeURIComponent(sourceType)) : '';
+            const res = await (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId + '/tracked-pins/' + encodeURIComponent(pinId) + qs, {
+              method: 'DELETE'
+            });
+            if (res.ok) {
+              this.showToast('Removed Pin #' + pinId + ' from campaign daily tracking', 'info');
+              await this.loadTrackedPinsSummary(this.trackedPinsSourceFilter);
+            }
+          } catch (err) {
+            this.showToast('Failed to remove tracked pin: ' + err.message, 'error');
+          }
+        },
+
+        async loadPinGraphSeeds() {
+          if (!this.activeFolderId) return;
+          try {
+            const res = await (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId + '/pin-graph-seeds');
+            if (res.ok) {
+              const data = await res.json().catch(() => ({}));
+              this.pinGraphSeeds = Array.isArray(data.seeds) ? data.seeds : [];
+            }
+          } catch (_) {}
+        },
+
+        async queueSelectedForRelatedPins(pinIdsOverride = null) {
+          if (!this.activeFolderId || this.queueingPinGraphSeeds) return;
+          const pinIds = Array.isArray(pinIdsOverride) && pinIdsOverride.length
+            ? pinIdsOverride
+            : this.selectedStudioPinIds;
+          if (!pinIds.length) {
+            this.showToast('Select at least one pin first', 'warning');
+            return;
+          }
+          this.queueingPinGraphSeeds = true;
+          try {
+            const res = await (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId + '/pin-graph-seeds', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ pin_ids: pinIds, depth: 1 })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.success) {
+              this.showToast('Queued ' + (data.added || pinIds.length) + ' seed pin(s) for Related Pins extraction', 'success');
+              this.selectedStudioPinIds = [];
+              await this.loadPinGraphSeeds();
+            } else {
+              this.showToast(data.error || 'Failed to queue Related Pins seeds', 'error');
+            }
+          } catch (err) {
+            this.showToast('Network error: ' + err.message, 'error');
+          } finally {
+            this.queueingPinGraphSeeds = false;
+          }
+        },
+
+        async sendCreatorToWatchlist(username, displayLabel = '') {
+          const clean = String(username || '').replace(/^@+/, '').trim();
+          if (!clean) return;
+          try {
+            const res = await (window.safeApiFetch || fetch)('/api/watchlist', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                entity_type: 'creator',
+                entity_key: clean,
+                display_label: displayLabel || clean,
+                creator_tracking_mode: 'metrics_only'
+              })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.success) {
+              this.showToast('Added @' + clean + ' to Workspace Watchlist', 'success');
+            } else {
+              this.showToast(data.error || 'Failed to add creator to Watchlist', 'error');
+            }
+          } catch (err) {
+            this.showToast('Watchlist error: ' + err.message, 'error');
+          }
         },
 
         formatUniversalAge(days) {
@@ -218,6 +414,7 @@ export function getFoldersClientAppScript() {
           name: '',
           description: '',
           color: '#6366f1',
+          serp_top_n: 20,
           enable_serp_harvest: true,
           max_pins: '50',
           max_serp_pins: '50',
@@ -1063,6 +1260,8 @@ export function getFoldersClientAppScript() {
 
           // Unnecessary 30s Crossover fetch bypassed when in settings room
           this.fetchPinterestCookieStatus().catch(() => {});
+          this.loadTrackedPinsSummary().catch(() => {});
+          this.loadPinGraphSeeds().catch(() => {});
           if (this.currentRoom === 'settings') {
             this.crossoverLoading = false;
             return;
@@ -1166,6 +1365,7 @@ export function getFoldersClientAppScript() {
             name: this.activeFolder.name || '',
             description: this.activeFolder.description || '',
             color: this.activeFolder.color || '#6366f1',
+            serp_top_n: Math.min(100, Math.max(5, Number(this.activeFolder.serp_top_n || 20))),
             enable_serp_harvest: meta.enable_serp_harvest !== undefined ? Boolean(meta.enable_serp_harvest) : true,
             max_pins: String(meta.max_pins || fallbackQuota),
             max_serp_pins: String(meta.max_serp_pins || meta.max_pins || fallbackQuota),
@@ -1259,6 +1459,7 @@ export function getFoldersClientAppScript() {
               name: (this.folderSettings.name || '').trim() || (this.activeFolder?.name || ''),
               description: (this.folderSettings.description || '').trim(),
               color: this.folderSettings.color || '#6366f1',
+              serp_top_n: Math.min(100, Math.max(5, Number(this.folderSettings.serp_top_n || 20))),
               metadata: {
                 ...meta,
                 enable_serp_harvest: Boolean(this.folderSettings.enable_serp_harvest),
@@ -1793,7 +1994,7 @@ export function getFoldersClientAppScript() {
           const allCount = (this.crossoverData?.all_pins?.length || 0);
           const superCount = (this.crossoverData?.super_pins?.length || 0);
           const matrixKey = this.activeMatrixFilter ? (this.activeMatrixFilter.type + ':' + this.activeMatrixFilter.label) : '';
-          const currentKey = this.scopeFilter + '|' + this.sortBy + '|' + this.searchQuery + '|' + matrixKey + '|' + (this.entityFilter.type || '') + ':' + (this.entityFilter.value || '') + '|' + (this.onlyBreakoutBabyDomains ? '1' : '0') + '|' + (this.onlyVacuumPins ? '1' : '0') + '|' + (this.onlyFreshRockets ? '1' : '0') + '|' + (this.onlySurging24h ? '1' : '0') + '|' + allCount + ':' + superCount;
+          const currentKey = this.scopeFilter + '|' + this.sortBy + '|' + this.selectedTimeWindow + '|' + this.searchQuery + '|' + matrixKey + '|' + (this.entityFilter.type || '') + ':' + (this.entityFilter.value || '') + '|' + (this.onlyBreakoutBabyDomains ? '1' : '0') + '|' + (this.onlyVacuumPins ? '1' : '0') + '|' + (this.onlyFreshRockets ? '1' : '0') + '|' + (this.onlySurging24h ? '1' : '0') + '|' + allCount + ':' + superCount;
 
           if (this._pinsCacheKey === currentKey && this._cachedFilteredPins) {
             return this._cachedFilteredPins;
@@ -1882,9 +2083,9 @@ export function getFoldersClientAppScript() {
 
           // 4. Sorting
           if (this.sortBy === 'velocity_desc') {
-            list = list.slice().sort((a, b) => ((b.effective_velocity ?? b.daily_save_velocity ?? 0) - (a.effective_velocity ?? a.daily_save_velocity ?? 0)) || (b.overlap_count || 0) - (a.overlap_count || 0) || (b.save_count || 0) - (a.save_count || 0));
+            list = list.slice().sort((a, b) => (this.getPinWindowGain(b) - this.getPinWindowGain(a)) || (b.overlap_count || 0) - (a.overlap_count || 0) || (b.save_count || 0) - (a.save_count || 0));
           } else if (this.sortBy === 'repins_24h_desc') {
-            list = list.slice().sort((a, b) => (Number(b.delta_repins_24h || 0) - Number(a.delta_repins_24h || 0)) || ((b.effective_velocity ?? b.daily_save_velocity ?? 0) - (a.effective_velocity ?? a.daily_save_velocity ?? 0)));
+            list = list.slice().sort((a, b) => (this.getPinWindowRepins(b) - this.getPinWindowRepins(a)) || (this.getPinWindowGain(b) - this.getPinWindowGain(a)));
           } else if (this.sortBy === 'saves_desc') {
             list = list.slice().sort((a, b) => (b.save_count || 0) - (a.save_count || 0) || (b.daily_save_velocity || 0) - (a.daily_save_velocity || 0));
           } else if (this.sortBy === 'saves_asc') {
