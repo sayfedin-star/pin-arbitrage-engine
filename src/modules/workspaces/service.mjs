@@ -732,7 +732,12 @@ export async function getWorkspaceCookieStatus(sql, workspaceId = DEFAULT_WORKSP
  */
 export async function saveWorkspaceCookie(sql, workspaceId = DEFAULT_WORKSPACE_ID, rawCookie = '') {
   const wid = parsePositiveWorkspaceId(workspaceId) || DEFAULT_WORKSPACE_ID;
-  const cleanRaw = String(rawCookie || '').trim();
+  if (typeof rawCookie !== 'string') {
+    const err = new Error('A valid Pinterest session cookie string (> 10 characters) is required.');
+    err.status = 400;
+    throw err;
+  }
+  const cleanRaw = rawCookie.trim();
   if (cleanRaw.length <= 10) {
     const err = new Error('A valid Pinterest session cookie string (> 10 characters) is required.');
     err.status = 400;
@@ -994,7 +999,7 @@ export async function syncCampaignTopNSerpPins(sql, { folderId, workspaceId, top
   if (pinIds.length === 0) {
     const staleRows = await sql`
       UPDATE campaign_tracked_pins
-      SET is_active = FALSE, updated_at = NOW()
+      SET is_active = FALSE
       WHERE folder_id = ${fid}
         AND workspace_id = ${wid}
         AND source_type = 'search'
@@ -1021,7 +1026,7 @@ export async function syncCampaignTopNSerpPins(sql, { folderId, workspaceId, top
 
   const staleRows = await sql`
     UPDATE campaign_tracked_pins
-    SET is_active = FALSE, updated_at = NOW()
+    SET is_active = FALSE
     WHERE folder_id = ${fid}
       AND workspace_id = ${wid}
       AND source_type = 'search'

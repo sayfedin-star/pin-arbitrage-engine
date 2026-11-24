@@ -311,6 +311,10 @@ export async function handleClusterRoutes({
 
     try {
       const res = await importRawJsonClusterDataService(sql, { seedPinId, parsedBlocks });
+      invalidateEdgeCache('api:overview');
+      invalidateEdgeCache('api:seeds');
+      invalidateEdgeCache('candidates');
+      invalidateEdgeCache('intersections');
       invalidateEdgeCache('api:recgpt-playbook');
       invalidateEdgeCache('api:cluster-telemetry');
       invalidateEdgeCache('api:guided-search');
@@ -388,6 +392,10 @@ export async function handleClusterRoutes({
 
     await deleteCandidatesService(sql, { candIds, seedPinId });
 
+    invalidateEdgeCache('api:overview');
+    invalidateEdgeCache('api:seeds');
+    invalidateEdgeCache('candidates');
+    invalidateEdgeCache('intersections');
     invalidateEdgeCache('api:recgpt-playbook');
     invalidateEdgeCache('api:cluster-telemetry');
     invalidateEdgeCache('api:guided-search');
@@ -588,45 +596,64 @@ export async function handleClusterRoutes({
     });
   }
 
-  // 12. GET /api/settings/cookie
+  // 12. GET /api/settings/cookie (Workspace-scoped; never returns raw cookies)
   if (method === 'GET' && pathname === '/api/settings/cookie') {
-    const { getEffectivePinterestCookie, DEFAULT_PINTEREST_SESSION_COOKIE } = await import('../modules/keywords/settings.mjs');
-    const envCookie = env?.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env?.PINTEREST_COOKIE : '') || '';
-    const effective = await getEffectivePinterestCookie(sql, envCookie).catch(() => envCookie || DEFAULT_PINTEREST_SESSION_COOKIE);
-    const hasCookie = Boolean(effective && effective.trim().length > 10);
+    const numericWid = Number(workspaceId) || DEFAULT_WORKSPACE_ID;
+    const { getWorkspaceCookieStatus } = await import('../modules/workspaces/service.mjs');
+    const wsStatus = await getWorkspaceCookieStatus(sql, numericWid).catch(() => ({ has_cookie: false }));
+    let hasCookie = Boolean(wsStatus?.has_cookie);
+    if (!hasCookie && numericWid === DEFAULT_WORKSPACE_ID) {
+      const { getEffectivePinterestCookie, DEFAULT_PINTEREST_SESSION_COOKIE } = await import('../modules/keywords/settings.mjs');
+      const envCookie = env?.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env?.PINTEREST_COOKIE : '') || '';
+      const effective = await getEffectivePinterestCookie(sql, envCookie).catch(() => envCookie || DEFAULT_PINTEREST_SESSION_COOKIE);
+      hasCookie = Boolean(effective && effective.trim().length > 10);
+    }
     return jsonResponse({
+      workspace_id: numericWid,
       has_cookie: hasCookie,
       is_configured: hasCookie,
       preview: hasCookie ? '[CONFIGURED]' : '',
-      source: sql ? 'database_or_env' : 'node_native_env'
+      source: sql ? 'workspace_settings_or_env' : 'node_native_env'
     }, 200, -1);
   }
 
-  // 13. POST /api/settings/cookie
+  // 13. POST /api/settings/cookie (Workspace-scoped; never mutates global env or WS1 from WS2+)
   if (method === 'POST' && pathname === '/api/settings/cookie') {
-    const { savePinterestCookie } = await import('../modules/keywords/settings.mjs');
+    const numericWid = Number(workspaceId) || DEFAULT_WORKSPACE_ID;
+    const { saveWorkspaceCookie } = await import('../modules/workspaces/service.mjs');
     const body = await request.json().catch(() => ({}));
-    const rawCookie = String(body.cookie || '').trim();
-    const saved = await savePinterestCookie(sql, rawCookie).catch((err) => {
-      console.warn('[Cookie Save Warning]', err.message);
-      const hasCookie = Boolean(rawCookie && rawCookie.length > 10);
-      return {
-        raw: rawCookie,
-        formatted: rawCookie,
-        has_cookie: hasCookie,
-        preview: hasCookie ? '[CONFIGURED]' : ''
-      };
-    });
-    if (env && typeof env === 'object' && (typeof process === 'undefined' || env !== process.env)) {
-      env.PINTEREST_COOKIE = saved.formatted;
+    if (body?.cookie !== undefined && body?.cookie !== null && typeof body.cookie !== 'string') {
+      return jsonResponse({
+        success: false,
+        error: 'INVALID_COOKIE_TYPE',
+        message: 'A valid Pinterest session cookie string (> 10 characters) is required.'
+      }, 400, -1);
+    }
+    const rawCookie = typeof body?.cookie === 'string' ? body.cookie.trim() : '';
+    const wsStatus = await saveWorkspaceCookie(sql, numericWid, rawCookie);
+    if (numericWid === DEFAULT_WORKSPACE_ID) {
+      const { savePinterestCookie } = await import('../modules/keywords/settings.mjs');
+      await savePinterestCookie(sql, rawCookie).catch((err) => {
+        console.warn('[Cookie Save Warning]', redactSecrets ? redactSecrets(err?.message || String(err)) : err.message);
+      });
+    }
+    if (typeof invalidateEdgeCache === 'function') {
+      await Promise.all([
+        'settings',
+        'workspaces',
+        'keywords',
+        'creators',
+        ...(numericWid === DEFAULT_WORKSPACE_ID ? ['newborn'] : [])
+      ].map((scope) => Promise.resolve(invalidateEdgeCache(scope)).catch(() => {})));
     }
     return jsonResponse({
       success: true,
-      has_cookie: saved.has_cookie,
-      is_configured: saved.has_cookie,
-      preview: saved.has_cookie ? '[CONFIGURED]' : '',
+      workspace_id: numericWid,
+      has_cookie: Boolean(wsStatus?.has_cookie),
+      is_configured: Boolean(wsStatus?.is_configured),
+      preview: wsStatus?.has_cookie ? '[CONFIGURED]' : '',
       source: 'database',
-      note: 'Cookie persisted to PostgreSQL app_settings and activated for SERP & Competitor crawlers.'
+      note: `Cookie persisted to workspace ${numericWid} settings.`
     }, 200, -1);
   }
 

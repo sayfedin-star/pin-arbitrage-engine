@@ -459,12 +459,23 @@ export async function listNewbornCandidates(sql, filters = {}) {
  * Pure read-only dossier for a single Newborn candidate pin, combining staging snapshots
  * and SSOT `pins_daily_metrics` + `newborn_daily_anchors` if promoted.
  */
-export async function getNewbornCandidateDossier(sql, pinId) {
+export async function getNewbornCandidateDossier(sql, pinId, { workspaceId = 1 } = {}) {
   const cleanId = String(pinId || '').trim();
   if (!isValidPinId(cleanId)) return null;
+  const wid = parseOptionalPositiveInt(workspaceId) || 1;
 
   const [candRows, snapRows, anchorRows, ssotMetrics] = await Promise.all([
-    sql`SELECT * FROM newborn_candidates WHERE pin_id = ${cleanId} LIMIT 1;`,
+    wid !== 1
+      ? sql`
+          SELECT * FROM newborn_candidates
+          WHERE pin_id = ${cleanId}
+            AND (
+              folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
+              OR first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = ${wid})
+            )
+          LIMIT 1;
+        `
+      : sql`SELECT * FROM newborn_candidates WHERE pin_id = ${cleanId} LIMIT 1;`,
     sql`
       SELECT recorded_date::text AS recorded_date, save_count, repin_count, comment_count,
              share_count, reaction_count, repin_per_day, save_per_day, golden_score, qualified
@@ -509,7 +520,7 @@ export async function getNewbornCandidateDossier(sql, pinId) {
 /**
  * Updates the staging lifecycle stage (`discovered`, `watchlist`, `discarded`) of one or more candidates.
  */
-export async function updateNewbornCandidateStage(sql, pinIds, nextStage) {
+export async function updateNewbornCandidateStage(sql, pinIds, nextStage, { workspaceId = 1 } = {}) {
   const validStages = new Set(['discovered', 'watchlist', 'discarded']);
   const cleanStage = String(nextStage || '').trim().toLowerCase();
   if (!validStages.has(cleanStage)) {
@@ -517,6 +528,7 @@ export async function updateNewbornCandidateStage(sql, pinIds, nextStage) {
     err.status = 400;
     throw err;
   }
+  const wid = parseOptionalPositiveInt(workspaceId) || 1;
 
   const cleanIds = Array.from(new Set(
     (Array.isArray(pinIds) ? pinIds : [pinIds])
@@ -525,18 +537,35 @@ export async function updateNewbornCandidateStage(sql, pinIds, nextStage) {
   )).sort((a, b) => a.localeCompare(b));
   if (cleanIds.length === 0) return { updated: 0, pin_ids: [] };
 
-  const updated = await sql`
-    UPDATE newborn_candidates
-    SET
-      stage = ${cleanStage},
-      watchlist_added_at = CASE
-        WHEN ${cleanStage} = 'watchlist' THEN COALESCE(watchlist_added_at, NOW())
-        ELSE watchlist_added_at
-      END,
-      updated_at = NOW()
-    WHERE pin_id = ANY(${cleanIds}::text[])
-    RETURNING pin_id, stage;
-  `;
+  const updated = wid !== 1
+    ? await sql`
+        UPDATE newborn_candidates
+        SET
+          stage = ${cleanStage},
+          watchlist_added_at = CASE
+            WHEN ${cleanStage} = 'watchlist' THEN COALESCE(watchlist_added_at, NOW())
+            ELSE watchlist_added_at
+          END,
+          updated_at = NOW()
+        WHERE pin_id = ANY(${cleanIds}::text[])
+          AND (
+            folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
+            OR first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = ${wid})
+          )
+        RETURNING pin_id, stage;
+      `
+    : await sql`
+        UPDATE newborn_candidates
+        SET
+          stage = ${cleanStage},
+          watchlist_added_at = CASE
+            WHEN ${cleanStage} = 'watchlist' THEN COALESCE(watchlist_added_at, NOW())
+            ELSE watchlist_added_at
+          END,
+          updated_at = NOW()
+        WHERE pin_id = ANY(${cleanIds}::text[])
+        RETURNING pin_id, stage;
+      `;
 
   await invalidateEdgeCache('newborn');
   return {
@@ -549,7 +578,8 @@ export async function updateNewbornCandidateStage(sql, pinIds, nextStage) {
 /**
  * Deletes candidate(s) from `newborn_candidates` staging store.
  */
-export async function deleteNewbornCandidate(sql, pinIds) {
+export async function deleteNewbornCandidate(sql, pinIds, { workspaceId = 1 } = {}) {
+  const wid = parseOptionalPositiveInt(workspaceId) || 1;
   const cleanIds = Array.from(new Set(
     (Array.isArray(pinIds) ? pinIds : [pinIds])
       .map((id) => String(id || '').trim())
@@ -557,11 +587,21 @@ export async function deleteNewbornCandidate(sql, pinIds) {
   )).sort((a, b) => a.localeCompare(b));
   if (cleanIds.length === 0) return { deleted: 0 };
 
-  const res = await sql`
-    DELETE FROM newborn_candidates
-    WHERE pin_id = ANY(${cleanIds}::text[])
-    RETURNING pin_id;
-  `;
+  const res = wid !== 1
+    ? await sql`
+        DELETE FROM newborn_candidates
+        WHERE pin_id = ANY(${cleanIds}::text[])
+          AND (
+            folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
+            OR first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = ${wid})
+          )
+        RETURNING pin_id;
+      `
+    : await sql`
+        DELETE FROM newborn_candidates
+        WHERE pin_id = ANY(${cleanIds}::text[])
+        RETURNING pin_id;
+      `;
   await invalidateEdgeCache('newborn');
   return { deleted: Array.isArray(res) ? res.length : 0 };
 }
@@ -570,6 +610,7 @@ export async function deleteNewbornCandidate(sql, pinIds) {
  * Lists Rookie / Rising Accounts from `newborn_rookie_accounts` (optionally scoped to `run_id`).
  */
 export async function listNewbornRookies(sql, filters = {}) {
+  const wid = parseOptionalPositiveInt(filters.workspace_id ?? filters.workspaceId) || 1;
   const stage = filters.stage && ['discovered', 'watchlist', 'promoted', 'discarded'].includes(String(filters.stage).toLowerCase())
     ? String(filters.stage).toLowerCase()
     : null;
@@ -582,6 +623,24 @@ export async function listNewbornRookies(sql, filters = {}) {
   const whereCond = sql`
     (${stage}::text IS NULL OR nra.stage = ${stage})
     AND (${stage !== null}::boolean = TRUE OR nra.stage <> 'discarded')
+    AND (
+      ${wid}::int = 1
+      OR EXISTS (
+        SELECT 1
+        FROM newborn_run_candidates nrc_ws
+        JOIN newborn_runs nr_ws ON nr_ws.id = nrc_ws.run_id
+        JOIN newborn_candidates nc_ws ON nc_ws.pin_id = nrc_ws.pin_id
+        WHERE nr_ws.workspace_id = ${wid}
+          AND LOWER(COALESCE(nc_ws.effective_creator_username, '')) = LOWER(nra.username)
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM newborn_candidates nc_ws2
+        JOIN keyword_folders kf_ws ON kf_ws.id = nc_ws2.folder_id
+        WHERE kf_ws.workspace_id = ${wid}
+          AND LOWER(COALESCE(nc_ws2.effective_creator_username, '')) = LOWER(nra.username)
+      )
+    )
     AND (
       ${runId}::bigint IS NULL
       OR EXISTS (
@@ -737,7 +796,9 @@ export async function getNewbornCrossoverReport(sql, { workspaceId = 1, runId = 
                nc.golden_score, nc.repin_count, nc.save_count, nc.repin_per_day, nc.save_per_day, nc.visual_annotations
         FROM newborn_run_candidates nrc
         JOIN newborn_candidates nc ON nc.pin_id = nrc.pin_id
+        JOIN newborn_runs nr ON nr.id = nrc.run_id
         WHERE nrc.run_id = ${numericRunId}
+          AND (${wid}::int = 1 OR nr.workspace_id = ${wid})
           AND (${numericFolderId}::int IS NULL OR nc.folder_id = ${numericFolderId})
           AND (${cleanStage}::text IS NULL OR nc.stage = ${cleanStage})
           AND nc.stage <> 'discarded'

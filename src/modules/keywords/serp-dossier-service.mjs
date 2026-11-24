@@ -520,7 +520,7 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
         return { success: false, pin_id: cleanPin, matches: [], error: err.message };
       }
     },
-    { shouldCache: (val) => Boolean(val?.success) }
+    { shouldCache: (val) => Boolean(val?.success && Array.isArray(val.matches) && val.matches.length > 0) }
   );
 
   if (!value?.success) {

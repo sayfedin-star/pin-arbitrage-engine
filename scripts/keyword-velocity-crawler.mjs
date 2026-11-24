@@ -31,6 +31,7 @@ import fs from 'fs';
 import crypto from 'node:crypto';
 import { crawlKeywordSERP } from '../src/modules/keywords/service.mjs';
 import { getEffectivePinterestCookie } from '../src/modules/keywords/settings.mjs';
+import { DEFAULT_WORKSPACE_ID, resolveWorkspaceRawCookie } from '../src/modules/workspaces/service.mjs';
 import {
   sleep,
   setDefaultDispatcher,
@@ -145,10 +146,12 @@ export const DEEP_DNA_RECHECK_WINDOW_MS = 14 * 24 * 60 * 60 * 1000; // 14-day co
 
 function resolveForceRefreshFlag(options = {}) {
   if (options.force !== undefined) return Boolean(options.force);
+  const rawForce = String(process.env.FORCE_REFRESH ?? '').trim().toLowerCase();
+  if (rawForce === 'false' || rawForce === '0') return false;
   return (
     process.argv.includes('--force') ||
-    process.env.FORCE_REFRESH === 'true' ||
-    process.env.FORCE_REFRESH === '1' ||
+    rawForce === 'true' ||
+    rawForce === '1' ||
     process.env.GITHUB_EVENT_NAME === 'workflow_dispatch'
   );
 }
@@ -1340,15 +1343,15 @@ export async function fetchCampaignTrackedPinsForWorker(targetSql, { workerIndex
 /**
  * V4 Wave 4: Resolves dynamic Daily Pulse SERP fetch depth for a keyword via
  * `MAX(COALESCE(kf.serp_top_n, 20))` across all active campaigns containing it,
- * clamped strictly within `[10, 50]`.
+ * clamped strictly within `[5, 100]`.
  * Returns `null` when the keyword does not belong to any active campaign (so
  * default quota precedence applies).
  */
-export async function resolveKeywordMaxSerpTopN(targetSql, keywordId, { min = 10, max = 50 } = {}) {
+export async function resolveKeywordMaxSerpTopN(targetSql, keywordId, { min = 5, max = 100 } = {}) {
   const kid = Number(keywordId);
   if (!targetSql || typeof targetSql !== 'function' || !kid) return null;
-  const lo = Math.max(1, Number(min) || 10);
-  const hi = Math.max(lo, Number(max) || 50);
+  const lo = Math.max(1, Number(min) || 5);
+  const hi = Math.max(lo, Number(max) || 100);
   try {
     const rows = await targetSql`
       SELECT MAX(COALESCE(kf.serp_top_n, 20))::int AS max_top_n
@@ -1513,6 +1516,88 @@ export async function syncKeywordTopNIntoCampaigns(targetSql, keywordId) {
 }
 
 /**
+ * Resolves the Zone A cookie strictly per workspace for a keyword SERP harvest.
+ * Keywords belonging ONLY to Workspace 2+ NEVER fall back to Workspace 1 / global `PINTEREST_COOKIE`.
+ */
+export async function resolveSerpCookieForKeyword(
+  targetSql,
+  keywordId,
+  { defaultCookie = null, explicitFolderId = null, cookieCache = null } = {}
+) {
+  const kid = Number(keywordId);
+  const fid = Number(explicitFolderId);
+  const cache = cookieCache instanceof Map ? cookieCache : new Map();
+
+  let workspaceIds = [];
+  if (targetSql && typeof targetSql === 'function') {
+    try {
+      if (Number.isInteger(fid) && fid > 0) {
+        const rows = await targetSql`
+          SELECT COALESCE(workspace_id, 1)::int AS workspace_id
+          FROM keyword_folders
+          WHERE id = ${fid}
+          LIMIT 1;
+        `;
+        workspaceIds = (rows || []).map((r) => Number(r.workspace_id)).filter((n) => Number.isInteger(n) && n > 0);
+      } else if (Number.isInteger(kid) && kid > 0) {
+        const rows = await targetSql`
+          SELECT DISTINCT COALESCE(kf.workspace_id, 1)::int AS workspace_id
+          FROM keyword_folder_items kfi
+          JOIN keyword_folders kf ON kf.id = kfi.folder_id
+          WHERE kfi.keyword_id = ${kid}
+            AND LOWER(COALESCE(
+              CASE
+                WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'status'
+                WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'status'
+                ELSE NULL
+              END,
+              'active'
+            )) NOT IN ('paused', 'archived')
+          ORDER BY workspace_id ASC;
+        `;
+        workspaceIds = (rows || []).map((r) => Number(r.workspace_id)).filter((n) => Number.isInteger(n) && n > 0);
+      }
+    } catch (err) {
+      const code = String(err?.code || '');
+      if (code !== '42703' && code !== '42P01') {
+        throw err;
+      }
+    }
+  }
+
+  const isWs2PlusOnly = workspaceIds.length > 0 && !workspaceIds.includes(DEFAULT_WORKSPACE_ID);
+  const targetWorkspaceId = isWs2PlusOnly ? workspaceIds[0] : DEFAULT_WORKSPACE_ID;
+
+  if (cache.has(targetWorkspaceId)) {
+    return cache.get(targetWorkspaceId);
+  }
+
+  const wsResolved = (targetSql && typeof targetSql === 'function')
+    ? await resolveWorkspaceRawCookie(targetSql, targetWorkspaceId).catch(() => ({ rawCookie: '' }))
+    : { rawCookie: '' };
+  const wsCookie = typeof wsResolved === 'string'
+    ? wsResolved.trim()
+    : String(wsResolved?.rawCookie || '').trim();
+
+  let finalCookie = wsCookie;
+  if (!finalCookie && !isWs2PlusOnly) {
+    finalCookie = defaultCookie || (
+      (targetSql && typeof targetSql === 'function')
+        ? await getEffectivePinterestCookie(targetSql, defaultCookie).catch(() => defaultCookie || '')
+        : ''
+    ) || '';
+  }
+
+  const result = {
+    cookie: finalCookie || '',
+    workspaceId: targetWorkspaceId,
+    disableGlobalCookieFallback: isWs2PlusOnly
+  };
+  cache.set(targetWorkspaceId, result);
+  return result;
+}
+
+/**
  * V4 Wave 4 (Phase 1.5): Shared Phase 1A SERP harvest + Top-N campaign sync executor
  * used consistently across Mode A (`keyword_sweep`), Mode B (`pin_partition`), and
  * Mode C (`folder_pin_partition`) so `MAX(serp_top_n)` and `campaign_tracked_pins`
@@ -1525,15 +1610,26 @@ export async function runPhase1ASerpHarvestForKeyword(
     cookie = null,
     explicitMaxSerpPins = null,
     leaseToken = null,
-    crawlFn = crawlKeywordSERP
+    crawlFn = crawlKeywordSERP,
+    explicitFolderId = null,
+    cookieCache = null,
+    resolveWorkspaceCookie = false
   } = {}
 ) {
   const dynamicMaxTopN = explicitMaxSerpPins === null
-    ? await resolveKeywordMaxSerpTopN(targetSql, keywordId, { min: 10, max: 50 }).catch(() => null)
+    ? await resolveKeywordMaxSerpTopN(targetSql, keywordId, { min: 5, max: 100 }).catch(() => null)
     : null;
   const resolvedSerpQuota = explicitMaxSerpPins !== null ? explicitMaxSerpPins : dynamicMaxTopN;
+  const cookieResolution = resolveWorkspaceCookie
+    ? await resolveSerpCookieForKeyword(targetSql, keywordId, {
+        defaultCookie: cookie,
+        explicitFolderId,
+        cookieCache
+      })
+    : { cookie, disableGlobalCookieFallback: false };
   const crawlRes = await crawlFn(targetSql, keywordId, {
-    cookie,
+    cookie: cookieResolution.cookie,
+    ...(cookieResolution.disableGlobalCookieFallback ? { disableGlobalCookieFallback: true } : {}),
     ...(resolvedSerpQuota !== null ? { max_serp_pins: resolvedSerpQuota } : {}),
     skip_top_enrich: true,
     force: true,
@@ -2246,6 +2342,7 @@ async function run() {
       let serpSuccessCount = 0;
       let serpErrorCount = 0;
       const kwSem = new Semaphore(Math.min(4, Math.max(1, keywordIdsInput.length)));
+      const modeCCookieCache = new Map();
       await Promise.allSettled(keywordIdsInput.map(kid => kwSem.run(async () => {
         const effectiveToken = crypto.randomUUID();
         try {
@@ -2253,7 +2350,10 @@ async function run() {
           const { crawlRes: res, dynamicMaxTopN, syncRes, syncWarning } = await runPhase1ASerpHarvestForKeyword(sql, kid, {
             cookie,
             explicitMaxSerpPins,
-            leaseToken: effectiveToken
+            leaseToken: effectiveToken,
+            explicitFolderId: folderIdInput,
+            cookieCache: modeCCookieCache,
+            resolveWorkspaceCookie: true
           });
           serpSuccessCount++;
           if (syncWarning) {
@@ -2516,11 +2616,14 @@ async function run() {
         console.log(`[Phase 1A] Runner 1/${workerTotal} (Lead): Ingesting SERP for "${kwRow.keyword}" (ID: ${kwRow.id})...`);
         const effectiveToken = crypto.randomUUID();
         let fatalSerpDbErrB = null;
+        const modeBCookieCache = new Map();
         try {
           const { crawlRes: res, dynamicMaxTopN, syncRes, syncWarning } = await runPhase1ASerpHarvestForKeyword(sql, kwRow.id, {
             cookie,
             explicitMaxSerpPins,
-            leaseToken: effectiveToken
+            leaseToken: effectiveToken,
+            cookieCache: modeBCookieCache,
+            resolveWorkspaceCookie: true
           });
           if (syncWarning) {
             console.warn(`[Phase 1A] Keyword ID ${kwRow.id} Top-N campaign sync warning: ${syncWarning}`);
@@ -2744,7 +2847,7 @@ async function run() {
     // -------------------------------------------------------------------------
     let phase1aTotalFailureA = false;
     if (enableSerpHarvest && mySerpKeywordIds.length > 0) {
-      const effectiveSerpCookie = await getEffectivePinterestCookie(sql, cookie);
+      const modeACookieCache = new Map();
       console.log(`[Phase 1A] Worker ${workerIndex + 1}/${workerTotal}: Harvesting SERPs for ${mySerpKeywordIds.length} assigned keywords (token: ${fleetRunToken})...`);
       const serpSem = new Semaphore(2);
       let fatalSerpDbErr = null;
@@ -2755,9 +2858,11 @@ async function run() {
           const effectiveToken = crypto.randomUUID();
           try {
             const { crawlRes: res, dynamicMaxTopN, syncRes, syncWarning } = await runPhase1ASerpHarvestForKeyword(sql, kid, {
-              cookie: effectiveSerpCookie,
+              cookie,
               explicitMaxSerpPins,
-              leaseToken: effectiveToken
+              leaseToken: effectiveToken,
+              cookieCache: modeACookieCache,
+              resolveWorkspaceCookie: true
             });
             serpSuccessCount++;
             if (syncWarning) {

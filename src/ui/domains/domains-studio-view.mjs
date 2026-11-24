@@ -1236,11 +1236,11 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                   </div>
                   <div class="p-2 rounded-xl bg-slate-50 dark:bg-[#18181B]">
                     <div class="text-[10px] text-slate-400 uppercase">Sybil Risk Score</div>
-                    <div class="text-sm font-bold text-slate-900 dark:text-white mt-0.5" x-text="(dossierData.sybil_pbn_metrics.sybil_risk_score || 0) + ' / 100'"></div>
+                    <div class="text-sm font-bold text-slate-900 dark:text-white mt-0.5" x-text="(dossierData.sybil_pbn_metrics.sybil_risk_score ?? 0) + ' / 100'"></div>
                   </div>
                   <div class="p-2 rounded-xl bg-slate-50 dark:bg-[#18181B]">
                     <div class="text-[10px] text-slate-400 uppercase">Effective Creators</div>
-                    <div class="text-sm font-bold text-purple-600 dark:text-purple-400 mt-0.5" x-text="dossierData.sybil_pbn_metrics.effective_creator_count || 1"></div>
+                    <div class="text-sm font-bold text-purple-600 dark:text-purple-400 mt-0.5" x-text="dossierData.sybil_pbn_metrics.effective_creator_count ?? 1"></div>
                   </div>
                   <div class="p-2 rounded-xl bg-slate-50 dark:bg-[#18181B]">
                     <div class="text-[10px] text-slate-400 uppercase">Creator HHI</div>
@@ -1248,7 +1248,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                   </div>
                   <div class="p-2 rounded-xl bg-slate-50 dark:bg-[#18181B]">
                     <div class="text-[10px] text-slate-400 uppercase">Multi-Creator Overlap</div>
-                    <div class="text-sm font-bold text-sky-600 dark:text-sky-400 mt-0.5" x-text="Math.round((dossierData.sybil_pbn_metrics.bipartite_slug_overlap || 0) * 100) + '%'"></div>
+                    <div class="text-sm font-bold text-sky-600 dark:text-sky-400 mt-0.5" x-text="Math.round((dossierData.sybil_pbn_metrics.bipartite_slug_overlap ?? 0) * 100) + '%'"></div>
                   </div>
                 </div>
               </template>

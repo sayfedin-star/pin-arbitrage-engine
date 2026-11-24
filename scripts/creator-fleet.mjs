@@ -451,6 +451,51 @@ export async function runCreatorFleetDispatch({ sql, env = process.env }) {
     `;
 
     if (accRow) {
+      let isOnWatchlist = false;
+      try {
+        const [wwRow] = await sql`
+          SELECT 1
+          FROM workspace_watchlist
+          WHERE entity_type = 'creator'
+            AND LOWER(LTRIM(BTRIM(entity_key), '@')) = ${cleanTargetAccount}
+          LIMIT 1;
+        `;
+        isOnWatchlist = Boolean(wwRow);
+      } catch (err) {
+        if (String(err?.code || '') !== '42P01') throw err;
+      }
+      if (!isOnWatchlist) {
+        const linkedFolders = await sql`
+          SELECT kf.metadata
+          FROM folder_competitor_items fci
+          JOIN keyword_folders kf ON kf.id = fci.folder_id
+          WHERE fci.competitor_id = ${accRow.id};
+        `.catch((err) => {
+          if (String(err?.code || '') === '42P01') return [];
+          throw err;
+        });
+        if (Array.isArray(linkedFolders) && linkedFolders.length > 0) {
+          const allLinkedPaused = linkedFolders.every((row) => {
+            const folderMeta = normalizeFolderMetadata(row?.metadata);
+            return Boolean(
+              folderMeta.pause_competitors ||
+              folderMeta.block_fleet ||
+              folderMeta.block_gha_fleet ||
+              ['paused', 'archived'].includes(String(folderMeta.status || '').toLowerCase())
+            );
+          });
+          if (allLinkedPaused) {
+            console.log(`\n  [!] GUARD: Creator @${cleanTargetAccount} is paused/blocked across all linked folders.`);
+            console.log('  [*] Emitting empty task matrix (0 tasks) and terminating cleanly without reactivating creator.');
+            matrixTasks = [];
+            const matrixJson = JSON.stringify(matrixTasks);
+            await writeGitHubOutput('mode', mode, githubOutputPath);
+            await writeGitHubOutput('task_count', '0', githubOutputPath);
+            await writeGitHubOutput('matrix_tasks', matrixJson, githubOutputPath);
+            return { mode, taskCount: 0, matrixTasks, paused: true };
+          }
+        }
+      }
       if (!accRow.is_active) {
         console.log(`  [+] Reactivating profile @${cleanTargetAccount} in Central Hub...`);
         await sql`

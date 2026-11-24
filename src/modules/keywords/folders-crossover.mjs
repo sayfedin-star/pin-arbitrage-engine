@@ -540,6 +540,7 @@ async function _executeFolderCrossover(sql, fid) {
 
   // 2. Query aggregated unique pins (active + vault, zero LIMIT truncation), capsules, and per-pin rolling repin gains in parallel
   // [INVARIANT: TARGETED-JSONB-PROJECTION]
+  let repinWindowDegraded = false;
   let [pinRows, capsuleRows, repinWindowRows] = await Promise.all([
     queryAggregatedFolderPins(sql, fid),
     sql`
@@ -646,6 +647,7 @@ async function _executeFolderCrossover(sql, fid) {
         END AS repins_15d
       FROM pin_baselines pb;
     `.catch((err) => {
+      repinWindowDegraded = true;
       console.warn(`[calculateFolderCrossover] Rolling repin window query warning for folder ${fid}:`, err?.message || err);
       return [];
     })
@@ -655,7 +657,7 @@ async function _executeFolderCrossover(sql, fid) {
   if (!capsuleRows) capsuleRows = [];
   if (!repinWindowRows) repinWindowRows = [];
 
-  return await buildFolderCrossoverMatrix({
+  const matrix = await buildFolderCrossoverMatrix({
     sql,
     folder,
     folderKeywords,
@@ -665,4 +667,8 @@ async function _executeFolderCrossover(sql, fid) {
     capsuleRows,
     repinWindowRows
   });
+  if (repinWindowDegraded && matrix && typeof matrix === 'object') {
+    matrix.degraded = true;
+  }
+  return matrix;
 }

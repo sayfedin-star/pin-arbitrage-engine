@@ -642,8 +642,22 @@ export async function fetchPinterestTrends(term, country = 'US', force = false) 
           }
         }
 
+        const hasAnyTrendData =
+          primaryCounts.length > 0 ||
+          relatedTrends.length > 0 ||
+          Boolean(interestInfo) ||
+          Boolean(demographics) ||
+          (collageList.status === 'fulfilled' && Array.isArray(collageList.value) && collageList.value.length > 0);
+        const allUpstreamErrored =
+          prefixRes.status === 'rejected' &&
+          relatedRes.status === 'rejected' &&
+          demoRes.status === 'rejected' &&
+          interestData.status === 'rejected' &&
+          !hasAnyTrendData;
+
         return {
           success: true,
+          ...(allUpstreamErrored ? { degraded: true } : {}),
           term: matchedTerm,
           country,
           counts_52_weeks: primaryCounts,
@@ -668,7 +682,7 @@ export async function fetchPinterestTrends(term, country = 'US', force = false) 
         return { success: false, error: err.message };
       }
     },
-    { forceRefresh: Boolean(force), shouldCache: (val) => Boolean(val?.success) }
+    { forceRefresh: Boolean(force), shouldCache: (val) => Boolean(val?.success && val?.degraded !== true) }
   );
 
   if (!value?.success) {

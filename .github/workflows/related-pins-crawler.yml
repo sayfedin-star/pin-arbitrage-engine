@@ -98,7 +98,48 @@ jobs:
               const rows = await sql\`SELECT COUNT(*)::int AS cnt FROM cluster_seeds\`;
               let campaignQueued = 0;
               try {
-                const cRows = await sql\`SELECT COUNT(*)::int AS cnt FROM campaign_pin_graph_seeds WHERE status = 'queued'\`;
+                const cRows = await sql\`
+                  SELECT COUNT(*)::int AS cnt
+                  FROM campaign_pin_graph_seeds cpgs
+                  JOIN keyword_folders kf ON kf.id = cpgs.folder_id
+                  WHERE cpgs.status = 'queued'
+                    AND LOWER(COALESCE(
+                      CASE WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'status'
+                           WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'status'
+                           ELSE NULL END,
+                      'active'
+                    )) NOT IN ('paused', 'archived')
+                    AND LOWER(COALESCE(
+                      CASE WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'pause_crawlers'
+                           WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'pause_crawlers'
+                           ELSE NULL END,
+                      'false'
+                    )) <> 'true'
+                    AND LOWER(COALESCE(
+                      CASE WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'is_crawler_paused'
+                           WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'is_crawler_paused'
+                           ELSE NULL END,
+                      'false'
+                    )) <> 'true'
+                    AND LOWER(COALESCE(
+                      CASE WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'crawler_paused'
+                           WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'crawler_paused'
+                           ELSE NULL END,
+                      'false'
+                    )) <> 'true'
+                    AND LOWER(COALESCE(
+                      CASE WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_fleet'
+                           WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_fleet'
+                           ELSE NULL END,
+                      'false'
+                    )) <> 'true'
+                    AND LOWER(COALESCE(
+                      CASE WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_gha_fleet'
+                           WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_gha_fleet'
+                           ELSE NULL END,
+                      'false'
+                    )) <> 'true'
+                \`;
                 campaignQueued = Number(cRows[0]?.cnt || 0);
               } catch (e) {
                 if (String(e?.code || '') !== '42P01') throw e;

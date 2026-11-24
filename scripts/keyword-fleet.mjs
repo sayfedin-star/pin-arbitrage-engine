@@ -81,6 +81,33 @@ async function syncPublicSerialSequences(sql) {
   }
 }
 
+async function isKeywordBlockedByPausedFolders(sql, kwLower) {
+  try {
+    const linked = await sql`
+      SELECT kf.metadata
+      FROM tracked_keywords tk
+      JOIN keyword_folder_items kfi ON kfi.keyword_id = tk.id
+      JOIN keyword_folders kf ON kf.id = kfi.folder_id
+      WHERE LOWER(tk.keyword) = ${kwLower};
+    `;
+    if (!Array.isArray(linked) || linked.length === 0) return false;
+    return linked.every((row) => {
+      const m = safeNormalizeMetadata(row?.metadata);
+      return Boolean(
+        m.pause_crawlers ||
+        m.block_fleet ||
+        m.is_crawler_paused ||
+        m.crawler_paused ||
+        m.block_gha_fleet ||
+        ['paused', 'archived'].includes(String(m.status || '').toLowerCase())
+      );
+    });
+  } catch (err) {
+    if (String(err?.code || '') === '42P01') return false;
+    throw err;
+  }
+}
+
 /**
  * Stage 0: Intelligent Dynamic Fleet Dispatcher (20-Runner Matrix)
  */
@@ -150,12 +177,12 @@ export async function runKeywordFleetDispatch({ sql, env = process.env }) {
       folderMeta.is_crawler_paused ||
       folderMeta.crawler_paused ||
       folderMeta.block_gha_fleet ||
-      ['paused', 'archived'].includes(String(folderRow.status || folderMeta.status || '').toLowerCase())
+      ['paused', 'archived'].includes(String(folderMeta.status || '').toLowerCase())
     );
 
     if (isCrawlerPaused) {
       console.log(`\n  [!] GUARD: Folder "${folderRow.name}" (ID: ${fid}) has crawling paused or fleet blocked.`);
-      console.log(`      Flags: pause_crawlers=${Boolean(folderMeta.pause_crawlers)} | block_fleet=${Boolean(folderMeta.block_fleet)} | status=${folderRow.status || folderMeta.status}`);
+      console.log(`      Flags: pause_crawlers=${Boolean(folderMeta.pause_crawlers)} | block_fleet=${Boolean(folderMeta.block_fleet)} | status=${folderMeta.status || 'active'}`);
       console.log('  [*] Emitting empty task matrix (0 tasks) and terminating cleanly.');
 
       matrixTasks = [];
@@ -243,6 +270,10 @@ export async function runKeywordFleetDispatch({ sql, env = process.env }) {
     if (commaKeywords.length > 1) {
       console.log(`[*] Resolving ${commaKeywords.length} explicitly specified keywords...`);
       for (const kwStr of commaKeywords) {
+        if (await isKeywordBlockedByPausedFolders(sql, kwStr)) {
+          console.log(`  [!] GUARD: Skipping keyword "${kwStr}" because all linked folders are paused/blocked.`);
+          continue;
+        }
         let [row] = await sql`
           SELECT id, keyword, category, target_pin_count, is_active
           FROM tracked_keywords
@@ -450,6 +481,17 @@ export async function runKeywordFleetDispatch({ sql, env = process.env }) {
     mode = 'pin_partition';
     const singleKeyword = commaKeywords[0];
     console.log(`\n[*] Mode Selected: MODE B (Single-Keyword Pin-Slice Sharding for "${singleKeyword}")`);
+
+    if (await isKeywordBlockedByPausedFolders(sql, singleKeyword)) {
+      console.log(`\n  [!] GUARD: Keyword "${singleKeyword}" has crawling paused or fleet blocked across all linked folders.`);
+      console.log('  [*] Emitting empty task matrix (0 tasks) and terminating cleanly without reactivating keyword.');
+      matrixTasks = [];
+      const matrixJson = JSON.stringify(matrixTasks);
+      await writeGitHubOutput('mode', mode, githubOutputPath);
+      await writeGitHubOutput('task_count', '0', githubOutputPath);
+      await writeGitHubOutput('matrix_tasks', matrixJson, githubOutputPath);
+      return { mode, taskCount: 0, matrixTasks, paused: true };
+    }
 
     let [kwRow] = await sql`
       SELECT id, keyword, category, target_pin_count, is_active

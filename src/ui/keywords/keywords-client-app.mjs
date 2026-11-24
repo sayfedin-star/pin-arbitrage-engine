@@ -1038,7 +1038,7 @@ export function getKeywordsClientAppScript() {
             if (p.is_breakout_candidate) return true;
             if (Number(p.breakout_score || 0) >= 20) return true;
             const vel = Number(p.daily_save_velocity || 0);
-            const age = Number(p.metadata?.pin_age_days || 999);
+            const age = Number(p.metadata?.pin_age_days ?? 999);
             const saves = Number(p.metadata?.raw_saves || p.save_count || p.current_saves || 0);
             if (vel >= minVel && age <= maxAge) return true;
             if (saves >= 50 && age <= 45) return true;
@@ -1104,7 +1104,7 @@ export function getKeywordsClientAppScript() {
               return bEngage - aEngage;
             });
           } else if (this.pinSort === 'age') {
-            return [...list].sort((a, b) => Number(a.metadata?.pin_age_days || 9999) - Number(b.metadata?.pin_age_days || 9999));
+            return [...list].sort((a, b) => Number(a.metadata?.pin_age_days ?? 9999) - Number(b.metadata?.pin_age_days ?? 9999));
           }
 
           return [...list].sort((a, b) => {

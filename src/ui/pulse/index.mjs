@@ -4,7 +4,7 @@
 
 import { renderAppSidebar } from '../app-sidebar.mjs';
 import { renderCampaignWorkspaceHeader } from '../campaign-workspace-header.mjs';
-import { renderSharedDocumentHead } from '../shared-head.mjs';
+import { renderSharedDocumentHead, compactHtmlFragment } from '../shared-head.mjs';
 import { getPulseStudioViewsHtml } from './pulse-views.mjs';
 import { renderClientJsScriptTag, renderPageBootstrapScript } from '../client-assets.mjs';
 
@@ -65,14 +65,14 @@ ${renderSharedDocumentHead({
     </template>
   </div>
 
-  ${renderAppSidebar({ activeNav: 'pulse', refreshHandler: 'refreshPulse(true)' })}
+  ${renderAppSidebar({ activeNav: safeFolderId ? 'campaigns' : 'pulse', refreshHandler: 'refreshPulse(true)' })}
 
   <!-- Main Container (Offset for Unified Desktop Sidebar) -->
-  <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
+  <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? 'md:!ml-20' : 'md:ml-64 lg:ml-72'">
 
-    ${safeFolderId ? renderCampaignWorkspaceHeader({ activeRoom: 'pulse', folderId: safeFolderId }) : ''}
+    ${safeFolderId ? compactHtmlFragment(renderCampaignWorkspaceHeader({ activeRoom: 'pulse', folderId: safeFolderId })) : ''}
 
-${getPulseStudioViewsHtml()}
+${compactHtmlFragment(getPulseStudioViewsHtml())}
 
 ${renderPageBootstrapScript({ folderId: safeFolderId })}
 ${renderClientJsScriptTag('pulse')}

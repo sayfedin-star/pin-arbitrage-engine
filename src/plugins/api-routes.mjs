@@ -237,9 +237,12 @@ export async function apiRoutesPlugin(app, options = {}) {
           }
 
           if (method === 'GET' && pathname === '/api/settings/cookie' && !env?.DATABASE_URL && !env?.SQL_CLIENT && !process.env?.DATABASE_URL) {
-            const cookie = env?.PINTEREST_COOKIE || process.env?.PINTEREST_COOKIE || '';
+            const cookie = Number(workspaceId) === DEFAULT_WORKSPACE_ID
+              ? (env?.PINTEREST_COOKIE || process.env?.PINTEREST_COOKIE || '')
+              : '';
             const hasCookie = Boolean(cookie && cookie.trim().length > 10);
             return boundJsonResponse({
+              workspace_id: workspaceId,
               has_cookie: hasCookie,
               is_configured: hasCookie,
               preview: hasCookie ? '[CONFIGURED]' : '',

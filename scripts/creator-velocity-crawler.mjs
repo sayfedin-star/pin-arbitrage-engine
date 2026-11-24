@@ -54,10 +54,9 @@ import {
   fetchPinFromPinterest
 } from '../src/core/pinterest/index.mjs';
 import { ingestPinsBatch } from '../src/modules/pins/repository.mjs';
-import { formatPinterestCookie, sanitizeForJsonb, Semaphore } from '../src/utils.mjs';
+import { sanitizeForJsonb, Semaphore } from '../src/utils.mjs';
 import { calculateDailyVelocity, isRepinHydrationJump, detectHydrationJump } from '../src/lib/math.mjs';
 import { shouldSkipFreshPinEnrichment, sanitizeVisualAnnotations } from '../src/domain/pin-intelligence.mjs';
-import { getEffectivePinterestCookie } from '../src/modules/keywords/settings.mjs';
 import { resolveNewbornRawCookie } from '../src/modules/newborn/settings.mjs';
 import { redactSecrets } from '../src/http/security-and-response.mjs';
 
@@ -131,7 +130,8 @@ const PHASE2_FRESHNESS_HOURS = Number.isFinite(rawPhase2FreshHours) && rawPhase2
 export async function loadWatchlistCreatorContext(targetSql) {
   const modeMap = new Map();
   const workspaceMap = new Map();
-  if (!targetSql || typeof targetSql !== 'function') return { modeMap, workspaceMap };
+  const folderWorkspaceMap = new Map();
+  if (!targetSql || typeof targetSql !== 'function') return { modeMap, workspaceMap, folderWorkspaceMap };
   try {
     const rows = await targetSql`
       SELECT
@@ -160,7 +160,31 @@ export async function loadWatchlistCreatorContext(targetSql) {
       console.warn('[creator-velocity-crawler] workspace_watchlist lookup warning:', redactSecrets(err?.message || String(err)));
     }
   }
-  return { modeMap, workspaceMap };
+  try {
+    const fRows = await targetSql`
+      SELECT
+        LOWER(LTRIM(BTRIM(cp.username), '@')) AS username,
+        MIN(COALESCE(kf.workspace_id, 1))::int AS folder_workspace_id
+      FROM folder_competitor_items fci
+      JOIN competitor_profiles cp ON cp.id = fci.competitor_id
+      JOIN keyword_folders kf ON kf.id = fci.folder_id
+      WHERE BTRIM(COALESCE(cp.username, '')) <> ''
+      GROUP BY 1;
+    `;
+    for (const r of (fRows || [])) {
+      const uname = String(r?.username || '').trim().toLowerCase();
+      const wid = Number(r?.folder_workspace_id);
+      if (uname && Number.isInteger(wid) && wid > 0) {
+        folderWorkspaceMap.set(uname, wid);
+      }
+    }
+  } catch (err) {
+    const code = String(err?.code || '');
+    if (code !== '42P01' && code !== '42703') {
+      console.warn('[creator-velocity-crawler] folder_competitor_items workspace lookup warning:', redactSecrets(err?.message || String(err)));
+    }
+  }
+  return { modeMap, workspaceMap, folderWorkspaceMap };
 }
 
 export async function loadWatchlistCreatorModes(targetSql) {
@@ -332,10 +356,12 @@ export const PHASE2_PIDGETS_DEDUP_MINUTES = Math.max(1, Math.round(CREATOR_PIDGE
 
 export function resolveCreatorForceRefresh(options = {}) {
   if (options.forceRefresh !== undefined) return Boolean(options.forceRefresh);
+  const envForce = String(process.env.FORCE_REFRESH ?? '').trim().toLowerCase();
+  if (envForce === 'false' || envForce === '0') return false;
   return (
     process.argv.includes('--force') ||
-    process.env.FORCE_REFRESH === 'true' ||
-    process.env.FORCE_REFRESH === '1' ||
+    envForce === 'true' ||
+    envForce === '1' ||
     process.env.GITHUB_EVENT_NAME === 'workflow_dispatch'
   );
 }
@@ -1006,16 +1032,77 @@ async function run() {
       : (accountIdsInput.length > 0 ? accountIdsInput : []);
     let myAccountIds = [];
     if (allFleetAccountIds.length === 0 && accountIdsInput.length === 0) {
-      const rows = await sql`
-        WITH ordered_creators AS (
-          SELECT id, (ROW_NUMBER() OVER (ORDER BY last_synced_at ASC NULLS FIRST, id ASC) - 1) AS row_idx
-          FROM competitor_profiles
-          WHERE is_active = TRUE
-            AND COALESCE(account_type, 'competitor') <> 'system'
-        )
-        SELECT id FROM ordered_creators
-        WHERE MOD(row_idx, ${workerTotal}) = ${workerIndex};
-      `;
+      let rows;
+      try {
+        rows = await sql`
+          WITH ordered_creators AS (
+            SELECT id, (ROW_NUMBER() OVER (ORDER BY last_synced_at ASC NULLS FIRST, id ASC) - 1) AS row_idx
+            FROM competitor_profiles cp
+            WHERE cp.is_active = TRUE
+              AND COALESCE(cp.account_type, 'competitor') <> 'system'
+              AND (
+                EXISTS (
+                  SELECT 1 FROM workspace_watchlist ww
+                  WHERE ww.entity_type = 'creator'
+                    AND LOWER(LTRIM(BTRIM(ww.entity_key), '@')) = LOWER(LTRIM(BTRIM(cp.username), '@'))
+                )
+                OR NOT EXISTS (SELECT 1 FROM folder_competitor_items fci WHERE fci.competitor_id = cp.id)
+                OR EXISTS (
+                  SELECT 1
+                  FROM folder_competitor_items fci
+                  JOIN keyword_folders kf ON kf.id = fci.folder_id
+                  WHERE fci.competitor_id = cp.id
+                    AND LOWER(COALESCE(
+                      CASE
+                        WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'status'
+                        WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'status'
+                        ELSE NULL
+                      END,
+                      'active'
+                    )) NOT IN ('paused', 'archived')
+                    AND LOWER(COALESCE(
+                      CASE
+                        WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'pause_competitors'
+                        WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'pause_competitors'
+                        ELSE NULL
+                      END,
+                      'false'
+                    )) <> 'true'
+                    AND LOWER(COALESCE(
+                      CASE
+                        WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_fleet'
+                        WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_fleet'
+                        ELSE NULL
+                      END,
+                      'false'
+                    )) <> 'true'
+                    AND LOWER(COALESCE(
+                      CASE
+                        WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_gha_fleet'
+                        WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_gha_fleet'
+                        ELSE NULL
+                      END,
+                      'false'
+                    )) <> 'true'
+                )
+              )
+          )
+          SELECT id FROM ordered_creators
+          WHERE MOD(row_idx, ${workerTotal}) = ${workerIndex};
+        `;
+      } catch (err) {
+        if (String(err?.code || '') !== '42P01') throw err;
+        rows = await sql`
+          WITH ordered_creators AS (
+            SELECT id, (ROW_NUMBER() OVER (ORDER BY last_synced_at ASC NULLS FIRST, id ASC) - 1) AS row_idx
+            FROM competitor_profiles
+            WHERE is_active = TRUE
+              AND COALESCE(account_type, 'competitor') <> 'system'
+          )
+          SELECT id FROM ordered_creators
+          WHERE MOD(row_idx, ${workerTotal}) = ${workerIndex};
+        `;
+      }
       myAccountIds = rows.map(r => Number(r.id));
       allFleetAccountIds = myAccountIds;
     } else {
@@ -1059,7 +1146,7 @@ async function run() {
       console.warn(`[!] Failed to load dynamic creator hub settings (using fallback defaults):`, setErr.message);
     }
 
-    const { modeMap: watchlistModeMap, workspaceMap: watchlistWorkspaceMap } = await loadWatchlistCreatorContext(sql);
+    const { modeMap: watchlistModeMap, workspaceMap: watchlistWorkspaceMap, folderWorkspaceMap } = await loadWatchlistCreatorContext(sql);
     let accountsProcessed = 0;
     const pulseAccounts = [];
     const fullAccounts = [];
@@ -1129,8 +1216,8 @@ async function run() {
         console.warn(`[Phase 1A] Batch history baseline lookup warning:`, redactSecrets(hErr?.message || String(hErr)));
       }
 
-      const resolvedPulseCookie = await getEffectivePinterestCookie(sql, cookie);
-      const formattedCookie = formatPinterestCookie(resolvedPulseCookie);
+      // Zone 2 public pulse: strictly zero-cookie (never touch global/WS1 cookie)
+      const formattedCookie = '';
       const PULSE_BATCH_SIZE = 100;
       let pulseBuffer = [];
 
@@ -1409,7 +1496,7 @@ async function run() {
     await Promise.allSettled(fullAccounts.map((acc, i) => fullSem.run(async () => {
       const cleanUser = (acc.username || '').replace(/^@+/, '').trim();
       const lowerUser = cleanUser.toLowerCase();
-      const targetWorkspaceId = watchlistWorkspaceMap.get(lowerUser) || null;
+      const targetWorkspaceId = watchlistWorkspaceMap.get(lowerUser) || folderWorkspaceMap.get(lowerUser) || null;
       const syncConfig = await resolveCreatorSyncCookieAndBounds(sql, process.env, {
         acc,
         workspaceId: targetWorkspaceId,
@@ -1473,23 +1560,108 @@ async function run() {
       deepFreshnessHours: PHASE2_FRESHNESS_HOURS
     });
 
-    const myWinningSlice = await sql`
-      SELECT 
-        p.pin_id, p.creator_username AS account_username, p.board_name, p.board_id,
-        cp.id AS competitor_id,
-        p.save_count AS saves, p.repin_count AS repins, p.comment_count AS comments, p.share_count,
-        p.daily_save_velocity AS velocity, p.updated_at AS last_updated_at, p.created_at_pinterest,
-        p.last_scraped_at, p.visual_annotations, p.image_signature, p.is_hydrated, p.creation_method, p.metadata AS ump_metadata
-      FROM universal_master_pins p
-      LEFT JOIN competitor_profiles cp ON cp.username = p.creator_username
-      WHERE ${Number(workerTotal) === 20
-        ? sql`(ABS(hashtext(p.pin_id::text)::bigint) % 20) = ${workerIndex}`
-        : sql`(ABS(hashtext(p.pin_id::text)::bigint) % ${workerTotal}) = ${workerIndex}`}
-        AND (cp.tracking_mode IS NULL OR cp.tracking_mode <> 'pulse_only')
-        AND ${phase2FreshnessClause}
-      ORDER BY p.last_scraped_at ASC NULLS FIRST, p.save_count DESC NULLS LAST
-      LIMIT ${PHASE2_MAX_PINS};
-    `;
+    let myWinningSlice;
+    try {
+      myWinningSlice = await sql`
+        SELECT 
+          p.pin_id, p.creator_username AS account_username, p.board_name, p.board_id,
+          cp.id AS competitor_id,
+          p.save_count AS saves, p.repin_count AS repins, p.comment_count AS comments, p.share_count,
+          p.daily_save_velocity AS velocity, p.updated_at AS last_updated_at, p.created_at_pinterest,
+          p.last_scraped_at, p.visual_annotations, p.image_signature, p.is_hydrated, p.creation_method, p.metadata AS ump_metadata
+        FROM universal_master_pins p
+        LEFT JOIN competitor_profiles cp ON LOWER(cp.username) = LOWER(p.creator_username)
+        WHERE ${Number(workerTotal) === 20
+          ? sql`(ABS(hashtext(p.pin_id::text)::bigint) % 20) = ${workerIndex}`
+          : sql`(ABS(hashtext(p.pin_id::text)::bigint) % ${workerTotal}) = ${workerIndex}`}
+          AND (cp.id IS NULL OR cp.is_active = TRUE)
+          AND (cp.tracking_mode IS NULL OR cp.tracking_mode NOT IN ('pulse_only', 'metrics_only'))
+          AND NOT (
+            EXISTS (
+              SELECT 1 FROM workspace_watchlist ww
+              WHERE ww.entity_type = 'creator'
+                AND LOWER(LTRIM(BTRIM(ww.entity_key), '@')) = LOWER(LTRIM(BTRIM(p.creator_username), '@'))
+                AND ww.creator_tracking_mode = 'metrics_only'
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM workspace_watchlist ww
+              WHERE ww.entity_type = 'creator'
+                AND LOWER(LTRIM(BTRIM(ww.entity_key), '@')) = LOWER(LTRIM(BTRIM(p.creator_username), '@'))
+                AND ww.creator_tracking_mode = 'metrics_full_catalog'
+            )
+          )
+          AND (
+            cp.id IS NULL
+            OR EXISTS (
+              SELECT 1 FROM workspace_watchlist ww
+              WHERE ww.entity_type = 'creator'
+                AND LOWER(LTRIM(BTRIM(ww.entity_key), '@')) = LOWER(LTRIM(BTRIM(cp.username), '@'))
+            )
+            OR NOT EXISTS (SELECT 1 FROM folder_competitor_items fci WHERE fci.competitor_id = cp.id)
+            OR EXISTS (
+              SELECT 1
+              FROM folder_competitor_items fci
+              JOIN keyword_folders kf ON kf.id = fci.folder_id
+              WHERE fci.competitor_id = cp.id
+                AND LOWER(COALESCE(
+                  CASE
+                    WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'status'
+                    WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'status'
+                    ELSE NULL
+                  END,
+                  'active'
+                )) NOT IN ('paused', 'archived')
+                AND LOWER(COALESCE(
+                  CASE
+                    WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'pause_competitors'
+                    WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'pause_competitors'
+                    ELSE NULL
+                  END,
+                  'false'
+                )) <> 'true'
+                AND LOWER(COALESCE(
+                  CASE
+                    WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_fleet'
+                    WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_fleet'
+                    ELSE NULL
+                  END,
+                  'false'
+                )) <> 'true'
+                AND LOWER(COALESCE(
+                  CASE
+                    WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_gha_fleet'
+                    WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_gha_fleet'
+                    ELSE NULL
+                  END,
+                  'false'
+                )) <> 'true'
+            )
+          )
+          AND ${phase2FreshnessClause}
+        ORDER BY p.last_scraped_at ASC NULLS FIRST, p.save_count DESC NULLS LAST
+        LIMIT ${PHASE2_MAX_PINS};
+      `;
+    } catch (err) {
+      if (String(err?.code || '') !== '42P01') throw err;
+      myWinningSlice = await sql`
+        SELECT 
+          p.pin_id, p.creator_username AS account_username, p.board_name, p.board_id,
+          cp.id AS competitor_id,
+          p.save_count AS saves, p.repin_count AS repins, p.comment_count AS comments, p.share_count,
+          p.daily_save_velocity AS velocity, p.updated_at AS last_updated_at, p.created_at_pinterest,
+          p.last_scraped_at, p.visual_annotations, p.image_signature, p.is_hydrated, p.creation_method, p.metadata AS ump_metadata
+        FROM universal_master_pins p
+        LEFT JOIN competitor_profiles cp ON LOWER(cp.username) = LOWER(p.creator_username)
+        WHERE ${Number(workerTotal) === 20
+          ? sql`(ABS(hashtext(p.pin_id::text)::bigint) % 20) = ${workerIndex}`
+          : sql`(ABS(hashtext(p.pin_id::text)::bigint) % ${workerTotal}) = ${workerIndex}`}
+          AND (cp.id IS NULL OR cp.is_active = TRUE)
+          AND (cp.tracking_mode IS NULL OR cp.tracking_mode NOT IN ('pulse_only', 'metrics_only'))
+          AND ${phase2FreshnessClause}
+        ORDER BY p.last_scraped_at ASC NULLS FIRST, p.save_count DESC NULLS LAST
+        LIMIT ${PHASE2_MAX_PINS};
+      `;
+    }
     console.log(`[*] Worker #${workerIndex + 1}/${workerTotal} assigned ${myWinningSlice.length} global master pins (pidgets >= ${PHASE2_PIDGETS_DEDUP_MINUTES}m / deep >= ${PHASE2_FRESHNESS_HOURS}h${phase2ForceRefresh ? ' [FORCE]' : ''}, limit ${PHASE2_MAX_PINS}).`);
 
     let refreshedWinningCount = 0;

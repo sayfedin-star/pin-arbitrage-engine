@@ -42,7 +42,8 @@ import {
 import {
   DEFAULT_WORKSPACE_ID,
   assertFolderInWorkspace,
-  resolveWorkspaceRawCookie
+  resolveWorkspaceRawCookie,
+  getWorkspaceCookieStatus
 } from '../modules/workspaces/service.mjs';
 import { dispatchGitHubWorkflow, resolveGitHubAuth } from '../http/github-workflow.mjs';
 import { invalidateGlobalPulseCache } from '../modules/pulse/service.mjs';
@@ -210,11 +211,17 @@ export async function handleKeywordsRoutes({
   if (method === 'POST' && pathname === '/api/keywords') {
     const body = await request.json().catch(() => ({}));
     const row = await addKeyword(sql, body);
-    await Promise.all([
-      invalidateEdgeCache('keywords'),
-      invalidateEdgeCache('folders')
-    ].map(p => Promise.resolve(p).catch(() => {})));
+    if (typeof invalidateEdgeCache === 'function') {
+      await Promise.all([
+        invalidateEdgeCache('keywords'),
+        invalidateEdgeCache('folders'),
+        invalidateEdgeCache('domains:leaderboard'),
+        invalidateEdgeCache('domains:dossier'),
+        invalidateEdgeCache('creators')
+      ].map(p => Promise.resolve(p).catch(() => {})));
+    }
     invalidateFolderCache(null, workspaceId);
+    invalidateGlobalPulseCache(env, ctx).catch(() => {});
     return jsonResponse({ success: true, keyword: row });
   }
 
@@ -232,6 +239,13 @@ export async function handleKeywordsRoutes({
   // 4. POST /api/keywords/sync
   if (method === 'POST' && pathname === '/api/keywords/sync') {
     const body = await request.json().catch(() => ({}));
+    if (body && typeof body === 'object' && !Array.isArray(body) && Object.prototype.hasOwnProperty.call(body, 'cookie')) {
+      return jsonResponse({
+        success: false,
+        error: 'CLIENT_COOKIE_FORBIDDEN',
+        message: 'Raw cookies cannot be passed in request payloads. Configure cookies in Workspace Settings.'
+      }, 400);
+    }
     let keywordId = Number(body.keyword_id || body.id);
     const slug = body.slug || body.keyword;
     let resolvedKw = null;
@@ -243,16 +257,19 @@ export async function handleKeywordsRoutes({
     const force = Boolean(body.force);
     // [INVARIANT: WORKSPACE-COOKIE-ISOLATION]
     // Resolve Zone A cookie strictly for the active workspace; fallback to global env cookie only for default workspace #1.
-    const wsCookie = await resolveWorkspaceRawCookie(sql, workspaceId).catch(() => '');
+    const wsCookieObj = await resolveWorkspaceRawCookie(sql, workspaceId).catch(() => ({ rawCookie: '' }));
+    const wsCookie = typeof wsCookieObj === 'string' ? wsCookieObj : (wsCookieObj?.rawCookie || '');
     const envFallbackCookie = Number(workspaceId) === DEFAULT_WORKSPACE_ID
       ? (env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null))
       : null;
-    const cookie = (wsCookie && String(wsCookie).trim()) ? String(wsCookie).trim() : envFallbackCookie;
+    const cookie = wsCookie.trim() ? wsCookie.trim() : envFallbackCookie;
+    const disableGlobalCookieFallback = Number(workspaceId) !== DEFAULT_WORKSPACE_ID;
     const hasExplicitPages = body.crawl_pages !== undefined || body.max_pages !== undefined;
     const crawlPages = hasExplicitPages ? Math.max(1, Math.min(40, Number(body.crawl_pages || body.max_pages) || 2)) : undefined;
     const maxPins = body.max_pins ?? body.max_serp_pins;
     const res = await crawlKeywordSERP(sql, keywordId, {
       cookie,
+      disableGlobalCookieFallback,
       force,
       ...(crawlPages !== undefined ? { crawl_pages: crawlPages } : {}),
       ...(maxPins !== undefined && maxPins !== null && maxPins !== '' ? { max_pins: maxPins } : {}),
@@ -266,7 +283,10 @@ export async function handleKeywordsRoutes({
       if (typeof invalidateEdgeCache === 'function') {
         await Promise.all([
           invalidateEdgeCache('keywords'),
-          invalidateEdgeCache('folders')
+          invalidateEdgeCache('folders'),
+          invalidateEdgeCache('domains:leaderboard'),
+          invalidateEdgeCache('domains:dossier'),
+          invalidateEdgeCache('creators')
         ].map(p => Promise.resolve(p).catch(() => {})));
       }
     }
@@ -319,10 +339,17 @@ export async function handleKeywordsRoutes({
     });
   }
 
-  // 5. GET /api/settings
+  // 5. GET /api/settings (Workspace-isolated cookie masking for WS2+)
   if (method === 'GET' && pathname === '/api/settings') {
+    const numericWid = Number(workspaceId) || DEFAULT_WORKSPACE_ID;
     const settings = await getAppSettings(sql);
-    const hasCookie = Boolean(settings?.has_pinterest_cookie || (settings?.pinterest_cookie && String(settings.pinterest_cookie).trim().length > 10));
+    let hasCookie = false;
+    if (numericWid === DEFAULT_WORKSPACE_ID) {
+      hasCookie = Boolean(settings?.has_pinterest_cookie || (settings?.pinterest_cookie && String(settings.pinterest_cookie).trim().length > 10));
+    } else {
+      const wsCookieStatus = await getWorkspaceCookieStatus(sql, numericWid).catch(() => ({ has_cookie: false }));
+      hasCookie = Boolean(wsCookieStatus?.has_cookie);
+    }
     const safeSettings = {
       ...settings,
       pinterest_cookie: '',
@@ -331,9 +358,31 @@ export async function handleKeywordsRoutes({
     return jsonResponse({ success: true, settings: safeSettings }, 200, -1);
   }
 
-  // 6. POST /api/settings
+  // 6. POST /api/settings (Reject global cookie or bulk apply_to_all mutations from WS2+)
   if (method === 'POST' && pathname === '/api/settings') {
+    const numericWid = Number(workspaceId) || DEFAULT_WORKSPACE_ID;
     const body = await request.json().catch(() => ({}));
+    if (numericWid !== DEFAULT_WORKSPACE_ID) {
+      const triesCookieWrite = typeof body?.pinterest_cookie === 'string' && body.pinterest_cookie.trim().length > 0;
+      const triesGlobalApply = Boolean(body?.apply_to_all === true || body?.apply_to_all === 'true' || body?.apply_global_to_keywords === true);
+      if (triesCookieWrite || triesGlobalApply) {
+        return jsonResponse({
+          success: false,
+          error: 'WORKSPACE_SCOPE_FORBIDDEN',
+          message: 'Global crawler settings and WS1 cookie updates are restricted to the default workspace. Use /api/workspaces/settings or /api/workspaces/cookie.'
+        }, 403, -1);
+      }
+      const settings = await getAppSettings(sql);
+      const wsCookieStatus = await getWorkspaceCookieStatus(sql, numericWid).catch(() => ({ has_cookie: false }));
+      return jsonResponse({
+        success: true,
+        settings: {
+          ...settings,
+          pinterest_cookie: '',
+          has_pinterest_cookie: Boolean(wsCookieStatus?.has_cookie)
+        }
+      }, 200, -1);
+    }
     const updated = await updateAppSettings(sql, body);
     await Promise.all([
       invalidateEdgeCache('keywords'),
@@ -417,11 +466,17 @@ export async function handleKeywordsRoutes({
         RETURNING *;
       `;
     }
-    await Promise.all([
-      invalidateEdgeCache('keywords'),
-      invalidateEdgeCache('folders')
-    ].map(p => Promise.resolve(p).catch(() => {})));
+    if (typeof invalidateEdgeCache === 'function') {
+      await Promise.all([
+        invalidateEdgeCache('keywords'),
+        invalidateEdgeCache('folders'),
+        invalidateEdgeCache('domains:leaderboard'),
+        invalidateEdgeCache('domains:dossier'),
+        invalidateEdgeCache('creators')
+      ].map(p => Promise.resolve(p).catch(() => {})));
+    }
     invalidateFolderCache(null, workspaceId);
+    invalidateGlobalPulseCache(env, ctx).catch(() => {});
     return jsonResponse({ success: true, keyword: row });
   }
 
@@ -471,11 +526,18 @@ export async function handleKeywordsRoutes({
       }, 500);
     }
 
-    invalidateEdgeCache('keywords');
-    invalidateEdgeCache('folders');
-    invalidateEdgeCache('domains:leaderboard');
-    invalidateEdgeCache('keywords:pin-dossier');
+    if (typeof invalidateEdgeCache === 'function') {
+      await Promise.all([
+        invalidateEdgeCache('keywords'),
+        invalidateEdgeCache('folders'),
+        invalidateEdgeCache('domains:leaderboard'),
+        invalidateEdgeCache('domains:dossier'),
+        invalidateEdgeCache('creators'),
+        invalidateEdgeCache('keywords:pin-dossier')
+      ].map(p => Promise.resolve(p).catch(() => {})));
+    }
     invalidateFolderCache(null, workspaceId);
+    invalidateGlobalPulseCache(env, ctx).catch(() => {});
 
     return jsonResponse({ success: true, deleted_ids: targetIds });
   }
@@ -503,14 +565,20 @@ export async function handleKeywordsRoutes({
         reason: 'manual_user_deletion'
       });
 
-      await Promise.all([
-        invalidateEdgeCache('keywords'),
-        invalidateEdgeCache('folders'),
-        invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`),
-        invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId })),
-        invalidateEdgeCache('keywords:pin-dossier')
-      ].map(p => Promise.resolve(p).catch(() => {})));
+      if (typeof invalidateEdgeCache === 'function') {
+        await Promise.all([
+          invalidateEdgeCache('keywords'),
+          invalidateEdgeCache('folders'),
+          invalidateEdgeCache('domains:leaderboard'),
+          invalidateEdgeCache('domains:dossier'),
+          invalidateEdgeCache('creators'),
+          invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`),
+          invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId })),
+          invalidateEdgeCache('keywords:pin-dossier')
+        ].map(p => Promise.resolve(p).catch(() => {})));
+      }
       invalidateFolderCache(null, workspaceId);
+      invalidateGlobalPulseCache(env, ctx).catch(() => {});
 
       return jsonResponse({
         success: true,
@@ -571,7 +639,8 @@ export async function handleKeywordsRoutes({
         query: q,
         limit: lim,
         types: typesParam || null,
-        projectId
+        projectId,
+        workspaceId
       });
 
       const payload = typeof getCachedOrFetch === 'function'
@@ -598,11 +667,12 @@ export async function handleKeywordsRoutes({
     if (!pinId) return jsonResponse({ error: 'pin_id is required' }, 400);
     // [INVARIANT: WORKSPACE-COOKIE-ISOLATION]
     // Resolve Zone A cookie strictly for the active workspace; fallback to global env cookie only for default workspace #1.
-    const wsCookie = await resolveWorkspaceRawCookie(sql, workspaceId).catch(() => '');
+    const wsCookieObj = await resolveWorkspaceRawCookie(sql, workspaceId).catch(() => ({ rawCookie: '' }));
+    const wsCookie = typeof wsCookieObj === 'string' ? wsCookieObj : (wsCookieObj?.rawCookie || '');
     const envFallbackCookie = Number(workspaceId) === DEFAULT_WORKSPACE_ID
       ? (env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null))
       : null;
-    const cookie = (wsCookie && String(wsCookie).trim()) ? String(wsCookie).trim() : envFallbackCookie;
+    const cookie = wsCookie.trim() ? wsCookie.trim() : (envFallbackCookie || '');
     const result = await fetchVisualSearchLens(sql, pinId, cookie, env);
     return jsonResponse(result, result.success ? 200 : 500);
   }
@@ -942,10 +1012,17 @@ export async function handleKeywordsRoutes({
         await batchAddKeywordsToFolder(sql, folderId, importedIds);
       }
     }
-    await Promise.all([
-      invalidateEdgeCache('keywords'),
-      invalidateEdgeCache('folders')
-    ].map(p => Promise.resolve(p).catch(() => {})));
+    if (typeof invalidateEdgeCache === 'function') {
+      await Promise.all([
+        invalidateEdgeCache('keywords'),
+        invalidateEdgeCache('folders'),
+        invalidateEdgeCache('domains:leaderboard'),
+        invalidateEdgeCache('domains:dossier'),
+        invalidateEdgeCache('creators')
+      ].map(p => Promise.resolve(p).catch(() => {})));
+    }
+    invalidateFolderCache(null, workspaceId);
+    invalidateGlobalPulseCache(env, ctx).catch(() => {});
     invalidateFolderCache(folderId, workspaceId);
 
     const safeImported = Array.isArray(imported) ? imported : [];
@@ -988,6 +1065,17 @@ export async function handleKeywordsRoutes({
     return jsonResponse(result, result.success ? 200 : 400);
   }
 
+function isFolderCrawlingPausedMeta(folderMeta = {}) {
+  return Boolean(
+    folderMeta.block_fleet ||
+    folderMeta.block_gha_fleet ||
+    folderMeta.pause_crawlers ||
+    folderMeta.is_crawler_paused ||
+    folderMeta.crawler_paused ||
+    ['paused', 'archived'].includes(String(folderMeta.status || '').toLowerCase())
+  );
+}
+
   // 28. POST /api/keywords/dispatch-workflow
   if (method === 'POST' && pathname === '/api/keywords/dispatch-workflow') {
     const body = await request.json().catch(() => ({}));
@@ -1016,19 +1104,50 @@ export async function handleKeywordsRoutes({
         throw err;
       }
       const folderMeta = normalizeFolderMetadata(folderRow?.metadata);
-      const isCrawlingPaused = Boolean(
-        folderMeta.block_fleet ||
-        folderMeta.block_gha_fleet ||
-        folderMeta.pause_crawlers ||
-        folderMeta.is_crawler_paused ||
-        ['paused', 'archived'].includes(String(folderMeta.status || '').toLowerCase())
-      );
+      const isCrawlingPaused = isFolderCrawlingPausedMeta(folderMeta);
       if (isCrawlingPaused) {
         return jsonResponse({
           success: false,
           error: 'FOLDER_CRAWLING_PAUSED',
           message: 'Crawling is paused or fleet ingestion is blocked for this campaign. Update Settings & Pruning to resume.'
         }, 409);
+      }
+    } else if (String(targetKw || '').trim()) {
+      const targetKwList = [...new Set(
+        String(targetKw)
+          .split(',')
+          .map((s) => s.trim().toLowerCase())
+          .filter((s) => Boolean(s) && s !== 'all' && s !== 'cron' && s !== '*')
+      )];
+      if (targetKwList.length > 0) {
+        const linkedRows = await sql`
+          SELECT LOWER(tk.keyword) AS kw, kf.metadata
+          FROM tracked_keywords tk
+          JOIN keyword_folder_items kfi ON kfi.keyword_id = tk.id
+          JOIN keyword_folders kf ON kf.id = kfi.folder_id
+          WHERE LOWER(tk.keyword) = ANY(${targetKwList});
+        `.catch(() => []);
+        if (Array.isArray(linkedRows) && linkedRows.length > 0) {
+          const foldersByKw = new Map();
+          for (const row of linkedRows) {
+            const key = String(row?.kw || '').trim().toLowerCase();
+            if (!key) continue;
+            if (!foldersByKw.has(key)) foldersByKw.set(key, []);
+            foldersByKw.get(key).push(normalizeFolderMetadata(row.metadata));
+          }
+          const hasAnyCrawlableTarget = targetKwList.some((kw) => {
+            const metas = foldersByKw.get(kw);
+            if (!metas || metas.length === 0) return true;
+            return metas.some((meta) => !isFolderCrawlingPausedMeta(meta));
+          });
+          if (!hasAnyCrawlableTarget) {
+            return jsonResponse({
+              success: false,
+              error: 'FOLDER_CRAWLING_PAUSED',
+              message: 'Crawling is paused or fleet ingestion is blocked for all campaigns linked to the target keyword(s). Update Settings & Pruning to resume.'
+            }, 409);
+          }
+        }
       }
     }
     const maxPinsInput = (body.max_pins !== undefined && body.max_pins !== null) ? String(body.max_pins).trim() : '';

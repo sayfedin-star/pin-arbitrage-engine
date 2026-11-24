@@ -117,7 +117,7 @@ export function renderPinRowTemplate({
   const ageCell = showAge ? (ageHtml ? ageHtml : `
       <!-- Age (Strict Rule 31) -->
       <td ${ageTdAttrs} class="py-2.5 px-3 text-right font-mono tabular-nums text-slate-500 text-xs" 
-          x-text="typeof formatUniversalAge === 'function' ? formatUniversalAge(${p}.pin_age_days) : (${p}.pin_age_days ? ${p}.pin_age_days + 'd' : '—')"></td>`) : '';
+          x-text="typeof formatUniversalAge === 'function' ? formatUniversalAge(${p}.pin_age_days) : (${p}.pin_age_days != null ? ${p}.pin_age_days + 'd' : '—')"></td>`) : '';
 
   return `
     <tr :data-pin-id="${idExpr}"

@@ -9,6 +9,14 @@ import { PAE_SHELL_VERSION } from '../routes/pages.mjs';
 
 const DEFAULT_FONTS_HREF = 'https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap';
 
+export function compactHtmlFragment(html) {
+  return String(html || '')
+    .replace(/<!--[\s\S]*?-->/g, (comment) => (/(?:INVARIANT-LOCK|Lock \d+)/.test(comment) ? comment : ''))
+    .replace(/^[ \t]+/gm, '')
+    .replace(/\n{2,}/g, '\n')
+    .trim();
+}
+
 export function renderSharedDocumentHead({
   title = 'Pinterest Arbitrage Engine',
   referrerPolicy = '',

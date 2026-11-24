@@ -9,7 +9,7 @@ import { getDashboardOverviewHtml } from './dashboard-overview.mjs';
 import { getDashboardRelatedPinsHtml } from './dashboard-related-pins.mjs';
 import { getDashboardCreatorsHtml } from './dashboard-creators.mjs';
 import { renderClientJsScriptTag, renderPageBootstrapScript } from '../client-assets.mjs';
-import { renderSharedDocumentHead } from '../shared-head.mjs';
+import { renderSharedDocumentHead, compactHtmlFragment } from '../shared-head.mjs';
 
 export function getDashboardHtml(folderId = '') {
   const safeFolderId = String(folderId || '').replace(/[^a-zA-Z0-9_-]/g, '').trim();
@@ -49,7 +49,7 @@ ${renderSharedDocumentHead({
   ${renderAppSidebar({ activeNav: safeFolderId ? 'folders' : 'overview', isDashboardSpa: true, refreshHandler: 'refreshAll()' })}
 
   <!-- Main Content Area (Offset for Desktop Sidebar) -->
-  <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
+  <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? 'md:!ml-20' : 'md:ml-64 lg:ml-72'">
 
     <!-- Active Crawl Notification Banner -->
     <div x-show="crawlStatus.is_crawling" x-cloak class="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 px-4 flex items-center justify-between text-xs text-amber-700 dark:text-amber-300 backdrop-blur-sm animate-pulse">
@@ -63,21 +63,21 @@ ${renderSharedDocumentHead({
       <span class="font-mono tabular-nums text-[11px] text-amber-600 dark:text-amber-400" x-text="'Elapsed: ' + crawlElapsed + 's'"></span>
     </div>
 
-    ${getDashboardBoardViewHtml()}
+    ${compactHtmlFragment(getDashboardBoardViewHtml())}
 
     <div x-show="!activeBoardName" x-cloak class="space-y-6">
 
-      ${safeFolderId ? '' : getDashboardOverviewHtml()}
+      ${safeFolderId ? '' : compactHtmlFragment(getDashboardOverviewHtml())}
 
-      ${safeFolderId ? '' : getDashboardRelatedPinsHtml()}
+      ${safeFolderId ? '' : compactHtmlFragment(getDashboardRelatedPinsHtml())}
 
-      ${getDashboardCreatorsHtml({ safeFolderId })}
+      ${compactHtmlFragment(getDashboardCreatorsHtml({ safeFolderId }))}
 
     </div>
 
   </main>
 
-  ${getDashboardModalsHtml({ includeClusterModals: !safeFolderId })}
+  ${compactHtmlFragment(getDashboardModalsHtml({ includeClusterModals: !safeFolderId }))}
 
   <!-- Toast Notification -->
   <div x-show="toastMessage"

@@ -208,7 +208,8 @@ export function splitSqlStatements(sqlText) {
  * Calculates SHA-256 checksum of SQL migration content.
  */
 export function calculateChecksum(content) {
-  return crypto.createHash('sha256').update(content).digest('hex');
+  const normalized = String(content).replace(/\r\n/g, '\n');
+  return crypto.createHash('sha256').update(normalized, 'utf8').digest('hex');
 }
 
 /**

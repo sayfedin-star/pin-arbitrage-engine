@@ -4,7 +4,6 @@ import vm from 'node:vm';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import crypto from 'node:crypto';
 import {
   isLinklessVacuumDomain,
   buildFolderCrossoverMatrix,
@@ -457,9 +456,10 @@ test('Phase 1 & 3: Migration 013 exists and rapid calculateFolderCrossover refre
   folderForceRefreshCooldown.delete(`refresh:all:${fid}`);
 });
 
-test('Audit P0: Migration 014 repairs first_seen_at & drops duplicate idx_pdm_pin_date without modifying Migration 013 checksum', () => {
+test('Audit P0: Migration 014 repairs first_seen_at & drops duplicate idx_pdm_pin_date without modifying Migration 013 checksum', async () => {
+  const { calculateChecksum } = await import('../scripts/migrate.mjs');
   const mig013Path = path.join(process.cwd(), 'scripts', 'migrations', '013_campaign_room1_first_seen_and_indexes.sql');
-  const mig013Hash = crypto.createHash('sha256').update(fs.readFileSync(mig013Path, 'utf8')).digest('hex');
+  const mig013Hash = calculateChecksum(fs.readFileSync(mig013Path, 'utf8'));
   assert.ok(mig013Hash.startsWith('452ef90c6f7b'), `Migration 013 checksum must remain locked (got ${mig013Hash.slice(0, 12)})`);
 
   const mig014Path = path.join(process.cwd(), 'scripts', 'migrations', '014_room1_first_seen_repair_and_drop_dup_index.sql');

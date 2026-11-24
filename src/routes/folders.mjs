@@ -74,6 +74,20 @@ export async function handleFoldersRoutes({
   methodNotAllowedResponse,
   invalidateEdgeCache
 }) {
+  const invalidateFolderCrossCaches = async (fid = null, { includeCreators = false } = {}) => {
+    invalidateFolderCache(fid, workspaceId);
+    if (typeof invalidateEdgeCache === 'function') {
+      await Promise.all([
+        invalidateEdgeCache('keywords'),
+        invalidateEdgeCache('folders'),
+        invalidateEdgeCache('domains:leaderboard'),
+        invalidateEdgeCache('domains:dossier'),
+        ...(includeCreators ? [invalidateEdgeCache('creators')] : [])
+      ].map((p) => Promise.resolve(p).catch(() => {})));
+    }
+    await invalidateGlobalPulseCache(env, ctx).catch(() => {});
+  };
+
   // 24. Raw Visual Annotations Crossover API
   if (method === 'GET' && pathname === '/api/folders/crossover') {
     const folderId = searchParams.get('folder_id') || searchParams.get('id');
@@ -190,17 +204,13 @@ export async function handleFoldersRoutes({
         await assertFolderInWorkspace(sql, itemFolderId, workspaceId);
         if (Array.isArray(body.keyword_ids)) {
           const result = await batchAddKeywordsToFolder(sql, itemFolderId, body.keyword_ids);
-          await invalidateEdgeCache('keywords');
-          await invalidateEdgeCache('folders');
-          invalidateFolderCache(itemFolderId, workspaceId);
+          await invalidateFolderCrossCaches(itemFolderId);
           return jsonResponse({ success: true, ...result });
         }
         const keywordId = body.keyword_id || searchParams.get('keyword_id');
-        if (!keywordId) return jsonResponse({ success: false, error: 'keyword_id or keyword_ids is required' }, 400);
+        if (!keywordId) return jsonResponse({ error: 'keyword_id or keyword_ids is required' }, 400);
         const item = await addKeywordToFolder(sql, itemFolderId, keywordId, body.notes || '');
-        await invalidateEdgeCache('keywords');
-        await invalidateEdgeCache('folders');
-        invalidateFolderCache(itemFolderId, workspaceId);
+        await invalidateFolderCrossCaches(itemFolderId);
         return jsonResponse({ success: true, item });
       }
       if (method === 'DELETE') {
@@ -231,16 +241,12 @@ export async function handleFoldersRoutes({
         await assertFolderInWorkspace(sql, itemFolderId, workspaceId);
         if (Array.isArray(keywordIds)) {
           const result = await batchRemoveKeywordsFromFolder(sql, itemFolderId, keywordIds);
-          await invalidateEdgeCache('keywords');
-          await invalidateEdgeCache('folders');
-          invalidateFolderCache(itemFolderId, workspaceId);
+          await invalidateFolderCrossCaches(itemFolderId);
           return jsonResponse({ success: true, ...result });
         }
-        if (!keywordId) return jsonResponse({ success: false, error: 'folder_id and keyword_id (or keyword_ids) are required' }, 400);
+        if (!keywordId) return jsonResponse({ error: 'folder_id and keyword_id (or keyword_ids) are required' }, 400);
         const deleted = await removeKeywordFromFolder(sql, itemFolderId, keywordId);
-        await invalidateEdgeCache('keywords');
-        await invalidateEdgeCache('folders');
-        invalidateFolderCache(itemFolderId, workspaceId);
+        await invalidateFolderCrossCaches(itemFolderId);
         return jsonResponse({ success: true, deleted });
       }
       return jsonResponse({ success: false, error: 'Method not allowed on /items' }, 405);
@@ -257,7 +263,7 @@ export async function handleFoldersRoutes({
           workspaceId,
           topN: body?.top_n ?? body?.serp_top_n ?? null
         });
-        invalidateFolderCache(folderId, workspaceId);
+        await invalidateFolderCrossCaches(folderId);
         return jsonResponse({ success: true, ...result });
       }
       if (method === 'GET') {
@@ -286,7 +292,7 @@ export async function handleFoldersRoutes({
           sourceType: body.source_type || body.source || 'newborn',
           sourceRef: body.source_ref || ''
         });
-        invalidateFolderCache(folderId, workspaceId);
+        await invalidateFolderCrossCaches(folderId);
         return jsonResponse({ success: true, ...result });
       }
       if (method === 'DELETE') {
@@ -299,7 +305,7 @@ export async function handleFoldersRoutes({
         }
         if (!pinId) return jsonResponse({ success: false, error: 'pin_id is required' }, 400);
         const result = await removeCampaignTrackedPin(sql, { folderId, workspaceId, pinId, sourceType });
-        invalidateFolderCache(folderId, workspaceId);
+        await invalidateFolderCrossCaches(folderId);
         return jsonResponse({ success: true, ...result });
       }
       return jsonResponse({ success: false, error: 'Method not allowed on /tracked-pins' }, 405);
@@ -384,11 +390,7 @@ export async function handleFoldersRoutes({
         skipRisingVelocity
       }, { env, ctx, workspaceId });
       if (!result?.dry_run) {
-        if (typeof invalidateEdgeCache === 'function') {
-          await invalidateEdgeCache('folders').catch(() => {});
-          await invalidateEdgeCache('keywords').catch(() => {});
-        }
-        await invalidateGlobalPulseCache(env, ctx).catch(() => {});
+        await invalidateFolderCrossCaches(folderId);
       }
       return jsonResponse(result);
     }
@@ -446,11 +448,7 @@ export async function handleFoldersRoutes({
           }, 400);
         }
         const result = await bulkPulseTrackFolderCreators(sql, folderId, body, { env, ctx, workspaceId });
-        invalidateFolderCache(folderId, workspaceId);
-        if (typeof invalidateEdgeCache === 'function') {
-          await invalidateEdgeCache('folders').catch(() => {});
-          await invalidateEdgeCache('creators').catch(() => {});
-        }
+        await invalidateFolderCrossCaches(folderId, { includeCreators: true });
         return jsonResponse(result, 200);
       }
 
@@ -509,11 +507,7 @@ export async function handleFoldersRoutes({
           removedCount = Array.isArray(deleted) ? deleted.length : 0;
         }
 
-        invalidateFolderCache(folderId, workspaceId);
-        if (typeof invalidateEdgeCache === 'function') {
-          await invalidateEdgeCache('folders').catch(() => {});
-          await invalidateEdgeCache('creators').catch(() => {});
-        }
+        await invalidateFolderCrossCaches(folderId, { includeCreators: true });
         return jsonResponse({
           success: true,
           folder_id: Number(folderId),
@@ -528,11 +522,7 @@ export async function handleFoldersRoutes({
         const numericCid = Number(body.competitor_id || body.creator_id || body.id);
         if (Number.isFinite(numericCid) && numericCid > 0) {
           const linked = await linkCreatorToFolder(sql, folderId, numericCid);
-          invalidateFolderCache(folderId, workspaceId);
-          if (typeof invalidateEdgeCache === 'function') {
-            await invalidateEdgeCache('folders').catch(() => {});
-            await invalidateEdgeCache('creators').catch(() => {});
-          }
+          await invalidateFolderCrossCaches(folderId, { includeCreators: true });
           return jsonResponse({ success: true, linked, folder_id: folderId });
         }
         const rawUser = String(body.username || body.competitor_id || body.creator_id || body.id || '');
@@ -540,11 +530,7 @@ export async function handleFoldersRoutes({
         if (cleanUsername) {
           const linkOnly = String(body.action || '').toLowerCase() === 'link';
           const result = await toggleFolderCreatorTracking(sql, folderId, cleanUsername, { linkOnly });
-          invalidateFolderCache(folderId, workspaceId);
-          if (typeof invalidateEdgeCache === 'function') {
-            await invalidateEdgeCache('folders').catch(() => {});
-            await invalidateEdgeCache('creators').catch(() => {});
-          }
+          await invalidateFolderCrossCaches(folderId, { includeCreators: true });
           return jsonResponse({ success: true, linked: result.is_tracked, folder_id: folderId, ...result });
         }
         return jsonResponse({ success: false, error: 'Valid competitor_id or username is required' }, 400);
@@ -589,11 +575,7 @@ export async function handleFoldersRoutes({
           return jsonResponse({ success: false, error: 'Valid creator ID or username is required' }, 400);
         }
         const unlinked = await unlinkCreatorFromFolder(sql, folderId, competitorId);
-        invalidateFolderCache(folderId, workspaceId);
-        if (typeof invalidateEdgeCache === 'function') {
-          await invalidateEdgeCache('folders').catch(() => {});
-          await invalidateEdgeCache('creators').catch(() => {});
-        }
+        await invalidateFolderCrossCaches(folderId, { includeCreators: true });
         return jsonResponse({ success: true, unlinked, folder_id: folderId });
       }
 
@@ -619,6 +601,7 @@ export async function handleFoldersRoutes({
           return jsonResponse({ success: false, error: 'domain is required' }, 400);
         }
         const pinned = await pinDomainToFolder(sql, folderId, domain, body.notes || '');
+        await invalidateFolderCrossCaches(folderId);
         return jsonResponse({ success: true, pinned, folder_id: folderId });
       }
 
@@ -629,6 +612,7 @@ export async function handleFoldersRoutes({
           return jsonResponse({ success: false, error: 'domain is required' }, 400);
         }
         const unpinned = await unpinDomainFromFolder(sql, folderId, domain);
+        await invalidateFolderCrossCaches(folderId);
         return jsonResponse({ success: true, unpinned, folder_id: folderId });
       }
 
@@ -658,9 +642,7 @@ export async function handleFoldersRoutes({
           const result = createdIds.length > 0
             ? await batchAddKeywordsToFolder(sql, folderId, createdIds)
             : { added: 0 };
-          await invalidateEdgeCache('keywords');
-          await invalidateEdgeCache('folders');
-          invalidateFolderCache(folderId, workspaceId);
+          await invalidateFolderCrossCaches(folderId);
           return jsonResponse({
             success: true,
             keyword_ids: createdIds,
@@ -670,17 +652,13 @@ export async function handleFoldersRoutes({
         }
         if (Array.isArray(body.keyword_ids)) {
           const result = await batchAddKeywordsToFolder(sql, folderId, body.keyword_ids);
-          await invalidateEdgeCache('keywords');
-          await invalidateEdgeCache('folders');
-          invalidateFolderCache(folderId, workspaceId);
+          await invalidateFolderCrossCaches(folderId);
           return jsonResponse({ success: true, ...result });
         }
         const keywordId = body.keyword_id || searchParams.get('keyword_id');
         if (!keywordId) return jsonResponse({ error: 'keyword_id, keyword_ids, or keywords is required' }, 400);
         const item = await addKeywordToFolder(sql, folderId, keywordId, body.notes || '');
-        await invalidateEdgeCache('keywords');
-        await invalidateEdgeCache('folders');
-        invalidateFolderCache(folderId, workspaceId);
+        await invalidateFolderCrossCaches(folderId);
         return jsonResponse({ success: true, item });
       }
       if (method === 'DELETE') {
@@ -692,9 +670,7 @@ export async function handleFoldersRoutes({
         } catch (_) {}
         if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
         const deleted = await removeKeywordFromFolder(sql, folderId, keywordId);
-        await invalidateEdgeCache('keywords');
-        await invalidateEdgeCache('folders');
-        invalidateFolderCache(folderId, workspaceId);
+        await invalidateFolderCrossCaches(folderId);
         return jsonResponse({ success: true, deleted });
       }
       return jsonResponse({ success: false, error: 'Method not allowed on /items' }, 405);
@@ -770,8 +746,7 @@ export async function handleFoldersRoutes({
         ...(effectiveSerpTopN !== undefined ? { serp_top_n: effectiveSerpTopN } : {}),
         workspaceId
       });
-      await invalidateEdgeCache('keywords');
-      await invalidateEdgeCache('folders');
+      await invalidateFolderCrossCaches(created?.id || null);
       return jsonResponse({ success: true, folder: created });
     }
 
@@ -808,9 +783,7 @@ export async function handleFoldersRoutes({
       if (!updated) {
         return jsonResponse({ success: false, error: 'Folder not found' }, 404);
       }
-      await invalidateEdgeCache('keywords');
-      await invalidateEdgeCache('folders');
-      invalidateFolderCache(targetFolderId, workspaceId);
+      await invalidateFolderCrossCaches(targetFolderId);
       return jsonResponse({ success: true, folder: updated });
     }
 
@@ -827,9 +800,7 @@ export async function handleFoldersRoutes({
       if (!delFolderId) return jsonResponse({ success: false, error: 'Folder id is required' }, 400);
       await assertFolderInWorkspace(sql, delFolderId, workspaceId);
       const deleted = await deleteFolder(sql, delFolderId, { workspaceId });
-      await invalidateEdgeCache('keywords');
-      await invalidateEdgeCache('folders');
-      invalidateFolderCache(delFolderId, workspaceId);
+      await invalidateFolderCrossCaches(delFolderId);
       return jsonResponse({ success: true, deleted });
     }
   }

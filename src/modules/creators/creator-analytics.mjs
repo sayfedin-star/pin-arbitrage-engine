@@ -629,7 +629,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
       profile_views: resolvedProfileViews,
       follower_count: Number(profile.follower_count || 0),
       total_pins: Number(profile.total_pins || boards.reduce((acc, b) => acc + (b.pin_count || 0), 0) || aggStats.total_catalog_pins || 0),
-      total_boards: boards.length > 0 ? boards.length : Number(profile.total_boards || 0),
+      total_boards: Math.max(Number(profile.total_boards || 0), boards.length),
       website_domain: resolvedPrimaryDomain || (profile.website_url ? profile.website_url.replace(/^https?:\/\//, '').replace(/\/.*$/, '') : null),
       verified_domain: Boolean(resolvedPrimaryDomain || profile.website_url),
       notes: profile.bio || profileMeta?.notes || 'No internal notes set for this competitor.',

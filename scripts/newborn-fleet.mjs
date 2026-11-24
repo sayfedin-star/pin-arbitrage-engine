@@ -535,20 +535,59 @@ export async function runNewbornFleetWorker({
       throw new Error('db_run mode requires an active database connection.');
     }
 
-    const [runRow] = await sql`
-      SELECT
-        id, status, cancel_requested_at, selected_keywords, seed_queries,
-        config_snapshot, cluster_id, folder_id, profile_id, shards_total
-      FROM newborn_runs
-      WHERE id = ${runId}
-      LIMIT 1;
-    `;
+    let runRow = null;
+    try {
+      [runRow] = await sql`
+        SELECT
+          id, COALESCE(workspace_id, 1)::int AS workspace_id, status, cancel_requested_at, selected_keywords, seed_queries,
+          config_snapshot, cluster_id, folder_id, profile_id, shards_total
+        FROM newborn_runs
+        WHERE id = ${runId}
+        LIMIT 1;
+      `;
+    } catch (err) {
+      if (String(err?.code || '') !== '42703') throw err;
+      [runRow] = await sql`
+        SELECT
+          id, status, cancel_requested_at, selected_keywords, seed_queries,
+          config_snapshot, cluster_id, folder_id, profile_id, shards_total
+        FROM newborn_runs
+        WHERE id = ${runId}
+        LIMIT 1;
+      `;
+    }
 
     if (!runRow) {
       return { ok: true, skipped: true, reason: 'run_not_found', run_id: runId };
     }
     if (runRow.cancel_requested_at || runRow.status === 'cancelled') {
       return { ok: true, skipped: true, reason: 'cancelled', run_id: runId };
+    }
+    const resolvedWorkspaceId = Number(runRow.workspace_id) || 1;
+    if (runRow.folder_id) {
+      const [folderRow] = await sql`
+        SELECT id, metadata
+        FROM keyword_folders
+        WHERE id = ${Number(runRow.folder_id)}
+        LIMIT 1;
+      `.catch(() => []);
+      if (folderRow?.metadata) {
+        const meta = typeof folderRow.metadata === 'string'
+          ? (() => { try { return JSON.parse(folderRow.metadata); } catch (_) { return {}; } })()
+          : (folderRow.metadata && typeof folderRow.metadata === 'object' ? folderRow.metadata : {});
+        const statusStr = String(meta?.status || '').trim().toLowerCase();
+        if (
+          statusStr === 'paused' ||
+          statusStr === 'archived' ||
+          meta?.pause_crawlers === true ||
+          meta?.is_crawler_paused === true ||
+          meta?.crawler_paused === true ||
+          meta?.block_fleet === true ||
+          meta?.block_gha_fleet === true
+        ) {
+          return { ok: true, skipped: true, reason: 'folder_paused_or_blocked', run_id: runId, folder_id: Number(runRow.folder_id) };
+        }
+      }
     }
 
     const allKeywords = Array.isArray(runRow.selected_keywords) && runRow.selected_keywords.length > 0
@@ -605,6 +644,7 @@ export async function runNewbornFleetWorker({
       shardTotal: effectiveTotal,
       settingsOverrides,
       profileId: runRow.profile_id ?? profileId ?? null,
+      workspaceId: resolvedWorkspaceId,
       folderId: runRow.folder_id ?? null,
       clusterId: runRow.cluster_id ?? clusterId ?? null,
       routerOptions: effectiveRouterOpts,

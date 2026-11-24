@@ -502,13 +502,14 @@ export async function fetchAndCacheDomainAdNetwork(sql, rawDomain, { forceRefres
     }
   }
 
-  // Return cached result if fresh and not forced
+  // Return cached result if fresh and not forced (60m cooldown on transient 'failed', 14d on resolved/valid states)
+  const adCacheTtlMs = existing?.current_ad_network === 'failed' ? 3600000 : 14 * 86400000;
   if (
     !forceRefresh &&
     existing &&
     existing.current_ad_network !== 'unchecked' &&
     existing.checked_at &&
-    (Date.now() - new Date(existing.checked_at).getTime()) < 14 * 86400000 // 14 days TTL
+    (Date.now() - new Date(existing.checked_at).getTime()) < adCacheTtlMs
   ) {
     return normalizeMonetizationRecord(existing);
   }
@@ -701,7 +702,7 @@ export async function fetchAndCacheDomainAdNetwork(sql, rawDomain, { forceRefres
 /**
  * Batch enriches candidate domains with ad network metadata
  */
-export async function enrichMissingAdNetworksBatch(sql, candidateDomains = [], maxBatch = 10, { forceRefresh = false, throwOnDbError = false } = {}) {
+export async function enrichMissingAdNetworksBatch(sql, candidateDomains = [], maxBatch = 10, { forceRefresh = false, throwOnDbError = false, delayFn = sleep } = {}) {
   if (!Array.isArray(candidateDomains)) return { enriched: 0, results: [] };
   const safeMax = Math.max(1, Math.min(Number(maxBatch) || 10, 50));
   const safeCandidates = candidateDomains.slice(0, 100);
@@ -712,8 +713,8 @@ export async function enrichMissingAdNetworksBatch(sql, candidateDomains = [], m
   for (let i = 0; i < unique.length; i++) {
     const res = await fetchAndCacheDomainAdNetwork(sql, unique[i], { forceRefresh, throwOnDbError });
     if (res) results.push(res);
-    if (i < unique.length - 1) {
-      await sleep(randomJitterMs(250, 600));
+    if (i < unique.length - 1 && !res?.cached) {
+      await delayFn(randomJitterMs(250, 600));
     }
   }
   return { enriched: results.length, results };
@@ -969,7 +970,7 @@ export async function enrichNextUncheckedAdsBatch(sql, { batchSize = 15, concurr
     });
     const batchOutputs = await Promise.all(chunkPromises);
     results.push(...batchOutputs.filter(Boolean));
-    if (idx + 1 < chunks.length) {
+    if (idx + 1 < chunks.length && batchOutputs.some((r) => r && !r.cached)) {
       await sleep(randomJitterMs(250, 500));
     }
   }

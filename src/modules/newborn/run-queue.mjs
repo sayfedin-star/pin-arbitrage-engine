@@ -725,7 +725,8 @@ export async function createFleetBackedNewbornRun(sql, options = {}) {
     await sql`
       UPDATE newborn_keyword_clusters
       SET last_run_id = ${runRowId}, updated_at = NOW()
-      WHERE id = ${numericClusterId};
+      WHERE id = ${numericClusterId}
+        AND workspace_id = ${wid};
     `.catch(() => {});
   }
 
@@ -990,7 +991,8 @@ export async function enqueueNewbornRun(sql, options = {}) {
       await sql`
         UPDATE newborn_keyword_clusters
         SET last_run_id = ${runRowId}, updated_at = NOW()
-        WHERE id = ${numericClusterId};
+        WHERE id = ${numericClusterId}
+          AND workspace_id = ${wid};
       `.catch(() => {});
     }
 

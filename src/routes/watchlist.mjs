@@ -9,6 +9,7 @@ import {
   DEFAULT_WORKSPACE_ID,
   VALID_WATCHLIST_TYPES,
   VALID_CREATOR_TRACKING_MODES,
+  assertFolderInWorkspace,
   listWatchlist,
   upsertWatchlistItem,
   updateWatchlistItem,
@@ -73,13 +74,21 @@ export async function handleWatchlistRoutes({
     if (method === 'POST') {
       try {
         const body = await request.json().catch(() => ({}));
+        const rawFolderId = body?.added_from_folder_id ?? body?.folder_id ?? null;
+        if (rawFolderId !== null && rawFolderId !== undefined && String(rawFolderId).trim() !== '') {
+          const parsedFolder = Number(rawFolderId);
+          if (!Number.isInteger(parsedFolder) || parsedFolder <= 0) {
+            return jsonResponse({ success: false, error: 'Valid positive integer folder_id is required' }, 400);
+          }
+          await assertFolderInWorkspace(sql, parsedFolder, workspaceId);
+        }
         const item = await upsertWatchlistItem(sql, {
           workspaceId,
           entityType: body?.entity_type,
           entityKey: body?.entity_key ?? body?.username ?? body?.domain ?? body?.pin_id,
           creatorTrackingMode: body?.creator_tracking_mode ?? 'metrics_only',
           notes: body?.notes ?? '',
-          addedFromFolderId: body?.added_from_folder_id ?? body?.folder_id ?? null
+          addedFromFolderId: rawFolderId
         });
         await bustRadarCaches();
         return jsonResponse({ success: true, item }, 201);

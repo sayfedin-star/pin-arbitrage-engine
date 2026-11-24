@@ -12,7 +12,7 @@
 
 import { renderAppSidebar } from '../app-sidebar.mjs';
 import { renderCampaignWorkspaceHeader } from '../campaign-workspace-header.mjs';
-import { renderSharedDocumentHead } from '../shared-head.mjs';
+import { renderSharedDocumentHead, compactHtmlFragment } from '../shared-head.mjs';
 import { getNewbornHeaderAndLaunchpadHtml } from './newborn-header-and-launchpad.mjs';
 import { getNewbornCandidatesAndRookiesHtml } from './newborn-candidates-and-rookies.mjs';
 import { getNewbornClusterExplorerHtml } from './newborn-cluster-explorer.mjs';
@@ -30,14 +30,6 @@ const VALID_INITIAL_MODES = new Set([
   'rookies',
   'crossover'
 ]);
-
-function compactHtmlFragment(html) {
-  return String(html || '')
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/^[ \t]+/gm, '')
-    .replace(/\n{2,}/g, '\n')
-    .trim();
-}
 
 export function getNewbornPageHtml(folderId = '', initialRoom = '') {
   const rawFolderId = String(folderId || '').trim();
@@ -86,7 +78,7 @@ ${renderAppSidebar({
     refreshHandler: 'refreshWorkspace(true)',
     refreshLoadingExpr: 'isLoading || isPollingRun'
   })}
-<main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-5 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out motion-reduce:transition-none" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
+<main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-5 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out motion-reduce:transition-none" :class="isSidebarCollapsed ? 'md:!ml-20' : 'md:ml-64 lg:ml-72'">
 ${safeFolderId ? compactHtmlFragment(renderCampaignWorkspaceHeader({ activeRoom: 'newborn', folderId: safeFolderId })) : ''}
 ${compactHtmlFragment(getNewbornHeaderAndLaunchpadHtml({ folderId: safeFolderId }))}
 ${compactHtmlFragment(getNewbornCandidatesAndRookiesHtml({ folderId: safeFolderId }))}

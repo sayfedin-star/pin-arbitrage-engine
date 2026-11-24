@@ -155,7 +155,7 @@ export function renderCreatorsLedgerView({ safeFolderId = '' } = {}) {
                 <select x-model="folderFilter" @change="onFolderFilterChange()" class="py-1 px-2.5 text-xs rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500 font-mono tabular-nums cursor-pointer">
                   <option value="">All Folders</option>
                   <template x-for="f in foldersList" :key="f.id">
-                    <option :value="String(f.id)" :selected="String(f.id) === String(folderFilter || scopedFolderId)" x-text="f.name + ' (' + (f.discovered_creator_count || f.creator_count || 0) + ')'"></option>
+                    <option :value="String(f.id)" :selected="String(f.id) === String(folderFilter || scopedFolderId)" x-text="f.name + ' (' + (f.discovered_creator_count ?? f.creator_count ?? 0) + ')'"></option>
                   </template>
                 </select>
               </div>

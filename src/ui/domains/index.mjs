@@ -8,7 +8,7 @@ import { getDomainsLeaderboardViewHtml } from './domains-leaderboard-view.mjs';
 import { getDomainsStudioViewHtml } from './domains-studio-view.mjs';
 import { getDomainsModalsHtml } from './domains-modals.mjs';
 import { renderClientJsScriptTag, renderPageBootstrapScript } from '../client-assets.mjs';
-import { renderSharedDocumentHead } from '../shared-head.mjs';
+import { renderSharedDocumentHead, compactHtmlFragment } from '../shared-head.mjs';
 
 export function getDomainsPageHtml(initialDomain = '', folderId = '') {
   const rawDomain = String(initialDomain || '').trim();
@@ -60,12 +60,12 @@ ${renderSharedDocumentHead({
     </template>
   </div>
 
-  ${renderAppSidebar({ activeNav: 'domains', refreshHandler: 'refreshDomains()' })}
+  ${renderAppSidebar({ activeNav: safeFolderId ? 'campaigns' : 'domains', refreshHandler: 'refreshDomains()' })}
 
   <!-- Main Container (Offset for Unified Desktop Sidebar) -->
-  <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
+  <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? 'md:!ml-20' : 'md:ml-64 lg:ml-72'">
 
-    ${safeFolderId ? renderCampaignWorkspaceHeader({ activeRoom: 'domains', folderId: safeFolderId }) : ''}
+    ${safeFolderId ? compactHtmlFragment(renderCampaignWorkspaceHeader({ activeRoom: 'domains', folderId: safeFolderId })) : ''}
 
     <template x-if="!scopedFolderId">
       <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A]/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -103,13 +103,13 @@ ${renderSharedDocumentHead({
       </section>
     </template>
 
-    ${getDomainsLeaderboardViewHtml({ hasInitialDomain })}
+    ${compactHtmlFragment(getDomainsLeaderboardViewHtml({ hasInitialDomain }))}
 
-    ${getDomainsStudioViewHtml({ hasInitialDomain })}
+    ${compactHtmlFragment(getDomainsStudioViewHtml({ hasInitialDomain }))}
 
   </main>
 
-  ${getDomainsModalsHtml()}
+  ${compactHtmlFragment(getDomainsModalsHtml())}
 
 ${renderPageBootstrapScript({ initialDomain: safeInitialDomain, folderId: safeFolderId })}
 ${renderClientJsScriptTag('domains')}

@@ -98,11 +98,13 @@ export async function searchMultiEntityAutocomplete(sql, {
   query = '',
   limit = AUTOCOMPLETE_DEFAULT_LIMIT,
   types = null,
-  projectId = 'default'
+  projectId = 'default',
+  workspaceId = 1
 } = {}) {
   const startMs = Date.now();
   const parsedLimit = Number(limit);
   const lim = Math.max(1, Math.min(isNaN(parsedLimit) ? AUTOCOMPLETE_DEFAULT_LIMIT : Math.floor(parsedLimit), AUTOCOMPLETE_MAX_LIMIT));
+  const wid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
   const norm = normalizeAutocompleteQuery(query);
   const activeTypes = types instanceof Set ? types : parseRequestedTypes(types);
 
@@ -124,6 +126,57 @@ export async function searchMultiEntityAutocomplete(sql, {
   const runFolders = activeTypes.has('folders') && !norm.raw.startsWith('@');
   const runDomains = activeTypes.has('domains') && !norm.raw.startsWith('@');
 
+  const queryFolders = async () => {
+    try {
+      return await sql`
+        SELECT
+          kf.id,
+          kf.name,
+          kf.description,
+          kf.color,
+          kf.icon,
+          (
+            SELECT COUNT(*)::int
+            FROM keyword_folder_items kfi
+            WHERE kfi.folder_id = kf.id
+          ) AS keyword_count
+        FROM keyword_folders kf
+        WHERE kf.project_id = ${projectId}
+          AND kf.workspace_id = ${wid}
+          AND LOWER(kf.name) LIKE ${norm.matchPattern} ESCAPE '\\'
+        ORDER BY
+          CASE WHEN LOWER(kf.name) LIKE ${norm.prefixPattern} ESCAPE '\\' THEN 0 ELSE 1 END,
+          kf.updated_at DESC NULLS LAST,
+          kf.name ASC
+        LIMIT ${lim};
+      `;
+    } catch (err) {
+      if (String(err?.code || '') !== '42703') throw err;
+      if (wid !== 1) return [];
+      return await sql`
+        SELECT
+          kf.id,
+          kf.name,
+          kf.description,
+          kf.color,
+          kf.icon,
+          (
+            SELECT COUNT(*)::int
+            FROM keyword_folder_items kfi
+            WHERE kfi.folder_id = kf.id
+          ) AS keyword_count
+        FROM keyword_folders kf
+        WHERE kf.project_id = ${projectId}
+          AND LOWER(kf.name) LIKE ${norm.matchPattern} ESCAPE '\\'
+        ORDER BY
+          CASE WHEN LOWER(kf.name) LIKE ${norm.prefixPattern} ESCAPE '\\' THEN 0 ELSE 1 END,
+          kf.updated_at DESC NULLS LAST,
+          kf.name ASC
+        LIMIT ${lim};
+      `;
+    }
+  };
+
   const [kwRows, cpRows, kfRows, domRows] = await Promise.all([
     runKeywords
       ? sql`
@@ -144,6 +197,15 @@ export async function searchMultiEntityAutocomplete(sql, {
             ) AS active_pin_count
           FROM tracked_keywords tk
           WHERE LOWER(tk.keyword) LIKE ${norm.matchPattern} ESCAPE '\\'
+            AND (
+              ${wid}::int = 1
+              OR EXISTS (
+                SELECT 1
+                FROM keyword_folder_items kfi
+                JOIN keyword_folders kf ON kf.id = kfi.folder_id
+                WHERE kfi.keyword_id = tk.id AND kf.workspace_id = ${wid}
+              )
+            )
           ORDER BY
             CASE WHEN LOWER(tk.keyword) LIKE ${norm.prefixPattern} ESCAPE '\\' THEN 0 ELSE 1 END,
             tk.is_active DESC,
@@ -170,6 +232,22 @@ export async function searchMultiEntityAutocomplete(sql, {
               LOWER(cp.username) LIKE ${norm.creatorMatchPattern} ESCAPE '\\'
               OR LOWER(COALESCE(cp.display_name, '')) LIKE ${norm.creatorMatchPattern} ESCAPE '\\'
             )
+            AND (
+              ${wid}::int = 1
+              OR EXISTS (
+                SELECT 1
+                FROM folder_competitor_items fci
+                JOIN keyword_folders kf ON kf.id = fci.folder_id
+                WHERE fci.competitor_id = cp.id AND kf.workspace_id = ${wid}
+              )
+              OR EXISTS (
+                SELECT 1
+                FROM workspace_watchlist ww
+                WHERE ww.workspace_id = ${wid}
+                  AND ww.entity_type = 'creator'
+                  AND LOWER(ww.entity_key) = LOWER(cp.username)
+              )
+            )
           ORDER BY
             CASE
               WHEN LOWER(cp.username) = ${norm.creatorLower} THEN 0
@@ -185,27 +263,7 @@ export async function searchMultiEntityAutocomplete(sql, {
       : Promise.resolve([]),
 
     runFolders
-      ? sql`
-          SELECT
-            kf.id,
-            kf.name,
-            kf.description,
-            kf.color,
-            kf.icon,
-            (
-              SELECT COUNT(*)::int
-              FROM keyword_folder_items kfi
-              WHERE kfi.folder_id = kf.id
-            ) AS keyword_count
-          FROM keyword_folders kf
-          WHERE kf.project_id = ${projectId}
-            AND LOWER(kf.name) LIKE ${norm.matchPattern} ESCAPE '\\'
-          ORDER BY
-            CASE WHEN LOWER(kf.name) LIKE ${norm.prefixPattern} ESCAPE '\\' THEN 0 ELSE 1 END,
-            kf.updated_at DESC NULLS LAST,
-            kf.name ASC
-          LIMIT ${lim};
-        `
+      ? queryFolders()
       : Promise.resolve([]),
 
     runDomains
@@ -222,6 +280,23 @@ export async function searchMultiEntityAutocomplete(sql, {
           WHERE r.total_pins > 0
             AND r.domain <> 'Uploaded by user'
             AND LOWER(r.domain) LIKE ${norm.matchPattern} ESCAPE '\\'
+            AND (
+              ${wid}::int = 1
+              OR EXISTS (
+                SELECT 1
+                FROM workspace_watchlist ww
+                WHERE ww.workspace_id = ${wid}
+                  AND ww.entity_type = 'domain'
+                  AND REGEXP_REPLACE(LOWER(ww.entity_key), '^www\\.', '') = REGEXP_REPLACE(LOWER(r.domain), '^www\\.', '')
+              )
+              OR EXISTS (
+                SELECT 1
+                FROM folder_pinned_domains fpd
+                JOIN keyword_folders kf ON kf.id = fpd.folder_id
+                WHERE kf.workspace_id = ${wid}
+                  AND REGEXP_REPLACE(LOWER(fpd.domain), '^www\\.', '') = REGEXP_REPLACE(LOWER(r.domain), '^www\\.', '')
+              )
+            )
           ORDER BY
             CASE WHEN LOWER(r.domain) LIKE ${norm.prefixPattern} ESCAPE '\\' THEN 0 ELSE 1 END,
             r.total_saves DESC NULLS LAST,

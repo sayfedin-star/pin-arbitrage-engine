@@ -252,7 +252,7 @@ test('P1-1: pruneFolderPins handles string dry_run="false", cleans campaign_trac
     invalidateEdgeCache: async (scope) => { edgeInvalidations.push(scope); }
   });
   assert.equal(res.status, 200);
-  assert.deepEqual(edgeInvalidations, ['folders', 'keywords']);
+  assert.deepEqual(edgeInvalidations.slice().sort(), ['domains:dossier', 'domains:leaderboard', 'folders', 'keywords']);
 });
 
 test('P0-4: Pause & block_fleet flags block dispatch-audit, bulk-pulse-track, creators/dispatch-crawl, autoDiscover & fleet queries', async () => {
@@ -752,7 +752,7 @@ test('P0-1, P0-2, P1-1..5 & P2: camelCase pruning, 42703 fallback, pulse cache b
   });
   assert.equal(zeroRes.status, 200);
   assert.equal(zeroRes.payload.dry_run, false);
-  assert.deepEqual(zeroEdgeInvalidations, ['folders', 'keywords']);
+  assert.deepEqual(zeroEdgeInvalidations.slice().sort(), ['domains:dossier', 'domains:leaderboard', 'folders', 'keywords']);
   assert.equal(pulseMemoryCache.get('ws:2:pulse:all:24h:0'), undefined, 'pulseMemoryCache must be invalidated after real prune');
 
   pulseMemoryCache.set('ws:2:pulse:all:24h:0', { cached: true });

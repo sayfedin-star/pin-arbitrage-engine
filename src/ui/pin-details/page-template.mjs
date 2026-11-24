@@ -200,7 +200,7 @@ export function getPinDetailsBodyHtml(safePinId) {
   })}
 
   <!-- Main Shell Wrapper (Offset for Unified Desktop Sidebar) [INVARIANT: UNIFIED-SIDEBAR-LAYOUT] -->
-  <div class="flex-1 min-h-screen flex flex-col transition-all duration-300 ease-in-out md:ml-64 lg:ml-72" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
+  <div class="flex-1 min-h-screen flex flex-col transition-all duration-300 ease-in-out md:ml-64 lg:ml-72" :class="isSidebarCollapsed ? 'md:!ml-20' : 'md:ml-64 lg:ml-72'">
 
   <!-- Full-Page Loading Spinner (Initial load only) -->
   <div x-show="loading && !dossier" class="flex-1 flex items-center justify-center p-12" x-cloak>
@@ -1142,7 +1142,7 @@ export function getPinDetailsBodyHtml(safePinId) {
           <div class="p-4 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs">
             <div class="flex items-center gap-2">
               <span class="text-slate-400 font-medium">Keywords Portfolio:</span>
-              <span class="font-mono tabular-nums font-bold text-white" x-text="dossier?.pillar_2_keywords_context?.ranking_keywords?.length || 0"></span>
+              <span class="font-mono tabular-nums font-bold text-slate-900 dark:text-white" x-text="dossier?.pillar_2_keywords_context?.ranking_keywords?.length || 0"></span>
             </div>
 
             <div class="flex items-center gap-2">
@@ -1217,7 +1217,7 @@ export function getPinDetailsBodyHtml(safePinId) {
                 </div>
                 <div class="flex items-center justify-between">
                   <span class="text-slate-400">Origin Pinner</span>
-                  <span class="font-mono text-white font-medium" x-text="formatOriginPinner()"></span>
+                  <span class="font-mono text-slate-900 dark:text-white font-medium" x-text="formatOriginPinner()"></span>
                 </div>
                 <div class="flex items-center justify-between">
                   <span class="text-slate-400">Verified Merchant</span>
@@ -1341,7 +1341,7 @@ export function getPinDetailsBodyHtml(safePinId) {
                   <span class="text-slate-400">Dominant Swatch</span>
                   <div class="flex items-center gap-1.5">
                     <span class="w-3.5 h-3.5 rounded-full border border-white/20 inline-block" :style="'background-color: ' + safeColor(dossier?.creative?.dominant_color)"></span>
-                    <span class="font-mono text-white" x-text="safeColor(dossier?.creative?.dominant_color)"></span>
+                    <span class="font-mono text-slate-900 dark:text-white" x-text="safeColor(dossier?.creative?.dominant_color)"></span>
                   </div>
                 </div>
                 <template x-if="dossier?.algorithmic_intelligence?.image_signature">
@@ -1426,7 +1426,7 @@ export function getPinDetailsBodyHtml(safePinId) {
               <div class="space-y-2 text-xs">
                 <div class="flex items-center justify-between">
                   <span class="text-slate-400">Total Reactions</span>
-                  <span class="font-mono tabular-nums font-bold text-white" x-text="formatNumber(dossier?.creative?.reaction_count || latestSnapshot()?.reaction_count || 0)"></span>
+                  <span class="font-mono tabular-nums font-bold text-slate-900 dark:text-white" x-text="formatNumber(dossier?.creative?.reaction_count || latestSnapshot()?.reaction_count || 0)"></span>
                 </div>
                 <!-- Reaction Types Breakdown Chips -->
                 <div class="grid grid-cols-5 gap-1 pt-1 border-t border-slate-100 dark:border-[#1E1E22] text-center">
@@ -1467,7 +1467,7 @@ export function getPinDetailsBodyHtml(safePinId) {
 
           <!-- Card 7: Collapsible Raw JSON Forensic Inspector -->
           <details class="p-4 sm:p-5 rounded-2xl border border-slate-200/90 dark:border-[#27272A] bg-white dark:bg-[#121215] text-xs shadow-xs">
-            <summary class="font-bold text-slate-400 hover:text-white cursor-pointer select-none flex items-center gap-2">
+            <summary class="font-bold text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer select-none flex items-center gap-2">
               <svg class="w-4 h-4 text-rose-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10 2 4 4-4 4"/><circle cx="6" cy="18" r="4"/><circle cx="18" cy="18" r="4"/><path d="m14 14-8-8"/></svg>
               <span>Deep Forensic JSON Dossier (Raw Telemetry Blob)</span>
             </summary>
@@ -1507,10 +1507,10 @@ export function getPinDetailsBodyHtml(safePinId) {
       </div>
       <p class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
         <template x-if="deleteType === 'DAY'">
-          <span>Are you sure you want to permanently delete this snapshot for <strong class="text-white" x-text="itemToDelete?.date"></strong>? Subsequent snapshot deltas will be automatically recalculated.</span>
+          <span>Are you sure you want to permanently delete this snapshot for <strong class="text-slate-900 dark:text-white" x-text="itemToDelete?.date"></strong>? Subsequent snapshot deltas will be automatically recalculated.</span>
         </template>
         <template x-if="deleteType === 'SERP_BADGE'">
-          <span>Remove keyword ranking for <strong class="text-white" x-text="itemToDelete?.keywordName"></strong> on <strong class="text-white" x-text="itemToDelete?.date"></strong>? Daily metrics will be preserved.</span>
+          <span>Remove keyword ranking for <strong class="text-slate-900 dark:text-white" x-text="itemToDelete?.keywordName"></strong> on <strong class="text-slate-900 dark:text-white" x-text="itemToDelete?.date"></strong>? Daily metrics will be preserved.</span>
         </template>
         <template x-if="deleteType === 'SNAPSHOT'">
           <span>Delete snapshot <strong class="text-rose-400" x-text="'#' + (itemToDelete?.snapshotId || snapshotToDelete)"></strong> from Native VPS PostgreSQL?</span>

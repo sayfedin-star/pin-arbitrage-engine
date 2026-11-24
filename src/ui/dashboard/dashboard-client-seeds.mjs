@@ -59,7 +59,7 @@ export function getDashboardSeedComputedProperties() {
           } else if (this.seedSort === 'candidates_asc') {
             list.sort((a, b) => Number(a.total_candidates || 0) - Number(b.total_candidates || 0));
           } else if (this.seedSort === 'gap_desc') {
-            list.sort((a, b) => Number(b.commercial_gap_ratio || 100) - Number(a.commercial_gap_ratio || 100));
+            list.sort((a, b) => Number(b.commercial_gap_ratio ?? 100) - Number(a.commercial_gap_ratio ?? 100));
           } else if (this.seedSort === 'id_desc') {
             list.sort((a, b) => String(b.pin_id).localeCompare(String(a.pin_id)));
           }

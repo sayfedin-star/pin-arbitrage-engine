@@ -55,7 +55,14 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
   const kid = Number(keywordId);
   if (!kid) throw new Error('Valid keyword ID is required');
 
-  let cookie = (typeof process !== 'undefined' && process?.env ? process.env.PINTEREST_COOKIE : null);
+  const disableGlobalCookieFallback = Boolean(
+    (typeof optionsOrCookie === 'object' && optionsOrCookie?.disableGlobalCookieFallback) ||
+    maybeOptions?.disableGlobalCookieFallback
+  );
+
+  let cookie = disableGlobalCookieFallback
+    ? null
+    : (typeof process !== 'undefined' && process?.env ? process.env.PINTEREST_COOKIE : null);
   let force = false;
   let options = {};
 
@@ -70,8 +77,8 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     if (options.cookie !== undefined) cookie = options.cookie;
   }
 
-  // Fallback to runtime environment secrets if not provided directly
-  if (!cookie) {
+  // Fallback to runtime environment secrets if not provided directly (never on WS2+ isolated runs)
+  if (!cookie && !disableGlobalCookieFallback) {
     cookie = options?.env?.PINTEREST_COOKIE || maybeOptions?.env?.PINTEREST_COOKIE || null;
   }
 
@@ -166,9 +173,14 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
     const excludeBoardsAndSuggestions = options.exclude_boards_and_suggestions ?? appSettings.exclude_boards_and_suggestions ?? true;
     const excludeIgnoredPins = options.exclude_ignored_pins ?? appSettings.exclude_ignored_pins ?? true;
 
-    cookie = formatPinterestCookie(
-      cookie || appSettings.pinterest_cookie || await getEffectivePinterestCookie(sql, cookie)
-    );
+    const stringCookie = typeof cookie === 'string' ? cookie.trim() : '';
+    if (disableGlobalCookieFallback) {
+      cookie = stringCookie ? formatPinterestCookie(stringCookie) : '';
+    } else {
+      cookie = formatPinterestCookie(
+        stringCookie || appSettings.pinterest_cookie || await getEffectivePinterestCookie(sql, stringCookie)
+      );
+    }
 
     // Phase 2 Tombstone Architecture: Pre-fetch Ignored Pins Registry to accurately gate paging quota
     const ignoredPinRows = await sql`
@@ -232,7 +244,7 @@ export async function crawlKeywordSERP(sql, keywordId, optionsOrCookie = {}, may
           const jitter = 2500 + Math.floor(Math.random() * 1500);
           await new Promise(r => setTimeout(r, jitter));
           const authHeaders = { ...headers };
-          if (cookie && String(cookie).trim()) {
+          if (typeof cookie === 'string' && cookie.trim()) {
             authHeaders['Cookie'] = formatPinterestCookie(cookie);
           }
           res = await pinterestFetch(url, { headers: authHeaders, signal: AbortSignal.timeout(8000) });

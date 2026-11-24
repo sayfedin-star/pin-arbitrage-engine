@@ -229,7 +229,7 @@ sync_postgres_container() {
     -c "ALTER DATABASE pin_arbitrage SET lock_timeout = '15s';" \
     -c "ALTER DATABASE pin_arbitrage SET idle_in_transaction_session_timeout = '60s';" \
     -c "ALTER DATABASE pin_arbitrage SET random_page_cost = 1.1;" \
-    -c "ALTER DATABASE pin_arbitrage SET work_mem = '16MB';" >/dev/null 2>&1 || true
+    -c "ALTER DATABASE pin_arbitrage SET work_mem = '32MB';" >/dev/null 2>&1 || true
 
   local verified_shm
   verified_shm=$(docker inspect pae-postgres --format '{{.HostConfig.ShmSize}}' 2>/dev/null || echo 0)

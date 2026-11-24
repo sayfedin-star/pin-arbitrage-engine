@@ -108,8 +108,8 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
   const wid = Number.isInteger(parsedWsId) && parsedWsId > 0 ? parsedWsId : DEFAULT_WORKSPACE_ID;
   const cacheKey = options.cacheKey || (
     testId
-      ? `ws:${wid}:pulse:${folderId || 'all'}:${windowParam}:${minAudience}:${testId}`
-      : `ws:${wid}:pulse:${folderId || 'all'}:${windowParam}:${minAudience}`
+      ? `ws:${wid}:pulse:${folderIdNum ?? 'all'}:${windowParam}:${minAudience}:${testId}`
+      : `ws:${wid}:pulse:${folderIdNum ?? 'all'}:${windowParam}:${minAudience}`
   );
 
   let effectiveRefresh = forceRefresh;
@@ -125,6 +125,7 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
 
   const computePulsePayload = async () => {
     const startEpoch = pulseMemoryCache.epoch;
+    let degraded = false;
     // Phase A: Concurrent Execution of Hub Queries (including viral creator pins and matview KPIs)
     const [
       activeSerpRows,
@@ -136,12 +137,18 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       matviewKpis
     ] = await Promise.all([
       queryActiveSerp(sql, folderIdNum, wid),
-      queryVaultAndVacuum(sql, folderIdNum, env),
-      queryGuidedCapsules(sql, folderIdNum),
-      queryBreakoutCreators(sql, folderIdNum),
-      queryWinnersAndDomains(sql),
-      queryViralCreatorPins(sql, folderIdNum).catch(() => []),
-      queryKPIs(sql, folderIdNum).catch(() => null)
+      queryVaultAndVacuum(sql, folderIdNum, env, wid),
+      queryGuidedCapsules(sql, folderIdNum, wid),
+      queryBreakoutCreators(sql, folderIdNum, wid),
+      queryWinnersAndDomains(sql, wid),
+      queryViralCreatorPins(sql, folderIdNum, wid).catch(() => {
+        degraded = true;
+        return [];
+      }),
+      queryKPIs(sql, folderIdNum, wid).catch(() => {
+        degraded = true;
+        return null;
+      })
     ]);
 
     const { vacuumRows, vaultPins } = vaultData;
@@ -297,6 +304,9 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       } else if (windowParam === '7d') {
         windowSavesGain = (p.gains_7d > effectiveSaves24h) ? p.gains_7d : effectiveSaves24h;
         effectiveMomentum = (effective24hGain > p.gains_7d) ? effective24hGain : p.gains_7d;
+      } else if (windowParam === '10d') {
+        windowSavesGain = (p.gains_10d > effectiveSaves24h) ? p.gains_10d : effectiveSaves24h;
+        effectiveMomentum = (effective24hGain > p.gains_10d) ? effective24hGain : p.gains_10d;
       } else if (windowParam === '15d') {
         windowSavesGain = (p.gains_15d > effectiveSaves24h) ? p.gains_15d : effectiveSaves24h;
         effectiveMomentum = (effective24hGain > p.gains_15d) ? effective24hGain : p.gains_15d;
@@ -522,7 +532,11 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
       topArbitrageDomains
     });
 
-    if (!bypassCache && pulseMemoryCache.isWriteValid(cacheKey, startEpoch)) {
+    if (degraded) {
+      payload.degraded = true;
+    }
+
+    if (!degraded && !bypassCache && pulseMemoryCache.isWriteValid(cacheKey, startEpoch)) {
       pulseForceRefreshCooldown.set(cacheKey, Date.now());
     }
 
@@ -536,6 +550,6 @@ export async function getGlobal24hPulseService(sql, env, options = {}) {
   return await pulseMemoryCache.getOrFetch(cacheKey, computePulsePayload, {
     ttlMs: PULSE_MEMORY_TTL_MS,
     forceRefresh: effectiveRefresh,
-    shouldCache: (val) => Boolean(val && val.success !== false)
+    shouldCache: (val) => Boolean(val && val.success !== false && val.degraded !== true)
   });
 }

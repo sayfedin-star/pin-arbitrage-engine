@@ -337,11 +337,13 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
   const kId = keywordId && !isNaN(Number(keywordId)) ? Number(keywordId) : null;
   const safeDisplacedLimit = Math.max(30, Math.min(500, Number(displacedLimit) || 30));
 
+  let degraded = false;
   // [INVARIANT: DEFENSIVE-QUERY-TIMEOUT-GUARD]
   // Catch blocks must only handle genuine network timeouts/aborts per Invariant 4, never swallow SQL syntax or schema errors
   const guardQueryTimeout = (err, queryName = 'query') => {
     const isTimeout = err?.name === 'AbortError' || err?.code === 'ETIMEDOUT' || err?.message?.includes('timeout');
     if (isTimeout) {
+      degraded = true;
       console.warn(`[getDomainDeepDossier] Query ${queryName} timed out, falling back to empty set:`, err.message);
       return [];
     }
@@ -1324,7 +1326,8 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     money_urls: moneyUrls,
     keyword_monopoly: keywordMonopoly,
     accounts: accountsList,
-    visual_dna: visualDna
+    visual_dna: visualDna,
+    ...(degraded ? { degraded: true } : {})
   };
 }
 

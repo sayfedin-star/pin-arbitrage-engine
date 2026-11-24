@@ -35,6 +35,11 @@ on:
         required: false
         type: string
         default: ''
+      folder_id:
+        description: 'Optional campaign folder ID to respect pause/block guardrails'
+        required: false
+        type: string
+        default: ''
 
 concurrency:
   group: crawler-pipeline-${{ github.workflow }}-${{ github.ref }}-${{ inputs.target_account != '' && format('account-{0}', inputs.target_account) || (github.event_name == 'schedule' && 'cron' || 'dispatch-all') }}
@@ -81,6 +86,9 @@ jobs:
         uses: ./.github/actions/setup-instabox-db
         with:
           instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
+          machine-id: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
+          cf-access-client-id: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          cf-access-client-secret: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
 
       - name: 4. Execute Fleet Orchestrator & Dispatcher
         id: dispatcher
@@ -90,8 +98,9 @@ jobs:
           INSTABOX_MACHINE_ID: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
           PINTEREST_COOKIE: ${{ secrets.PINTEREST_COOKIE }}
           TARGET_ACCOUNT: ${{ inputs.target_account }}
+          FOLDER_ID: ${{ inputs.folder_id || '' }}
           CRAWL_MODE: ${{ inputs.crawl_mode || 'refresh' }}
-          MAX_PAGES: ${{ inputs.max_pages || '1000' }}
+          MAX_PAGES: ${{ inputs.max_pages || '' }}
           PERSONAL_BOARDS_ONLY: ${{ inputs.personal_boards_only == false && 'false' || 'true' }}
           TARGET_BOARDS: ${{ inputs.target_boards }}
         run: node scripts/creator-fleet.mjs --stage=dispatch
@@ -138,6 +147,9 @@ jobs:
         uses: ./.github/actions/setup-instabox-db
         with:
           instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
+          machine-id: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
+          cf-access-client-id: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          cf-access-client-secret: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           skip-wakeup: 'true'
 
       - name: 5. Execute Fleet Worker
@@ -188,6 +200,9 @@ jobs:
         uses: ./.github/actions/setup-instabox-db
         with:
           instabox-api-key: ${{ secrets.INSTABOX_API_KEY }}
+          machine-id: ${{ vars.INSTABOX_MACHINE_ID || 'm_agq2t32m5xv5joj67rqoze5h4u' }}
+          cf-access-client-id: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          cf-access-client-secret: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           skip-wakeup: 'true'
 
       - name: 4. Execute Consolidation & Report Engine

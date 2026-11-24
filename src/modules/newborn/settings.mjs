@@ -1031,9 +1031,10 @@ function normalizeRuleProfileRow(row) {
 /**
  * Lists Newborn rule profiles from newborn_rule_profiles.
  */
-export async function listNewbornRuleProfiles(sql, { includeInactive = false, folderId = null } = {}) {
+export async function listNewbornRuleProfiles(sql, { includeInactive = false, folderId = null, workspaceId = 1 } = {}) {
   if (!sql || typeof sql !== 'function') return [];
   const fid = cleanNullablePositiveInt(folderId, null);
+  const wid = cleanNullablePositiveInt(workspaceId, 1) || 1;
   let rows;
   if (fid !== null) {
     rows = includeInactive
@@ -1047,6 +1048,23 @@ export async function listNewbornRuleProfiles(sql, { includeInactive = false, fo
           WHERE is_active = TRUE AND (folder_id = ${fid} OR is_default = TRUE)
           ORDER BY is_default DESC, id ASC;
         `;
+  } else if (wid !== 1) {
+    rows = includeInactive
+      ? await sql`
+          SELECT * FROM newborn_rule_profiles
+          WHERE is_default = TRUE
+             OR folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
+          ORDER BY is_default DESC, id ASC;
+        `
+      : await sql`
+          SELECT * FROM newborn_rule_profiles
+          WHERE is_active = TRUE
+            AND (
+              is_default = TRUE
+              OR folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
+            )
+          ORDER BY is_default DESC, id ASC;
+        `;
   } else {
     rows = includeInactive
       ? await sql`SELECT * FROM newborn_rule_profiles ORDER BY is_default DESC, id ASC;`
@@ -1058,16 +1076,24 @@ export async function listNewbornRuleProfiles(sql, { includeInactive = false, fo
 /**
  * Fetches a single Newborn rule profile by numeric ID or slug.
  */
-export async function getNewbornRuleProfile(sql, idOrSlug) {
+export async function getNewbornRuleProfile(sql, idOrSlug, { workspaceId = 1 } = {}) {
   if (!sql || typeof sql !== 'function' || idOrSlug === undefined || idOrSlug === null || idOrSlug === '') {
     return null;
   }
+  const wid = cleanNullablePositiveInt(workspaceId, 1) || 1;
   const str = String(idOrSlug).trim();
   const isNum = /^\d+$/.test(str);
   const rows = isNum
     ? await sql`SELECT * FROM newborn_rule_profiles WHERE id = ${Number(str)} LIMIT 1;`
     : await sql`SELECT * FROM newborn_rule_profiles WHERE slug = ${str.toLowerCase()} LIMIT 1;`;
-  return rows?.[0] ? normalizeRuleProfileRow(rows[0]) : null;
+  const profile = rows?.[0] ? normalizeRuleProfileRow(rows[0]) : null;
+  if (!profile) return null;
+  if (wid !== 1 && !profile.is_default) {
+    if (!profile.folder_id) return null;
+    const [kf] = await sql`SELECT id FROM keyword_folders WHERE id = ${profile.folder_id} AND workspace_id = ${wid} LIMIT 1;`;
+    if (!kf) return null;
+  }
+  return profile;
 }
 
 /**
@@ -1140,11 +1166,11 @@ export async function createNewbornRuleProfile(sql, payload = {}) {
 /**
  * Updates an existing Newborn rule profile by numeric ID or slug.
  */
-export async function updateNewbornRuleProfile(sql, idOrSlug, patch = {}) {
+export async function updateNewbornRuleProfile(sql, idOrSlug, patch = {}, { workspaceId = 1 } = {}) {
   if (!sql || typeof sql !== 'function') {
     throw new Error('Database client (sql) is required to update a rule profile.');
   }
-  const existing = await getNewbornRuleProfile(sql, idOrSlug);
+  const existing = await getNewbornRuleProfile(sql, idOrSlug, { workspaceId });
   if (!existing) return null;
 
   const nextName = patch.name !== undefined ? String(patch.name || '').trim() : existing.name;
@@ -1206,11 +1232,11 @@ export async function updateNewbornRuleProfile(sql, idOrSlug, patch = {}) {
 /**
  * Deletes a Newborn rule profile by numeric ID or slug.
  */
-export async function deleteNewbornRuleProfile(sql, idOrSlug) {
+export async function deleteNewbornRuleProfile(sql, idOrSlug, { workspaceId = 1 } = {}) {
   if (!sql || typeof sql !== 'function') {
     throw new Error('Database client (sql) is required to delete a rule profile.');
   }
-  const existing = await getNewbornRuleProfile(sql, idOrSlug);
+  const existing = await getNewbornRuleProfile(sql, idOrSlug, { workspaceId });
   if (!existing) return { deleted: false, reason: 'not_found' };
   if (existing.is_default) {
     const err = new Error('Cannot delete the active default rule profile. Assign another default profile first.');

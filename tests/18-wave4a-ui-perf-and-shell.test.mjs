@@ -274,6 +274,8 @@ test('Wave 4A.2: Extracted /assets/js/*.js routes enforce SHA-256 ETag, 304 Not 
     { route: '/watchlist', expectedAssets: ['command-palette', 'watchlist'], maxRawKb: 110 },
     { route: '/settings', expectedAssets: ['command-palette', 'settings'], maxRawKb: 110 },
     { route: '/domains', expectedAssets: ['command-palette', 'domains'], maxRawKb: 210 },
+    { route: '/folders/42/domains', expectedAssets: ['command-palette', 'domains'], maxRawKb: 210 },
+    { route: '/folders/42/keywords', expectedAssets: ['command-palette', 'keywords'], maxRawKb: 370 },
     { route: '/pin/1098245059167667976', expectedAssets: ['command-palette', 'pin-details'], maxRawKb: 185 },
     { route: '/pulse', expectedAssets: ['command-palette', 'radar'], maxRawKb: 100 }
   ];

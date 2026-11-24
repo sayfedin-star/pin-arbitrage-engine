@@ -627,7 +627,7 @@ export function getPulseStudioViewsHtml() {
                     
                     <div class="flex items-center gap-2 font-mono text-[11px] pt-0.5 flex-wrap">
                       <span class="text-rose-600 dark:text-rose-400 font-bold" 
-                            x-text="formatVelocity(p.window_saves_gain || p.daily_save_velocity || p.delta_saves_24h || 0)"></span>
+                            x-text="formatVelocity(p.window_saves_gain ?? p.daily_save_velocity ?? p.delta_saves_24h ?? 0)"></span>
                       <span class="text-purple-600 dark:text-purple-400 font-bold" 
                             x-text="'+' + formatNumber(p.delta_repins_24h || 0) + ' repins'"></span>
                       <template x-if="isAggregatedClusterPin(p)">
@@ -1068,7 +1068,7 @@ export function getPulseStudioViewsHtml() {
                            class="hover:text-rose-600 hover:underline transition"
                            x-text="kw.keyword || kw.keyword_text || 'Universal'"></a>
                       </td>
-                      <td class="py-2 px-3 text-right font-bold text-rose-600" x-text="'#' + (kw.rank || activeBlueprintPin?.rank_position || '1')"></td>
+                      <td class="py-2 px-3 text-right font-bold text-rose-600" x-text="'#' + (kw.rank ?? activeBlueprintPin?.rank_position ?? '1')"></td>
                       <td class="py-2 px-3 text-right text-slate-400" x-text="kw.folder_name || 'Global'"></td>
                     </tr>
                   </template>

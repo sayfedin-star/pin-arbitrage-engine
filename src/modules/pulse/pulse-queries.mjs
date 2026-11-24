@@ -76,13 +76,20 @@ export async function queryActiveSerp(sql, folderIdNum, workspaceId = 1) {
       WHERE ksp.is_displaced = FALSE
         AND ksp.rank_position IS NOT NULL
         AND ksp.rank_position >= 1
-        AND (${folderIdNum}::int IS NULL OR EXISTS (
-          SELECT 1 FROM keyword_folder_items fi
-          JOIN keyword_folders kf_scope ON kf_scope.id = fi.folder_id
-          WHERE fi.keyword_id = ksp.keyword_id
-            AND fi.folder_id = ${folderIdNum}::int
-            AND kf_scope.workspace_id = ${wid}
-        ))
+        AND (
+          (${folderIdNum}::int IS NULL AND (${wid}::int = 1 OR EXISTS (
+            SELECT 1 FROM keyword_folder_items fi_ws
+            JOIN keyword_folders kf_ws ON kf_ws.id = fi_ws.folder_id
+            WHERE fi_ws.keyword_id = ksp.keyword_id AND kf_ws.workspace_id = ${wid}
+          )))
+          OR EXISTS (
+            SELECT 1 FROM keyword_folder_items fi
+            JOIN keyword_folders kf_scope ON kf_scope.id = fi.folder_id
+            WHERE fi.keyword_id = ksp.keyword_id
+              AND fi.folder_id = ${folderIdNum}::int
+              AND kf_scope.workspace_id = ${wid}
+          )
+        )
       ORDER BY ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST
       LIMIT 2500;
     `;
@@ -157,7 +164,8 @@ export async function queryActiveSerp(sql, folderIdNum, workspaceId = 1) {
  * Part 2A: Aggregates displaced counts per keyword.
  * Part 2B: Full Surging Displaced Vault Pins hydrated from universal_master_pins SSOT.
  */
-export async function queryVaultAndVacuum(sql, folderIdNum, _env) {
+export async function queryVaultAndVacuum(sql, folderIdNum, _env, wid = 1) {
+  const safeWid = Number(wid) > 0 ? Number(wid) : 1;
   const [vacuumRows, vaultPinsRaw] = await Promise.all([
     sql`
       SELECT
@@ -170,10 +178,20 @@ export async function queryVaultAndVacuum(sql, folderIdNum, _env) {
       JOIN tracked_keywords tk ON tk.id = ksp.keyword_id
       WHERE ksp.is_displaced = TRUE
         AND ksp.displaced_date >= CURRENT_DATE - 7
-        AND (${folderIdNum}::int IS NULL OR EXISTS (
-          SELECT 1 FROM keyword_folder_items fi 
-          WHERE fi.keyword_id = ksp.keyword_id AND fi.folder_id = ${folderIdNum}::int
-        ))
+        AND (
+          (${folderIdNum}::int IS NULL AND (${safeWid}::int = 1 OR EXISTS (
+            SELECT 1 FROM keyword_folder_items fi_ws
+            JOIN keyword_folders kf_ws ON kf_ws.id = fi_ws.folder_id
+            WHERE fi_ws.keyword_id = ksp.keyword_id AND kf_ws.workspace_id = ${safeWid}
+          )))
+          OR EXISTS (
+            SELECT 1 FROM keyword_folder_items fi
+            JOIN keyword_folders kf_scope ON kf_scope.id = fi.folder_id
+            WHERE fi.keyword_id = ksp.keyword_id
+              AND fi.folder_id = ${folderIdNum}::int
+              AND kf_scope.workspace_id = ${safeWid}
+          )
+        )
       GROUP BY ksp.keyword_id, tk.keyword;
     `,
     sql`
@@ -190,10 +208,20 @@ export async function queryVaultAndVacuum(sql, folderIdNum, _env) {
         WHERE ksp.is_displaced = TRUE
           AND (ump.daily_save_velocity > 0 OR COALESCE(ump.delta_repins_24h, 0) > 0)
           AND ksp.updated_at >= NOW() - INTERVAL '48 hours'
-          AND (${folderIdNum}::int IS NULL OR EXISTS (
-            SELECT 1 FROM keyword_folder_items fi 
-            WHERE fi.keyword_id = ksp.keyword_id AND fi.folder_id = ${folderIdNum}::int
-          ))
+          AND (
+            (${folderIdNum}::int IS NULL AND (${safeWid}::int = 1 OR EXISTS (
+              SELECT 1 FROM keyword_folder_items fi_ws
+              JOIN keyword_folders kf_ws ON kf_ws.id = fi_ws.folder_id
+              WHERE fi_ws.keyword_id = ksp.keyword_id AND kf_ws.workspace_id = ${safeWid}
+            )))
+            OR EXISTS (
+              SELECT 1 FROM keyword_folder_items fi
+              JOIN keyword_folders kf_scope ON kf_scope.id = fi.folder_id
+              WHERE fi.keyword_id = ksp.keyword_id
+                AND fi.folder_id = ${folderIdNum}::int
+                AND kf_scope.workspace_id = ${safeWid}
+            )
+          )
         ORDER BY ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST
         LIMIT 2500
       )
@@ -242,7 +270,8 @@ export async function queryVaultAndVacuum(sql, folderIdNum, _env) {
 /**
  * Query 6: Top 150 Surging Competitor & Creator Pins (competitor_board_pins + universal_master_pins)
  */
-export async function queryViralCreatorPins(sql, folderIdNum) {
+export async function queryViralCreatorPins(sql, folderIdNum, wid = 1) {
+  const safeWid = Number(wid) > 0 ? Number(wid) : 1;
   return await sql`
     SELECT
       ump.pin_id,
@@ -265,10 +294,27 @@ export async function queryViralCreatorPins(sql, folderIdNum) {
     JOIN competitor_profiles cp ON cp.id = cbp.competitor_id
     JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
     WHERE COALESCE(NULLIF(ump.image_url, ''), '') <> ''
-      AND (${folderIdNum}::int IS NULL OR cp.source_folder_id = ${folderIdNum}::int OR EXISTS (
-        SELECT 1 FROM folder_competitor_items fci 
-        WHERE fci.competitor_id = cbp.competitor_id AND fci.folder_id = ${folderIdNum}::int
-      ))
+      AND (
+        (${folderIdNum}::int IS NULL AND (${safeWid}::int = 1 OR EXISTS (
+          SELECT 1 FROM folder_competitor_items fci_ws
+          JOIN keyword_folders kf_ws ON kf_ws.id = fci_ws.folder_id
+          WHERE fci_ws.competitor_id = cbp.competitor_id AND kf_ws.workspace_id = ${safeWid}
+        ) OR EXISTS (
+          SELECT 1 FROM workspace_watchlist ww_ws
+          WHERE ww_ws.workspace_id = ${safeWid} AND ww_ws.entity_type = 'creator' AND LOWER(ww_ws.entity_key) = LOWER(cp.username)
+        )))
+        OR (cp.source_folder_id = ${folderIdNum}::int AND EXISTS (
+          SELECT 1 FROM keyword_folders kf_src
+          WHERE kf_src.id = cp.source_folder_id AND kf_src.workspace_id = ${safeWid}
+        ))
+        OR EXISTS (
+          SELECT 1 FROM folder_competitor_items fci
+          JOIN keyword_folders kf_scope ON kf_scope.id = fci.folder_id
+          WHERE fci.competitor_id = cbp.competitor_id
+            AND fci.folder_id = ${folderIdNum}::int
+            AND kf_scope.workspace_id = ${safeWid}
+        )
+      )
       AND (ump.daily_save_velocity > 0 OR COALESCE(ump.delta_saves_24h, 0) > 0 OR COALESCE(ump.delta_repins_24h, 0) > 0 OR COALESCE(ump.save_count, 0) >= 50)
     ORDER BY ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST
     LIMIT 120;
@@ -278,7 +324,8 @@ export async function queryViralCreatorPins(sql, folderIdNum) {
 /**
  * Query 3: Global Guided Search Capsules Query (keyword_guided_capsules)
  */
-export async function queryGuidedCapsules(sql, folderIdNum) {
+export async function queryGuidedCapsules(sql, folderIdNum, wid = 1) {
+  const safeWid = Number(wid) > 0 ? Number(wid) : 1;
   return await sql`
     SELECT
       c.id,
@@ -292,10 +339,20 @@ export async function queryGuidedCapsules(sql, folderIdNum) {
       tk.category AS keyword_category
     FROM keyword_guided_capsules c
     JOIN tracked_keywords tk ON tk.id = c.keyword_id
-    WHERE (${folderIdNum}::int IS NULL OR EXISTS (
-      SELECT 1 FROM keyword_folder_items fi 
-      WHERE fi.keyword_id = c.keyword_id AND fi.folder_id = ${folderIdNum}::int
-    ))
+    WHERE (
+      (${folderIdNum}::int IS NULL AND (${safeWid}::int = 1 OR EXISTS (
+        SELECT 1 FROM keyword_folder_items fi_ws
+        JOIN keyword_folders kf_ws ON kf_ws.id = fi_ws.folder_id
+        WHERE fi_ws.keyword_id = c.keyword_id AND kf_ws.workspace_id = ${safeWid}
+      )))
+      OR EXISTS (
+        SELECT 1 FROM keyword_folder_items fi
+        JOIN keyword_folders kf_scope ON kf_scope.id = fi.folder_id
+        WHERE fi.keyword_id = c.keyword_id
+          AND fi.folder_id = ${folderIdNum}::int
+          AND kf_scope.workspace_id = ${safeWid}
+      )
+    )
     ORDER BY c.score DESC, c.display_order ASC
     LIMIT 1000;
   `;
@@ -304,7 +361,8 @@ export async function queryGuidedCapsules(sql, folderIdNum) {
 /**
  * Query 4: Breakout Creators with Historical Delta Fallbacks and Top 3 Driver Pins
  */
-export async function queryBreakoutCreators(sql, folderIdNum) {
+export async function queryBreakoutCreators(sql, folderIdNum, wid = 1) {
+  const safeWid = Number(wid) > 0 ? Number(wid) : 1;
   return await sql`
     WITH snap_prev1d AS (
       SELECT competitor_id, monthly_reach AS prev_reach_1d, profile_views AS prev_views_1d
@@ -365,10 +423,27 @@ export async function queryBreakoutCreators(sql, folderIdNum) {
           OR cprof.reach_delta_7d <> 0
           OR sp1.prev_reach_1d IS NOT NULL
         )
-        AND (${folderIdNum}::int IS NULL OR cprof.source_folder_id = ${folderIdNum}::int OR EXISTS (
-          SELECT 1 FROM folder_competitor_items fci 
-          WHERE fci.competitor_id = cprof.id AND fci.folder_id = ${folderIdNum}::int
-        ))
+        AND (
+          (${folderIdNum}::int IS NULL AND (${safeWid}::int = 1 OR EXISTS (
+            SELECT 1 FROM folder_competitor_items fci_ws
+            JOIN keyword_folders kf_ws ON kf_ws.id = fci_ws.folder_id
+            WHERE fci_ws.competitor_id = cprof.id AND kf_ws.workspace_id = ${safeWid}
+          ) OR EXISTS (
+            SELECT 1 FROM workspace_watchlist ww_ws
+            WHERE ww_ws.workspace_id = ${safeWid} AND ww_ws.entity_type = 'creator' AND LOWER(ww_ws.entity_key) = LOWER(cprof.username)
+          )))
+          OR (cprof.source_folder_id = ${folderIdNum}::int AND EXISTS (
+            SELECT 1 FROM keyword_folders kf_src
+            WHERE kf_src.id = cprof.source_folder_id AND kf_src.workspace_id = ${safeWid}
+          ))
+          OR EXISTS (
+            SELECT 1 FROM folder_competitor_items fci
+            JOIN keyword_folders kf_scope ON kf_scope.id = fci.folder_id
+            WHERE fci.competitor_id = cprof.id
+              AND fci.folder_id = ${folderIdNum}::int
+              AND kf_scope.workspace_id = ${safeWid}
+          )
+        )
     ),
     top_creators AS (
       SELECT *
@@ -515,7 +590,8 @@ export async function queryBreakoutCreators(sql, folderIdNum) {
 /**
  * Query 5: PinArchive 24h Winners & Domain Arbitrage Leaders (universal_master_pins SSOT)
  */
-export async function queryWinnersAndDomains(sql) {
+export async function queryWinnersAndDomains(sql, wid = 1) {
+  const safeWid = Number(wid) > 0 ? Number(wid) : 1;
   const [paWinners, domainRollups] = await Promise.all([
     sql`
       SELECT
@@ -540,6 +616,20 @@ export async function queryWinnersAndDomains(sql) {
       WHERE (
         ump.daily_save_velocity > 0
         OR (COALESCE(ump.save_count, 0) >= 100 AND COALESCE(ump.last_scraped_at, ump.updated_at, NOW()) >= NOW() - INTERVAL '48 hours')
+      )
+      AND (
+        ${safeWid}::int = 1
+        OR EXISTS (
+          SELECT 1
+          FROM keyword_serp_positions ksp_ws
+          JOIN keyword_folder_items kfi_ws ON kfi_ws.keyword_id = ksp_ws.keyword_id
+          JOIN keyword_folders kf_ws ON kf_ws.id = kfi_ws.folder_id
+          WHERE ksp_ws.pin_id = ump.pin_id AND kf_ws.workspace_id = ${safeWid}
+        )
+        OR EXISTS (
+          SELECT 1 FROM workspace_watchlist ww_ws
+          WHERE ww_ws.workspace_id = ${safeWid} AND ww_ws.entity_type = 'pin' AND ww_ws.entity_key = ump.pin_id
+        )
       )
       ORDER BY ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST
       LIMIT 100;
@@ -569,6 +659,21 @@ export async function queryWinnersAndDomains(sql) {
         COALESCE(dir.arbitrage_score, 0) AS arbitrage_score
       FROM domain_intelligence_rollup dir
       WHERE (dir.avg_velocity > 0 OR dir.arbitrage_score > 0)
+        AND (
+          ${safeWid}::int = 1
+          OR EXISTS (
+            SELECT 1 FROM workspace_watchlist ww_ws
+            WHERE ww_ws.workspace_id = ${safeWid}
+              AND ww_ws.entity_type = 'domain'
+              AND REGEXP_REPLACE(LOWER(ww_ws.entity_key), '^www\\.', '') = REGEXP_REPLACE(LOWER(dir.domain), '^www\\.', '')
+          )
+          OR EXISTS (
+            SELECT 1 FROM folder_pinned_domains fpd_ws
+            JOIN keyword_folders kf_ws ON kf_ws.id = fpd_ws.folder_id
+            WHERE kf_ws.workspace_id = ${safeWid}
+              AND REGEXP_REPLACE(LOWER(fpd_ws.domain), '^www\\.', '') = REGEXP_REPLACE(LOWER(dir.domain), '^www\\.', '')
+          )
+        )
       ORDER BY dir.arbitrage_score DESC, dir.avg_velocity DESC
       LIMIT 30;
     `
@@ -582,30 +687,53 @@ export async function queryWinnersAndDomains(sql) {
  * falling back cleanly to universal_master_pins if the materialized view is empty or unpopulated.
  * When folderIdNum is specified, computes folder-specific KPIs joined against keyword_folder_items.
  */
-export async function queryKPIs(sql, folderIdNum = null) {
+export async function queryKPIs(sql, folderIdNum = null, wid = 1) {
   if (!sql) return null;
+  const safeWid = Number(wid) > 0 ? Number(wid) : 1;
 
-  // 1. When folderIdNum !== null, bypass global matview and compute folder-specific 24h KPIs
-  if (folderIdNum !== null && folderIdNum !== undefined) {
+  // 1. When folderIdNum !== null (or wid !== 1 Global Pulse), bypass global matview and compute scoped 24h KPIs
+  if ((folderIdNum !== null && folderIdNum !== undefined) || safeWid !== 1) {
     try {
-      const folderRows = await sql`
-        SELECT
-          COUNT(DISTINCT ump.pin_id)::bigint AS active_pins_24h,
-          COUNT(DISTINCT CASE
-            WHEN LOWER(BTRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
-            ELSE LOWER(BTRIM(ump.clean_domain))
-          END)::bigint AS active_domains_24h,
-          COUNT(DISTINCT NULLIF(BTRIM(ump.creator_username), ''))::bigint AS active_creators_24h,
-          COALESCE(ROUND(AVG(ump.daily_save_velocity)::numeric, 2), 0)::numeric(12,2) AS avg_velocity_24h,
-          COALESCE(MAX(ump.daily_save_velocity), 0)::numeric(12,2) AS max_velocity_24h,
-          COALESCE(SUM(GREATEST(0, COALESCE(ump.delta_saves_24h, ROUND(ump.daily_save_velocity)::bigint, 0))), 0)::bigint AS total_delta_saves_24h
-        FROM keyword_folder_items kfi
-        JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
-        JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
-        WHERE kfi.folder_id = ${folderIdNum}::int
-          AND ump.is_hydrated = TRUE
-          AND (ump.last_scraped_at >= NOW() - INTERVAL '24 hours' OR ump.updated_at >= NOW() - INTERVAL '24 hours');
-      `;
+      const folderRows = folderIdNum !== null && folderIdNum !== undefined
+        ? await sql`
+            SELECT
+              COUNT(DISTINCT ump.pin_id)::bigint AS active_pins_24h,
+              COUNT(DISTINCT CASE
+                WHEN LOWER(BTRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+                ELSE LOWER(BTRIM(ump.clean_domain))
+              END)::bigint AS active_domains_24h,
+              COUNT(DISTINCT NULLIF(BTRIM(ump.creator_username), ''))::bigint AS active_creators_24h,
+              COALESCE(ROUND(AVG(ump.daily_save_velocity)::numeric, 2), 0)::numeric(12,2) AS avg_velocity_24h,
+              COALESCE(MAX(ump.daily_save_velocity), 0)::numeric(12,2) AS max_velocity_24h,
+              COALESCE(SUM(GREATEST(0, COALESCE(ump.delta_saves_24h, ROUND(ump.daily_save_velocity)::bigint, 0))), 0)::bigint AS total_delta_saves_24h
+            FROM keyword_folder_items kfi
+            JOIN keyword_folders kf ON kf.id = kfi.folder_id
+            JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
+            JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+            WHERE kfi.folder_id = ${folderIdNum}::int
+              AND kf.workspace_id = ${safeWid}
+              AND ump.is_hydrated = TRUE
+              AND (ump.last_scraped_at >= NOW() - INTERVAL '24 hours' OR ump.updated_at >= NOW() - INTERVAL '24 hours');
+          `
+        : await sql`
+            SELECT
+              COUNT(DISTINCT ump.pin_id)::bigint AS active_pins_24h,
+              COUNT(DISTINCT CASE
+                WHEN LOWER(BTRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
+                ELSE LOWER(BTRIM(ump.clean_domain))
+              END)::bigint AS active_domains_24h,
+              COUNT(DISTINCT NULLIF(BTRIM(ump.creator_username), ''))::bigint AS active_creators_24h,
+              COALESCE(ROUND(AVG(ump.daily_save_velocity)::numeric, 2), 0)::numeric(12,2) AS avg_velocity_24h,
+              COALESCE(MAX(ump.daily_save_velocity), 0)::numeric(12,2) AS max_velocity_24h,
+              COALESCE(SUM(GREATEST(0, COALESCE(ump.delta_saves_24h, ROUND(ump.daily_save_velocity)::bigint, 0))), 0)::bigint AS total_delta_saves_24h
+            FROM keyword_folders kf
+            JOIN keyword_folder_items kfi ON kfi.folder_id = kf.id
+            JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
+            JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+            WHERE kf.workspace_id = ${safeWid}
+              AND ump.is_hydrated = TRUE
+              AND (ump.last_scraped_at >= NOW() - INTERVAL '24 hours' OR ump.updated_at >= NOW() - INTERVAL '24 hours');
+          `;
       if (folderRows && folderRows.length > 0) {
         const r = folderRows[0];
         return {

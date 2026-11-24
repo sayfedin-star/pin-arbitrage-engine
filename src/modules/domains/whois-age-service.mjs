@@ -259,7 +259,7 @@ export async function fetchAndCacheDomainAge(sql, rawDomain, { forceRefresh = fa
           AND (
             lookup_status = 'resolved'
             OR age_status = 'resolved'
-            OR ((lookup_status = 'failed' OR age_status = 'failed') AND COALESCE(whois_checked_at, updated_at) > ${referenceTime}::timestamptz - INTERVAL '3 days')
+            OR ((lookup_status = 'failed' OR age_status = 'failed') AND COALESCE(whois_checked_at, updated_at) > ${referenceTime}::timestamptz - INTERVAL '60 minutes')
           )
         LIMIT 1;
       `;
@@ -577,7 +577,7 @@ export async function enrichMissingDomainsBatch(sql, candidateDomains = [], maxB
   for (let i = 0; i < unique.length; i++) {
     const res = await fetchAndCacheDomainAge(sql, unique[i], { forceRefresh });
     if (res) results.push(res);
-    if (i < unique.length - 1) {
+    if (i < unique.length - 1 && !res?.cached) {
       await sleep(randomJitterMs(350, 750));
     }
   }
@@ -745,7 +745,7 @@ export async function enrichNextUncheckedBatch(sql, { batchSize = 20, concurrenc
     });
     const batchOutputs = await Promise.all(chunkPromises);
     results.push(...batchOutputs.filter(Boolean));
-    if (idx + 1 < chunks.length) {
+    if (idx + 1 < chunks.length && batchOutputs.some((r) => r && !r.cached)) {
       await sleep(randomJitterMs(250, 500));
     }
   }

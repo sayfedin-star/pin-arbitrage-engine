@@ -168,19 +168,22 @@ test('Wave 4 Pin 3: 5 GitHub Actions workflows pass YAML audit and Newborn Hunt 
 // PIN 2 & PILLAR 2: MAX(serp_top_n) + TOP-N CAMPAIGN SYNC + WATCHLIST PINS
 // =========================================================================
 
-test('Wave 4 Pin 2: resolveKeywordMaxSerpTopN clamps [10..50], uses PG16 kf.metadata predicate, handles NULL and 42703 cleanly', async () => {
+test('Wave 4 Pin 2: resolveKeywordMaxSerpTopN clamps [5..100], uses PG16 kf.metadata predicate, handles NULL and 42703 cleanly', async () => {
   const sqlLow = createMockSql((query) => {
     assert.match(query, /kf\.metadata->>'status'/i, 'Must filter campaign status via PG16 JSONB kf.metadata');
     assert.match(query, /kf\.metadata->>'pause_crawlers'/i, 'Must respect pause_crawlers flag in kf.metadata');
-    return [{ max_top_n: 5 }];
+    return [{ max_top_n: 2 }];
   });
-  assert.equal(await resolveKeywordMaxSerpTopN(sqlLow, 101), 10);
+  assert.equal(await resolveKeywordMaxSerpTopN(sqlLow, 101), 5);
+
+  const sqlFive = createMockSql(() => [{ max_top_n: 5 }]);
+  assert.equal(await resolveKeywordMaxSerpTopN(sqlFive, 101), 5);
 
   const sqlMid = createMockSql(() => [{ max_top_n: 35 }]);
   assert.equal(await resolveKeywordMaxSerpTopN(sqlMid, 101), 35);
 
   const sqlHigh = createMockSql(() => [{ max_top_n: 120 }]);
-  assert.equal(await resolveKeywordMaxSerpTopN(sqlHigh, 101), 50);
+  assert.equal(await resolveKeywordMaxSerpTopN(sqlHigh, 101), 100);
 
   const sqlNone = createMockSql(() => [{ max_top_n: null }]);
   assert.equal(await resolveKeywordMaxSerpTopN(sqlNone, 101), null);

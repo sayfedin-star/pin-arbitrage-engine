@@ -7,7 +7,7 @@ import { getFoldersStudioViewHtml } from './folders-studio-view.mjs';
 import { getFoldersHubViewHtml } from './folders-hub-view.mjs';
 import { getFoldersModalsHtml } from './folders-modals.mjs';
 import { renderClientJsScriptTag, renderPageBootstrapScript } from '../client-assets.mjs';
-import { renderSharedDocumentHead } from '../shared-head.mjs';
+import { renderSharedDocumentHead, compactHtmlFragment } from '../shared-head.mjs';
 
 export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
   const rawId = String(folderId || '').trim();
@@ -58,7 +58,7 @@ ${renderSharedDocumentHead({
   ${renderAppSidebar({ activeNav: 'folders', refreshHandler: 'activeFolderId ? loadActiveFolder(true) : loadFolders()' })}
 
   <!-- Main View (Offset for Unified Desktop Sidebar) -->
-  <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
+  <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? 'md:!ml-20' : 'md:ml-64 lg:ml-72'">
 
     <template x-if="!activeFolderId">
       <section class="p-4 sm:p-5 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A]/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -96,13 +96,13 @@ ${renderSharedDocumentHead({
       </section>
     </template>
 
-    ${getFoldersStudioViewHtml({ activeRoom, safeFolderId })}
+    ${compactHtmlFragment(getFoldersStudioViewHtml({ activeRoom, safeFolderId }))}
 
-    ${getFoldersHubViewHtml()}
+    ${compactHtmlFragment(getFoldersHubViewHtml())}
 
   </main>
 
-  ${getFoldersModalsHtml()}
+  ${compactHtmlFragment(getFoldersModalsHtml())}
 
 ${renderPageBootstrapScript({ folderId: safeFolderId, initialRoom: activeRoom })}
 ${renderClientJsScriptTag('folders')}

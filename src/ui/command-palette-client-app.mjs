@@ -434,7 +434,7 @@ export function getAppSidebarClientScriptCode() {
                 if (seq !== this._cmdSeq || this.cmdTrimmed.toLowerCase() !== q.toLowerCase()) return;
                 var entities = (data && data.entities) ? data.entities : {
                   keywords: Array.isArray(data?.results) ? data.results.map(function(r) {
-                    return { id: r.id || r.keyword, keyword: r.keyword, url: r.url || ('/keywords/' + encodeURIComponent(String(r.keyword || '').toLowerCase().trim().split(' ').filter(Boolean).join('-'))), active_pin_count: r.active_pin_count || r.pin_count || 0, avg_daily_velocity: r.avg_daily_velocity || 0, is_active: r.is_active !== false };
+                    return { id: r.id || r.keyword, keyword: r.keyword, url: r.url || ('/keywords/' + encodeURIComponent(String(r.keyword || '').toLowerCase().trim().split(' ').filter(Boolean).join('-'))), active_pin_count: r.active_pin_count ?? r.pin_count ?? 0, avg_daily_velocity: r.avg_daily_velocity ?? 0, is_active: r.is_active !== false };
                   }) : [],
                   creators: [],
                   folders: [],

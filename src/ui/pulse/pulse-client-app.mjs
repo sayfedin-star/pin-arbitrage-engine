@@ -683,8 +683,8 @@ export function getPulseClientAppScript() {
           }
 
           list.sort(function(a, b) {
-            var gainA = Number(a.effective_24h_gain || a.daily_save_velocity || a.delta_saves_24h || 0);
-            var gainB = Number(b.effective_24h_gain || b.daily_save_velocity || b.delta_saves_24h || 0);
+            var gainA = Number(a.effective_24h_gain ?? a.daily_save_velocity ?? a.delta_saves_24h ?? 0);
+            var gainB = Number(b.effective_24h_gain ?? b.daily_save_velocity ?? b.delta_saves_24h ?? 0);
             if (gainB !== gainA) return gainB - gainA;
             return (Number(b.save_count) || 0) - (Number(a.save_count) || 0);
           });
@@ -785,7 +785,7 @@ export function getPulseClientAppScript() {
                       keyword_id: rk.keyword_id,
                       keyword: rk.keyword,
                       keyword_text: rk.keyword,
-                      rank: rk.rank || rk.rank_position || rk.last_known_rank || 1,
+                      rank: rk.rank ?? rk.rank_position ?? rk.last_known_rank ?? 1,
                       folder_name: rk.folder_name || 'Global'
                     };
                   });

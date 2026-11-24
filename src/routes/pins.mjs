@@ -16,6 +16,8 @@ import {
 
 import { fetchPinFromPinterest, fetchPinFromPinResource, resolvePinterestShortlink } from '../core/pinterest/index.mjs';
 import { ignoreAndRemoveSerpPin } from '../modules/keywords/service.mjs';
+import { invalidateFolderCache } from '../modules/keywords/folders-crossover.mjs';
+import { invalidateGlobalPulseCache } from '../modules/pulse/service.mjs';
 import { fetchPinAnnotationsIntel } from '../modules/pins/annotations-intel.mjs';
 import {
   recordDeletedSnapshotTombstone,
@@ -116,6 +118,12 @@ export async function handlePinsRoutes({
       await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
       await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
       await invalidateEdgeCache('keywords:pin-dossier');
+      await invalidateEdgeCache('keywords');
+      await invalidateEdgeCache('domains:leaderboard');
+      await invalidateEdgeCache('domains:dossier');
+      await invalidateEdgeCache('creators');
+      invalidateFolderCache();
+      await invalidateGlobalPulseCache(env, ctx).catch(() => {});
       return jsonResponse({ success: true, deleted_snapshot: rawSnapshotParam, pin_id: pinId });
     }
 
@@ -148,8 +156,18 @@ export async function handlePinsRoutes({
     await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
     await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
     await invalidateEdgeCache('keywords:pin-dossier');
+    await invalidateEdgeCache('keywords');
+    await invalidateEdgeCache('domains:leaderboard');
+    await invalidateEdgeCache('domains:dossier');
+    await invalidateEdgeCache('creators');
+    invalidateFolderCache();
+    await invalidateGlobalPulseCache(env, ctx).catch(() => {});
 
-    return jsonResponse({ success: true, deleted_snapshot: rawSnapshotParam, pin_id: pinId });
+    return jsonResponse({
+      success: true,
+      deleted_snapshot: rawSnapshotParam,
+      pin_id: pinId
+    });
   }
 
   // 1A. DELETE /api/pins/:pin_id/serp-positions (Delete specific SERP position for a keyword)
@@ -180,17 +198,31 @@ export async function handlePinsRoutes({
     }
 
     // Tombstone in keyword_ignored_pins and delete from keyword_serp_positions
-    await ignoreAndRemoveSerpPin(sql, {
-      keywordId: kwId,
-      pinId,
-      reason: 'manual_user_deletion'
-    }).catch((err) => { console.error(`[PinsRoute.DELETE serp-positions] Failed deleting position for pin ${pinId}:`, err?.message || err); });
+    try {
+      await ignoreAndRemoveSerpPin(sql, {
+        keywordId: kwId,
+        pinId,
+        reason: 'manual_user_deletion'
+      });
+    } catch (err) {
+      const safeErr = redactSecrets ? redactSecrets(err?.message || String(err)) : (err?.message || String(err));
+      console.error(`[PinsRoute.DELETE serp-positions] Failed deleting position for pin ${pinId}:`, safeErr);
+      return jsonResponse({
+        success: false,
+        error: 'SERP_POSITION_DELETE_FAILED',
+        message: safeErr
+      }, 500);
+    }
 
     await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
     await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
     await invalidateEdgeCache('keywords:pin-dossier');
     await invalidateEdgeCache('keywords');
     await invalidateEdgeCache('folders');
+    await invalidateEdgeCache('domains:leaderboard');
+    await invalidateEdgeCache('domains:dossier');
+    invalidateFolderCache();
+    await invalidateGlobalPulseCache(env, ctx).catch(() => {});
 
     return jsonResponse({
       success: true,
@@ -224,6 +256,12 @@ export async function handlePinsRoutes({
     await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
     await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
     await invalidateEdgeCache('keywords:pin-dossier');
+    await invalidateEdgeCache('keywords');
+    await invalidateEdgeCache('domains:leaderboard');
+    await invalidateEdgeCache('domains:dossier');
+    await invalidateEdgeCache('creators');
+    invalidateFolderCache();
+    await invalidateGlobalPulseCache(env, ctx).catch(() => {});
 
     return jsonResponse({
       success: true,
@@ -279,6 +317,12 @@ export async function handlePinsRoutes({
       await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
       await invalidateEdgeCache(`pin:trajectory?pin_id=${pinId}`);
       await invalidateEdgeCache('keywords:pin-dossier');
+      await invalidateEdgeCache('keywords');
+      await invalidateEdgeCache('domains:leaderboard');
+      await invalidateEdgeCache('domains:dossier');
+      await invalidateEdgeCache('creators');
+      invalidateFolderCache();
+      await invalidateGlobalPulseCache(env, ctx).catch(() => {});
 
       return jsonResponse({
         success: true,
@@ -356,6 +400,23 @@ export async function handlePinsRoutes({
       const runInTx = async (fn) => (typeof sql?.begin === 'function' ? sql.begin(fn) : fn(sql));
       try {
         await runInTx(async (tx) => {
+          const execOptionalDelete = async (spName, fn) => {
+            const canSavepoint = typeof tx?.unsafe === 'function';
+            if (canSavepoint) await tx.unsafe(`SAVEPOINT ${spName};`);
+            try {
+              await fn();
+              if (canSavepoint) await tx.unsafe(`RELEASE SAVEPOINT ${spName};`);
+            } catch (err) {
+              if (canSavepoint) await tx.unsafe(`ROLLBACK TO SAVEPOINT ${spName};`);
+              const code = String(err?.code || '');
+              const msg = String(err?.message || '');
+              if (code === '42P01' || code === '42703' || /does\s+not\s+exist/i.test(msg)) {
+                return;
+              }
+              throw err;
+            }
+          };
+
           await tx`DELETE FROM universal_master_pins WHERE pin_id = ${pinId};`;
           await tx`DELETE FROM pins_daily_metrics WHERE pin_id = ${pinId};`;
           await tx`DELETE FROM keyword_serp_positions WHERE pin_id = ${pinId};`;
@@ -364,6 +425,14 @@ export async function handlePinsRoutes({
           await tx`DELETE FROM candidate_graph_nodes WHERE candidate_pin_id = ${pinId} OR seed_pin_id = ${pinId};`;
           await tx`DELETE FROM competitor_seed_pins WHERE pin_id = ${pinId};`;
           await tx`DELETE FROM cluster_seeds WHERE pin_id = ${pinId};`;
+          await execOptionalDelete('sp_del_ctp', () => tx`DELETE FROM campaign_tracked_pins WHERE pin_id = ${pinId};`);
+          await execOptionalDelete('sp_del_cpgs', () => tx`DELETE FROM campaign_pin_graph_seeds WHERE seed_pin_id = ${pinId};`);
+          await execOptionalDelete('sp_del_ww', () => tx`DELETE FROM workspace_watchlist WHERE entity_type = 'pin' AND entity_key = ${pinId};`);
+          await execOptionalDelete('sp_del_ncs', () => tx`DELETE FROM newborn_candidate_snapshots WHERE pin_id = ${pinId};`);
+          await execOptionalDelete('sp_del_nrc', () => tx`DELETE FROM newborn_run_candidates WHERE pin_id = ${pinId};`);
+          await execOptionalDelete('sp_del_nda', () => tx`DELETE FROM newborn_daily_anchors WHERE pin_id = ${pinId};`);
+          await execOptionalDelete('sp_del_nc', () => tx`DELETE FROM newborn_candidates WHERE pin_id = ${pinId};`);
+          await execOptionalDelete('sp_del_pvsc', () => tx`DELETE FROM pin_visual_search_cache WHERE pin_id = ${pinId};`);
         });
       } catch (err) {
         console.error(`[PinsRoute.DELETE pin] atomic cascade delete failed for ${pinId}:`, err?.message || err);
@@ -382,8 +451,12 @@ export async function handlePinsRoutes({
       await invalidateEdgeCache('keywords');
       await invalidateEdgeCache('folders');
       await invalidateEdgeCache('domains:leaderboard');
+      await invalidateEdgeCache('domains:dossier');
       await invalidateEdgeCache('creators');
       await invalidateEdgeCache('competitors');
+      await invalidateEdgeCache('newborn');
+      invalidateFolderCache();
+      await invalidateGlobalPulseCache(env, ctx).catch(() => {});
 
       return jsonResponse({ success: true, purged: true, pin_id: pinId });
     }

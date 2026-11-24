@@ -749,6 +749,23 @@ export async function deleteCompetitor(sql, idOrUsername) {
     targetId = targetProfile?.id ? Number(targetProfile.id) : (!isNaN(numId) && numId > 0 ? numId : null);
     targetUsername = cleanUser || (targetProfile?.username ? normalizePinterestUsername(targetProfile.username) : '');
 
+    const execOptionalCleanup = async (spName, fn) => {
+      const canSavepoint = typeof tx?.unsafe === 'function';
+      if (canSavepoint) await tx.unsafe(`SAVEPOINT ${spName};`);
+      try {
+        await fn();
+        if (canSavepoint) await tx.unsafe(`RELEASE SAVEPOINT ${spName};`);
+      } catch (err) {
+        if (canSavepoint) await tx.unsafe(`ROLLBACK TO SAVEPOINT ${spName};`);
+        const code = String(err?.code || '');
+        const msg = String(err?.message || '');
+        if (code === '42P01' || code === '42703' || /does\s+not\s+exist/i.test(msg)) {
+          return;
+        }
+        throw err;
+      }
+    };
+
     if (targetId) {
       await tx`DELETE FROM competitor_board_pins WHERE competitor_id = ${targetId};`;
       await tx`DELETE FROM competitor_boards WHERE competitor_id = ${targetId};`;
@@ -762,9 +779,18 @@ export async function deleteCompetitor(sql, idOrUsername) {
         await pruneOrphanCandidateGraphNodes(tx, deletedSeeds.map(r => r.pin_id));
       }
       await tx`DELETE FROM folder_competitor_items WHERE competitor_id = ${targetId};`;
+      await execOptionalCleanup('sp_rookie_unlink', () => tx`
+        UPDATE newborn_rookie_accounts
+        SET promoted_competitor_id = NULL, updated_at = NOW()
+        WHERE promoted_competitor_id = ${targetId};
+      `);
     }
 
     if (targetUsername) {
+      await execOptionalCleanup('sp_watchlist_creator_del', () => tx`
+        DELETE FROM workspace_watchlist
+        WHERE entity_type = 'creator' AND LOWER(entity_key) = ${targetUsername};
+      `);
       await tx`DELETE FROM competitor_profiles WHERE LOWER(username) = ${targetUsername};`;
     }
     if (targetId) {

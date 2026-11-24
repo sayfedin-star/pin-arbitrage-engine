@@ -60,6 +60,7 @@ import { verifyApiAuthentication } from '../http/security-and-response.mjs';
 import { deletePinSnapshotByTarget } from '../modules/pins/snapshot-service.mjs';
 import { DEFAULT_WORKSPACE_ID, resolveWorkspaceRawCookie, assertFolderInWorkspace } from '../modules/workspaces/service.mjs';
 import { invalidateFolderCache, normalizeFolderMetadata } from '../modules/keywords/folders-crossover.mjs';
+import { invalidateGlobalPulseCache } from '../modules/pulse/service.mjs';
 
 const CLIENT_COOKIE_FORBIDDEN_PAYLOAD = {
   ok: false,
@@ -128,7 +129,10 @@ export async function handleCreatorsRoutes(routeCtx) {
       invalidateEdgeCache('pinarchive');
       invalidateEdgeCache('topics');
       invalidateEdgeCache('settings');
+      invalidateEdgeCache('domains:leaderboard');
+      invalidateEdgeCache('domains:dossier');
     }
+    invalidateGlobalPulseCache(env, ctx).catch(() => {});
   };
 
   // 0. GET & POST /api/creators/settings
@@ -139,13 +143,10 @@ export async function handleCreatorsRoutes(routeCtx) {
       return jsonResponse({ success: true, settings }, 200, -1);
     }
     if (method === 'POST') {
-      try {
-        const body = await request.json().catch(() => ({}));
-        const updated = await updateCreatorHubSettings(sql, body);
-        return jsonResponse({ success: true, settings: updated }, 200, -1);
-      } finally {
-        invalidateCreatorsCache();
-      }
+      const body = await request.json().catch(() => ({}));
+      const updated = await updateCreatorHubSettings(sql, body);
+      invalidateCreatorsCache();
+      return jsonResponse({ success: true, settings: updated }, 200, -1);
     }
     return (typeof routeCtx.methodNotAllowedResponse === 'function'
       ? routeCtx.methodNotAllowedResponse('GET, POST')
@@ -216,14 +217,13 @@ export async function handleCreatorsRoutes(routeCtx) {
     const cookie = await resolveWorkspaceCookieForCreators(sql, workspaceId, env);
     try {
       const result = await quickPulseCreator(sql, targetId, cookie, { disableGlobalCookieFallback: true });
+      invalidateCreatorsCache();
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       if (err.message && (err.message.includes('429') || err.message.includes('403')) && typeof tripPinterestCircuitBreaker === 'function') {
         safeWaitUntil?.(ctx, () => tripPinterestCircuitBreaker(env, `Rate limit in quick-pulse: ${err.message}`, 900), 'tripPinterestCircuitBreaker');
       }
       return jsonResponse({ success: false, error: err.message }, 500);
-    } finally {
-      invalidateCreatorsCache();
     }
   }
 
@@ -250,14 +250,13 @@ export async function handleCreatorsRoutes(routeCtx) {
         maxPages,
         maxDurationMs
       });
+      invalidateCreatorsCache();
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       if (err.message && (err.message.includes('429') || err.message.includes('403')) && typeof tripPinterestCircuitBreaker === 'function') {
         safeWaitUntil?.(ctx, () => tripPinterestCircuitBreaker(env, `Rate limit in deep-harvest: ${err.message}`, 900), 'tripPinterestCircuitBreaker');
       }
       return jsonResponse({ success: false, error: err.message }, 500);
-    } finally {
-      invalidateCreatorsCache();
     }
   }
 
@@ -274,6 +273,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     const cookie = await resolveWorkspaceCookieForCreators(sql, workspaceId, env);
     try {
       const updated = await syncCompetitorProfile(sql, username, cookie, { disableGlobalCookieFallback: true });
+      invalidateCreatorsCache();
       return jsonResponse({ success: true, profile: updated });
     } catch (err) {
       if (err.message && (err.message.includes('429') || err.message.includes('rate limit'))) {
@@ -284,8 +284,6 @@ export async function handleCreatorsRoutes(routeCtx) {
         return jsonResponse({ error: 'PINTEREST_ACCESS_DENIED', message: err.message }, 403);
       }
       throw err;
-    } finally {
-      invalidateCreatorsCache();
     }
   }
 
@@ -315,11 +313,10 @@ export async function handleCreatorsRoutes(routeCtx) {
       const cookie = await resolveWorkspaceCookieForCreators(sql, workspaceId, env);
       const result = await syncCompetitorBoards(sql, competitor_id, username, cookie);
       if (!result.ok) return jsonResponse({ success: false, ...result }, 400);
+      invalidateCreatorsCache();
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
-    } finally {
-      invalidateCreatorsCache();
     }
   }
 
@@ -335,30 +332,40 @@ export async function handleCreatorsRoutes(routeCtx) {
       const cookie = await resolveWorkspaceCookieForCreators(sql, workspaceId, env);
       const result = await syncCompetitorPins(sql, competitor_id, username, { mode, maxPages: max_pages, cookie });
       if (!result.ok) return jsonResponse({ success: false, ...result }, 400);
+      invalidateCreatorsCache();
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
-    } finally {
-      invalidateCreatorsCache();
     }
   }
 
   // POST /api/creators/fast-refresh
   if (method === 'POST' && pathname === '/api/creators/fast-refresh') {
     const body = await request.json().catch(() => ({}));
+    if (hasForbiddenClientCookie(body)) {
+      return jsonResponse(CLIENT_COOKIE_FORBIDDEN_PAYLOAD, 400);
+    }
     const { competitor_id, username, competitor_ids } = body;
+    const fastRefreshOpts = {
+      ...(body.limit !== undefined ? { limit: body.limit } : {}),
+      ...(body.requireDeepFields !== undefined ? { requireDeepFields: Boolean(body.requireDeepFields) } : {}),
+      env
+    };
     try {
       if (Array.isArray(competitor_ids) && competitor_ids.length > 0) {
         const results = [];
         let totalRefreshed = 0;
         for (const cId of competitor_ids) {
           try {
-            const r = await fastRefreshCompetitorArchivedPins(sql, cId);
+            const r = await fastRefreshCompetitorArchivedPins(sql, cId, fastRefreshOpts);
             totalRefreshed += (r.refreshed_count || 0);
             results.push({ id: cId, ...r });
           } catch (itemErr) {
             results.push({ id: cId, ok: false, error: itemErr.message });
           }
+        }
+        if (results.some(r => r.ok)) {
+          invalidateCreatorsCache();
         }
         return jsonResponse({
           success: true,
@@ -368,13 +375,12 @@ export async function handleCreatorsRoutes(routeCtx) {
         });
       }
       if (!username && !competitor_id) return jsonResponse({ error: 'username or competitor_id is required' }, 400);
-      const result = await fastRefreshCompetitorArchivedPins(sql, competitor_id || username, body);
+      const result = await fastRefreshCompetitorArchivedPins(sql, competitor_id || username, fastRefreshOpts);
       if (!result.ok) return jsonResponse({ success: false, ...result }, 400);
+      invalidateCreatorsCache();
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
-    } finally {
-      invalidateCreatorsCache();
     }
   }
 
@@ -402,6 +408,9 @@ export async function handleCreatorsRoutes(routeCtx) {
             results.push({ id: cId, ok: false, error: itemErr.message });
           }
         }
+        if (results.some(r => r.ok)) {
+          invalidateCreatorsCache();
+        }
         return jsonResponse({
           success: true,
           creators_audited: results.filter(r => r.ok).length,
@@ -413,11 +422,10 @@ export async function handleCreatorsRoutes(routeCtx) {
       if (!username && !competitor_id) return jsonResponse({ error: 'username or competitor_id is required' }, 400);
       const result = await auditSweepCompetitor(sql, competitor_id || username, sweepOpts);
       if (!result.ok) return jsonResponse({ success: false, ...result }, 400);
+      invalidateCreatorsCache();
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
-    } finally {
-      invalidateCreatorsCache();
     }
   }
 
@@ -444,6 +452,9 @@ export async function handleCreatorsRoutes(routeCtx) {
   if (method === 'POST' && (pathname === '/api/creators/board-detail/sync' || pathname === '/api/creators/board-detail')) {
     let body = {};
     try { body = await request.json(); } catch (_) {}
+    if (hasForbiddenClientCookie(body)) {
+      return jsonResponse(CLIENT_COOKIE_FORBIDDEN_PAYLOAD, 400);
+    }
     const username = body.username || body.account || body.id || searchParams.get('username') || searchParams.get('account') || searchParams.get('id');
     const board = body.board || body.board_name || body.slug || searchParams.get('board') || searchParams.get('board_name') || searchParams.get('slug');
     if (!username || !board) return jsonResponse({ error: 'username and board are required' }, 400);
@@ -453,11 +464,10 @@ export async function handleCreatorsRoutes(routeCtx) {
         allowScrape: true,
         readOnly: false
       });
+      invalidateCreatorsCache();
       return jsonResponse({ success: true, board: boardData }, 200, 0);
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
-    } finally {
-      invalidateCreatorsCache();
     }
   }
 
@@ -581,14 +591,14 @@ export async function handleCreatorsRoutes(routeCtx) {
     try {
       if (id) {
         const result = await saveCompetitorRules(sql, id, body.rules || body);
+        invalidateCreatorsCache();
         return jsonResponse({ success: true, ...result });
       }
       const rules = await updateQualificationRules(sql, body);
+      invalidateCreatorsCache();
       return jsonResponse({ success: true, rules });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
-    } finally {
-      invalidateCreatorsCache();
     }
   }
 
@@ -610,6 +620,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     try {
       if (id) {
         const result = await reEvaluateCompetitorPins(sql, id);
+        invalidateCreatorsCache();
         return jsonResponse({ success: true, ...result });
       }
       const account = searchParams.get('account') || searchParams.get('username') || body.account_username || null;
@@ -624,11 +635,10 @@ export async function handleCreatorsRoutes(routeCtx) {
       ));
       const rulesPayload = hasRuleOverride ? (body.rules || body) : null;
       const audit = await reEvaluateArchivedPins(sql, rulesPayload, account);
+      invalidateCreatorsCache();
       return jsonResponse({ success: true, ...audit });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
-    } finally {
-      invalidateCreatorsCache();
     }
   }
 
@@ -674,6 +684,7 @@ export async function handleCreatorsRoutes(routeCtx) {
         workflowFile: 'crawler-pipeline.yml',
         inputs: {
           target_account: targetUser,
+          folder_id: scopedFolderId !== null && scopedFolderId !== undefined ? String(scopedFolderId).trim() : '',
           target_boards: String(body.target_boards || body.boards || '').trim(),
           crawl_mode: dispatchMode,
           max_pages: maxPages,
@@ -724,11 +735,10 @@ export async function handleCreatorsRoutes(routeCtx) {
     if (!id) return jsonResponse({ error: 'competitor_id is required' }, 400);
     try {
       const result = await addCompetitorSeeds(sql, id, body.pin_ids || body.pins || []);
+      invalidateCreatorsCache();
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
-    } finally {
-      invalidateCreatorsCache();
     }
   }
 
@@ -744,11 +754,10 @@ export async function handleCreatorsRoutes(routeCtx) {
     if (!id || !pinId) return jsonResponse({ error: 'competitor_id and pin_id are required' }, 400);
     try {
       const result = await deleteCompetitorSeed(sql, id, pinId);
+      invalidateCreatorsCache();
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
-    } finally {
-      invalidateCreatorsCache();
     }
   }
 
@@ -782,19 +791,77 @@ export async function handleCreatorsRoutes(routeCtx) {
     const cookie = await resolveWorkspaceCookieForCreators(sql, workspaceId, env);
     try {
       const result = await harvestSinglePinRelatedLive(sql, id, pinId, { env, rawCookie: cookie });
+      invalidateCreatorsCache();
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
-    } finally {
-      invalidateCreatorsCache();
     }
   }
 
   // POST /api/creators/related-pins/dispatch-workflow
   if (method === 'POST' && pathname === '/api/creators/related-pins/dispatch-workflow') {
     const body = await request.json().catch(() => ({}));
+    const scopedFolderId = body.folder_id ?? searchParams?.get?.('folder_id') ?? null;
+    const isFolderMetaPaused = (meta = {}) => Boolean(
+      meta.pause_competitors ||
+      meta.pause_crawlers ||
+      meta.is_crawler_paused ||
+      meta.crawler_paused ||
+      meta.block_fleet ||
+      meta.block_gha_fleet ||
+      ['paused', 'archived'].includes(String(meta.status || '').toLowerCase())
+    );
+    if (scopedFolderId !== null && scopedFolderId !== undefined && String(scopedFolderId).trim() !== '') {
+      const folderRow = await assertFolderInWorkspace(sql, scopedFolderId, workspaceId);
+      const folderMeta = normalizeFolderMetadata(folderRow?.metadata);
+      if (isFolderMetaPaused(folderMeta)) {
+        return jsonResponse({
+          success: false,
+          error: 'FOLDER_COMPETITORS_PAUSED',
+          message: 'Competitor crawling is paused or fleet ingestion is blocked for this campaign.'
+        }, 409);
+      }
+    }
     const username = (body.username || body.target_account || '').replace(/^@+/, '').trim();
     if (!username) return jsonResponse({ error: 'username is required' }, 400);
+    if (scopedFolderId === null || scopedFolderId === undefined || String(scopedFolderId).trim() === '') {
+      const cleanLower = username.toLowerCase();
+      let isOnWatchlist = false;
+      try {
+        const [wwRow] = await sql`
+          SELECT 1
+          FROM workspace_watchlist
+          WHERE entity_type = 'creator'
+            AND LOWER(LTRIM(BTRIM(entity_key), '@')) = ${cleanLower}
+          LIMIT 1;
+        `;
+        isOnWatchlist = Boolean(wwRow);
+      } catch (err) {
+        if (String(err?.code || '') !== '42P01') throw err;
+      }
+      if (!isOnWatchlist) {
+        const linkedFolders = await sql`
+          SELECT kf.metadata
+          FROM folder_competitor_items fci
+          JOIN competitor_profiles cp ON cp.id = fci.competitor_id
+          JOIN keyword_folders kf ON kf.id = fci.folder_id
+          WHERE LOWER(LTRIM(BTRIM(cp.username), '@')) = ${cleanLower};
+        `.catch((err) => {
+          if (String(err?.code || '') === '42P01') return [];
+          throw err;
+        });
+        if (Array.isArray(linkedFolders) && linkedFolders.length > 0) {
+          const allLinkedPaused = linkedFolders.every((row) => isFolderMetaPaused(normalizeFolderMetadata(row?.metadata)));
+          if (allLinkedPaused) {
+            return jsonResponse({
+              success: false,
+              error: 'FOLDER_COMPETITORS_PAUSED',
+              message: 'Competitor crawling is paused or fleet ingestion is blocked across all campaigns linked to this creator.'
+            }, 409);
+          }
+        }
+      }
+    }
     const maxPages = String(body.max_pages || body.max_pages_per_seed || '2').trim() || '2';
     const dRes = await dispatchGitHubWorkflow(env, {
       workflowFile: 'related-pins-crawler.yml',
@@ -821,33 +888,27 @@ export async function handleCreatorsRoutes(routeCtx) {
 
   // DELETE /api/creators/snapshot or snapshots
   if (method === 'DELETE' && (pathname === '/api/creators/snapshot' || pathname === '/api/creators/snapshots')) {
-    try {
-      let snapshotId = searchParams.get('id') || searchParams.get('snapshot_id');
-      if (!snapshotId) {
-        try {
-          const body = await request.json();
-          snapshotId = body.snapshot_id || body.id;
-        } catch (_) {}
-      }
-      if (!snapshotId) return jsonResponse({ error: 'snapshot_id is required' }, 400);
-      await deleteCompetitorSnapshot(sql, snapshotId);
-      return jsonResponse({ success: true, deleted_snapshot_id: snapshotId });
-    } finally {
-      invalidateCreatorsCache();
+    let snapshotId = searchParams.get('id') || searchParams.get('snapshot_id');
+    if (!snapshotId) {
+      try {
+        const body = await request.json();
+        snapshotId = body.snapshot_id || body.id;
+      } catch (_) {}
     }
+    if (!snapshotId) return jsonResponse({ error: 'snapshot_id is required' }, 400);
+    await deleteCompetitorSnapshot(sql, snapshotId);
+    invalidateCreatorsCache();
+    return jsonResponse({ success: true, deleted_snapshot_id: snapshotId });
   }
 
   // POST /api/creators/status or toggle
   if (method === 'POST' && (pathname === '/api/creators/status' || pathname === '/api/creators/toggle')) {
-    try {
-      const body = await request.json();
-      const idOrUser = body.username || body.id || body.competitor_id;
-      if (!idOrUser) return jsonResponse({ error: 'id or username is required' }, 400);
-      const row = await updateCompetitorStatus(sql, idOrUser, body.is_active);
-      return jsonResponse({ success: true, competitor: row });
-    } finally {
-      invalidateCreatorsCache();
-    }
+    const body = await request.json();
+    const idOrUser = body.username || body.id || body.competitor_id;
+    if (!idOrUser) return jsonResponse({ error: 'id or username is required' }, 400);
+    const row = await updateCompetitorStatus(sql, idOrUser, body.is_active);
+    invalidateCreatorsCache();
+    return jsonResponse({ success: true, competitor: row });
   }
 
   // 2. Base Resource /api/creators (Strict Exact Equality)
@@ -909,6 +970,7 @@ export async function handleCreatorsRoutes(routeCtx) {
         }
 
         // Workspace-scoped filter via workspace_watchlist + folder_competitor_items for this workspace
+        let wsScopeDegraded = false;
         const [watchRows, folderRows] = await Promise.all([
           sql`
             SELECT LOWER(TRIM(entity_key)) AS handle
@@ -916,14 +978,20 @@ export async function handleCreatorsRoutes(routeCtx) {
             WHERE workspace_id = ${numericWid}
               AND entity_type = 'creator'
               AND entity_key IS NOT NULL;
-          `.catch(() => []),
+          `.catch(() => {
+            wsScopeDegraded = true;
+            return [];
+          }),
           sql`
             SELECT DISTINCT fci.competitor_id, LOWER(TRIM(cp.username)) AS handle
             FROM folder_competitor_items fci
             JOIN keyword_folders kf ON kf.id = fci.folder_id
             JOIN competitor_profiles cp ON cp.id = fci.competitor_id
             WHERE kf.workspace_id = ${numericWid};
-          `.catch(() => [])
+          `.catch(() => {
+            wsScopeDegraded = true;
+            return [];
+          })
         ]);
 
         const allowedHandles = new Set();
@@ -956,7 +1024,8 @@ export async function handleCreatorsRoutes(routeCtx) {
             },
             competitors: [],
             workspace_id: numericWid,
-            workspace_scoped: true
+            workspace_scoped: true,
+            ...(wsScopeDegraded ? { degraded: true } : {})
           };
         }
 
@@ -1121,39 +1190,34 @@ export async function handleCreatorsRoutes(routeCtx) {
 
   // POST /api/creators
   if (method === 'POST' && pathname === '/api/creators') {
-    try {
-      const body = await request.json().catch(() => ({}));
-      const row = await trackCompetitor(sql, body);
-      return jsonResponse({ success: true, competitor: row });
-    } finally {
-      invalidateCreatorsCache();
-    }
+    const body = await request.json().catch(() => ({}));
+    const row = await trackCompetitor(sql, body);
+    invalidateCreatorsCache();
+    return jsonResponse({ success: true, competitor: row });
   }
 
   // DELETE /api/creators
   if (method === 'DELETE' && pathname === '/api/creators') {
-    try {
-      let id = searchParams.get('id');
-      let username = searchParams.get('username');
-      if (!id && !username) {
-        try {
-          const body = await request.json();
-          id = body.id || body.competitor_id;
-          username = body.username;
-        } catch (_) {}
-      }
-      if (username) {
-        const cleanUser = String(username).replace(/^@/, '').trim().toLowerCase();
-        await deleteCompetitor(sql, cleanUser);
-        return jsonResponse({ success: true, deleted_username: cleanUser });
-      } else if (id && !isNaN(Number(id))) {
-        await deleteCompetitor(sql, Number(id));
-        return jsonResponse({ success: true, deleted_id: Number(id) });
-      }
-      return jsonResponse({ error: 'id or username is required to delete competitor' }, 400);
-    } finally {
-      invalidateCreatorsCache();
+    let id = searchParams.get('id');
+    let username = searchParams.get('username');
+    if (!id && !username) {
+      try {
+        const body = await request.json();
+        id = body.id || body.competitor_id;
+        username = body.username;
+      } catch (_) {}
     }
+    if (username) {
+      const cleanUser = String(username).replace(/^@/, '').trim().toLowerCase();
+      await deleteCompetitor(sql, cleanUser);
+      invalidateCreatorsCache();
+      return jsonResponse({ success: true, deleted_username: cleanUser });
+    } else if (id && !isNaN(Number(id))) {
+      await deleteCompetitor(sql, Number(id));
+      invalidateCreatorsCache();
+      return jsonResponse({ success: true, deleted_id: Number(id) });
+    }
+    return jsonResponse({ error: 'id or username is required to delete competitor' }, 400);
   }
 
   // =========================================================================

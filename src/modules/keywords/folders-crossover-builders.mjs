@@ -1240,7 +1240,7 @@ export async function buildFolderCrossoverMatrix({
       universal_tags_count: universalTagsCount,
       shared_pivots_count: guidedPivots.filter(p => p.is_connector).length,
       monopoly_domain_count: commercialDomainsSet.size,
-      monopoly_creator_count: creatorMonopoly.length,
+      monopoly_creator_count: creatorMap.size,
       competitor_audience_gains: {
         '24h': Math.round(clusterReach24h),
         '7d': Math.round(clusterReach7d),

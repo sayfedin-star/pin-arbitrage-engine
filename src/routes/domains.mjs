@@ -20,7 +20,6 @@ import {
 } from '../modules/domains/whois-age-service.mjs';
 import {
   listDomainsIntelligenceFast,
-  syncSingleDomainRollup,
   refreshDomainIntelligenceRollup
 } from '../modules/domains/rollup-leaderboard-service.mjs';
 import {
@@ -254,7 +253,6 @@ export async function handleDomainsRoutes(routeCtx) {
     request,
     searchParams,
     sql,
-    ctx,
     workspaceId = 1,
     jsonResponse,
     methodNotAllowedResponse,
@@ -262,7 +260,6 @@ export async function handleDomainsRoutes(routeCtx) {
     buildCanonicalCacheKey,
     getCachedOrFetch,
     invalidateEdgeCache,
-    safeWaitUntil,
     redactSecrets
   } = routeCtx;
 
@@ -338,7 +335,7 @@ export async function handleDomainsRoutes(routeCtx) {
         page: Math.max(1, Number(searchParams.get('page') || 1)),
         limit: clampLimit(searchParams.get('limit'), 50, 200)
       };
-      const queryParams = { ...cacheParams, allowBackgroundRefresh: canMutateInBackground, ctx };
+      const queryParams = { ...cacheParams, allowBackgroundRefresh: false };
       const cacheKey = buildCanonicalCacheKey('domains:leaderboard', cacheParams);
       const SIX_HOURS_MS = 21600000;
       const ONE_HOUR_MS = 3600000;
@@ -460,25 +457,7 @@ export async function handleDomainsRoutes(routeCtx) {
         ? await fetchDomains()
         : await getCachedOrFetch(cacheKey, fetchDomains, SIX_HOURS_MS, ONE_HOUR_MS, { forceRefresh: isForceRefresh });
 
-      // Gate background external WHOIS/RDAP & ads.txt scraping + DB mutations strictly behind verified API auth
-      if (canMutateInBackground) {
-        if (Array.isArray(data?.missing_age_domains) && data.missing_age_domains.length > 0) {
-          safeWaitUntil(
-            ctx,
-            () => enrichMissingDomainsBatch(sql, data.missing_age_domains, 4),
-            'bg_enrich_domain_ages'
-          );
-        }
-
-        if (Array.isArray(data?.missing_ad_domains) && data.missing_ad_domains.length > 0) {
-          safeWaitUntil(
-            ctx,
-            () => enrichMissingAdNetworksBatch(sql, data.missing_ad_domains, 4),
-            'bg_enrich_domain_ads'
-          );
-        }
-      }
-
+      // [INVARIANT: READ-ONLY-GET-SAFE] GET /api/domains never dispatches background DB writes or external WHOIS/ads scrapes.
       return jsonResponse({ success: true, ...data }, 200, 15);
     } catch (err) {
       return jsonResponse({ success: false, error: redactSecrets(err.message) }, getErrorStatus(err, 500));
@@ -523,20 +502,13 @@ export async function handleDomainsRoutes(routeCtx) {
       }
 
       const fetchDossier = async () => {
-        const freshDossier = await getDomainDeepDossier(sql, cleanDomain, {
+        return await getDomainDeepDossier(sql, cleanDomain, {
           folderId,
           keywordId,
           env,
           fastPath: true,
           displacedLimit
         });
-
-        // [INVARIANT: DOSSIER-MICRO-SYNC-O1] Only dispatch DB rollup micro-sync when authenticated & unscoped
-        if (canMutateInBackground && freshDossier?.success && !folderId && !keywordId) {
-          safeWaitUntil(ctx, () => syncSingleDomainRollup(sql, cleanDomain, freshDossier, { folderId, keywordId }), 'sync_single_domain_rollup');
-        }
-
-        return freshDossier;
       };
 
       const dossier = await getCachedOrFetch(cacheKey, fetchDossier, 60000, 900000, {
@@ -544,37 +516,7 @@ export async function handleDomainsRoutes(routeCtx) {
         timeoutMs: 27000
       });
 
-      // Gate background WHOIS/Age & ads.txt scraping + DB mutations strictly behind verified API auth
-      if (canMutateInBackground && (dossier?.needs_age_enrichment || dossier?.needs_ad_enrichment)) {
-        safeWaitUntil(
-          ctx,
-          async () => {
-            const tasks = [];
-            if (dossier.needs_age_enrichment) {
-              tasks.push(
-                fetchAndCacheDomainAge(sql, cleanDomain).catch((err) => {
-                  console.warn(`[domains-route] bg WHOIS enrichment warning for ${cleanDomain}:`, err?.message || err);
-                })
-              );
-            }
-            if (dossier.needs_ad_enrichment) {
-              tasks.push(
-                fetchAndCacheDomainAdNetwork(sql, cleanDomain).catch((err) => {
-                  console.warn(`[domains-route] bg ads enrichment warning for ${cleanDomain}:`, err?.message || err);
-                })
-              );
-            }
-            await Promise.all(tasks);
-
-            if (typeof invalidateEdgeCache === 'function') {
-              await Promise.resolve(invalidateEdgeCache('domains:dossier'));
-              await Promise.resolve(invalidateEdgeCache('domains:leaderboard'));
-            }
-          },
-          'bg_dossier_enrichment'
-        );
-      }
-
+      // [INVARIANT: READ-ONLY-GET-SAFE] GET /api/domains/dossier never dispatches background DB writes or external WHOIS/ads scrapes.
       return jsonResponse(dossier, 200, 30);
     } catch (err) {
       return jsonResponse({ success: false, error: redactSecrets(err.message) }, getErrorStatus(err, 400));

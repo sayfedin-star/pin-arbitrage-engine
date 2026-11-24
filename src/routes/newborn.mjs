@@ -420,7 +420,10 @@ export async function handleNewbornRoutes({
     if (method === 'GET') {
       const includeInactive = searchParams.get('include_inactive') === 'true';
       const folderId = searchParams.get('folder_id') || null;
-      const profiles = await listNewbornRuleProfiles(sql, { includeInactive, folderId });
+      if (folderId !== null && String(folderId).trim() !== '') {
+        await assertFolderInWorkspace(sql, folderId, workspaceId);
+      }
+      const profiles = await listNewbornRuleProfiles(sql, { includeInactive, folderId, workspaceId });
       return jsonResponse({
         success: true,
         profiles
@@ -435,6 +438,9 @@ export async function handleNewbornRoutes({
           error: 'BAD_REQUEST',
           message: 'Rule profile "name" is required.'
         }, 400, -1);
+      }
+      if (body?.folder_id !== undefined && body?.folder_id !== null && String(body.folder_id).trim() !== '') {
+        await assertFolderInWorkspace(sql, body.folder_id, workspaceId);
       }
       const profile = await createNewbornRuleProfile(sql, body);
       await invalidateEdgeCache('newborn');
@@ -453,7 +459,7 @@ export async function handleNewbornRoutes({
     const idOrSlug = decodeURIComponent(profileMatch[1]);
 
     if (method === 'GET') {
-      const profile = await getNewbornRuleProfile(sql, idOrSlug);
+      const profile = await getNewbornRuleProfile(sql, idOrSlug, { workspaceId });
       if (!profile) {
         return jsonResponse({
           success: false,
@@ -471,7 +477,10 @@ export async function handleNewbornRoutes({
 
     if (method === 'PUT' || method === 'PATCH') {
       const body = await request.json();
-      const updated = await updateNewbornRuleProfile(sql, idOrSlug, body || {});
+      if (body?.folder_id !== undefined && body?.folder_id !== null && String(body.folder_id).trim() !== '') {
+        await assertFolderInWorkspace(sql, body.folder_id, workspaceId);
+      }
+      const updated = await updateNewbornRuleProfile(sql, idOrSlug, body || {}, { workspaceId });
       if (!updated) {
         return jsonResponse({
           success: false,
@@ -487,7 +496,7 @@ export async function handleNewbornRoutes({
     }
 
     if (method === 'DELETE') {
-      const delRes = await deleteNewbornRuleProfile(sql, idOrSlug);
+      const delRes = await deleteNewbornRuleProfile(sql, idOrSlug, { workspaceId });
       if (!delRes.deleted) {
         return jsonResponse({
           success: false,
@@ -696,7 +705,7 @@ export async function handleNewbornRoutes({
     }
     const body = await request.json();
     const pinIds = body?.pin_ids || body?.pinIds || (body?.pin_id ? [body.pin_id] : []);
-    const result = await updateNewbornCandidateStage(sql, pinIds, body?.stage);
+    const result = await updateNewbornCandidateStage(sql, pinIds, body?.stage, { workspaceId });
     return jsonResponse({ success: true, ...result }, 200, -1);
   }
 
@@ -709,6 +718,7 @@ export async function handleNewbornRoutes({
     const pinId = decodeURIComponent(fetchAccountMatch[1]).trim();
     try {
       const result = await fetchNewbornCandidateAccounts(sql, [pinId], {
+        workspaceId,
         routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
         env
       });
@@ -741,7 +751,7 @@ export async function handleNewbornRoutes({
     const pinId = decodeURIComponent(candMatch[1]);
 
     if (method === 'GET') {
-      const dossier = await getNewbornCandidateDossier(sql, pinId);
+      const dossier = await getNewbornCandidateDossier(sql, pinId, { workspaceId });
       if (!dossier) {
         return jsonResponse({
           success: false,
@@ -754,12 +764,12 @@ export async function handleNewbornRoutes({
 
     if (method === 'PATCH') {
       const body = await request.json();
-      const result = await updateNewbornCandidateStage(sql, [pinId], body?.stage);
+      const result = await updateNewbornCandidateStage(sql, [pinId], body?.stage, { workspaceId });
       return jsonResponse({ success: true, ...result }, 200, -1);
     }
 
     if (method === 'DELETE') {
-      const result = await deleteNewbornCandidate(sql, [pinId]);
+      const result = await deleteNewbornCandidate(sql, [pinId], { workspaceId });
       return jsonResponse({ success: true, ...result }, 200, -1);
     }
 
@@ -772,6 +782,7 @@ export async function handleNewbornRoutes({
       return methodNotAllowedResponse('GET, OPTIONS');
     }
     const filters = {
+      workspace_id: workspaceId,
       run_id: searchParams.get('run_id') || null,
       stage: searchParams.get('stage') || null,
       search: searchParams.get('search') || searchParams.get('q') || '',
@@ -905,7 +916,8 @@ export async function handleNewbornRoutes({
         gender,
         includeTerms,
         excludeTerms,
-        limit
+        limit,
+        workspaceId
       }),
       15_000
     );
@@ -997,6 +1009,7 @@ export async function handleNewbornRoutes({
       if (pathname === '/api/newborn/candidates/fetch-accounts') {
         const pinIds = body?.pin_ids || body?.pinIds || (body?.pin_id ? [body.pin_id] : []);
         const result = await fetchNewbornCandidateAccounts(sql, pinIds, {
+          workspaceId,
           routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
           env
         });
@@ -1046,6 +1059,16 @@ export async function handleNewbornRoutes({
 
       if (pathname === '/api/newborn/cluster/hunt') {
         const clusterId = body?.cluster_id != null && Number(body.cluster_id) > 0 ? Number(body.cluster_id) : null;
+        if (clusterId !== null && Number(workspaceId) !== DEFAULT_WORKSPACE_ID) {
+          const clusterRow = await getNewbornKeywordClusterById(sql, clusterId, { workspaceId });
+          if (!clusterRow) {
+            return jsonResponse({
+              success: false,
+              error: 'NOT_FOUND',
+              message: `Keyword cluster #${clusterId} not found in current workspace.`
+            }, 404, -1);
+          }
+        }
         const rawSelected = Array.isArray(body?.keywords)
           ? body.keywords
           : (Array.isArray(body?.seed_queries) ? body.seed_queries : []);
@@ -1348,6 +1371,24 @@ export async function handleNewbornRoutes({
     const body = await request.json();
     const pinIds = body?.pin_ids || body?.pinIds || (body?.pin_id ? [body.pin_id] : []);
     const usernames = body?.usernames || body?.rookies || (body?.username ? [body.username] : []);
+
+    const targetFolderCandidates = [
+      body?.folder_id,
+      body?.promote_to_campaign_folder_id,
+      body?.destinations?.promote_to_campaign_folder_id,
+      body?.destinations?.folder_id
+    ].filter((v) => v !== undefined && v !== null && String(v).trim() !== '');
+    for (const candidateFolderId of targetFolderCandidates) {
+      try {
+        await assertFolderInWorkspace(sql, candidateFolderId, workspaceId);
+      } catch (err) {
+        return jsonResponse({
+          success: false,
+          error: err.status === 400 ? 'BAD_REQUEST' : 'NOT_FOUND',
+          message: err.message
+        }, err.status || 404, -1);
+      }
+    }
 
     if ((!Array.isArray(pinIds) || pinIds.length === 0) && (!Array.isArray(usernames) || usernames.length === 0)) {
       return jsonResponse({

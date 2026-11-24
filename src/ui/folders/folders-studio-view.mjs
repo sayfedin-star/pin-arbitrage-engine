@@ -751,10 +751,10 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                   <div class="flex items-center justify-between gap-2 text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
                     <div class="flex items-center gap-2 flex-wrap">
                       <span class="font-semibold text-indigo-600 dark:text-indigo-400"
-                            x-text="(item.keywords_count || item.keyword_count || item.shared_count || item.keyword_overlap_count || 1) + ' keywords'"></span>
+                            x-text="(item.keywords_count ?? item.keyword_count ?? item.shared_count ?? item.keyword_overlap_count ?? 1) + ' keywords'"></span>
                       <span>•</span>
                       <span class="font-bold text-slate-700 dark:text-slate-200"
-                            x-text="(item.joint_count || item.pin_count || item.count || 0) + ' pins'"></span>
+                            x-text="(item.joint_count ?? item.pin_count ?? item.count ?? 0) + ' pins'"></span>
                       <template x-if="item.lift">
                         <span class="px-1.5 py-0.2 rounded text-[9px] bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 font-bold"
                               x-text="item.lift + 'x Lift'"></span>
@@ -815,7 +815,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                   <!-- Pattern Summary KPIs & Connected Keywords Strip -->
                   <div class="flex items-center gap-2 flex-wrap text-[11px] font-mono tabular-nums">
                     <span class="px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 font-bold"
-                          x-text="(getSelectedMatrixItem().keywords_count || getSelectedMatrixItem().keyword_count || getSelectedMatrixItem().shared_count || 1) + ' Cluster Keywords'"></span>
+                          x-text="(getSelectedMatrixItem().keywords_count ?? getSelectedMatrixItem().keyword_count ?? getSelectedMatrixItem().shared_count ?? 1) + ' Cluster Keywords'"></span>
                     <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-bold"><i data-lucide="zap" class="w-3 h-3 shrink-0"></i><span x-text="'+' + formatNumber(getSelectedMatrixItem().total_velocity ?? getSelectedMatrixItem().velocity_gain ?? 0) + '/d save velocity'"></span></span>
                     <template x-if="(getSelectedMatrixItem().total_saves || 0) > 0">
                       <span class="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-[#121215] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A] font-semibold"

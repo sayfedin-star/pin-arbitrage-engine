@@ -326,7 +326,7 @@ ${renderAppSidebar({
                           <td class="px-3 py-2.5 font-mono text-slate-600 dark:text-[#A1A1AA] truncate max-w-[160px]" x-text="pin.link_domain || 'Uploaded by user'"></td>
                           <td class="px-3 py-2.5 text-right font-mono tabular-nums font-semibold" x-text="fmtNum(pin.saves ?? pin.save_count ?? 0)"></td>
                           <td class="px-3 py-2.5 text-right font-mono tabular-nums" x-text="fmtNum(pin.repins ?? pin.repin_count ?? 0)"></td>
-                          <td class="px-3 py-2.5 text-right font-mono tabular-nums text-slate-500 dark:text-[#A1A1AA]" x-text="(pin.age_days || 0) + 'd'"></td>
+                          <td class="px-3 py-2.5 text-right font-mono tabular-nums text-slate-500 dark:text-[#A1A1AA]" x-text="(pin.age_days ?? 0) + 'd'"></td>
                         </tr>
                       </template>
                     </tbody>

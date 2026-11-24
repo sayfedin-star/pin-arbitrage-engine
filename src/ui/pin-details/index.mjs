@@ -5,7 +5,7 @@
 import { getPinDetailsStyles } from './styles.mjs';
 import { getPinDetailsBodyHtml } from './page-template.mjs';
 import { renderClientJsScriptTag, renderPageBootstrapScript } from '../client-assets.mjs';
-import { renderSharedDocumentHead } from '../shared-head.mjs';
+import { renderSharedDocumentHead, compactHtmlFragment } from '../shared-head.mjs';
 
 export function getPinDetailPageHtml(pinId = '') {
   const safePinId = String(pinId || '').trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 128);
@@ -54,7 +54,7 @@ ${renderSharedDocumentHead({
 })}
 ${getPinDetailsStyles()}
 </head>
-${getPinDetailsBodyHtml(safePinId)}
+${compactHtmlFragment(getPinDetailsBodyHtml(safePinId))}
 ${renderPageBootstrapScript({ pinId: safePinId })}
 ${renderClientJsScriptTag('pin-details')}
 </body>

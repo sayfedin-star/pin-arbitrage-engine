@@ -326,7 +326,7 @@ export function renderRelatedSeedsTab() {
                   <span>•</span>
                   <span>Harvested Candidates: <strong class="text-slate-900 dark:text-white" x-text="dossierCandidates.length">0</strong> nodes</span>
                   <span>•</span>
-                  <span>Commercial Gap: <strong class="text-emerald-600" x-text="(activeDossierSeed.commercial_gap_ratio || 100) + '%'"></strong></span>
+                  <span>Commercial Gap: <strong class="text-emerald-600" x-text="(activeDossierSeed.commercial_gap_ratio ?? 100) + '%'"></strong></span>
                 </div>
               </div>
 

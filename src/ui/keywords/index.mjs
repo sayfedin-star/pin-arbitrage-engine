@@ -9,7 +9,7 @@ import { getKeywordsDashboardViewHtml } from './keywords-dashboard-view.mjs';
 import { getKeywordsSerpStudioViewHtml } from './keywords-serp-studio.mjs';
 import { getKeywordsModalsHtml } from './keywords-modals.mjs';
 import { renderClientJsScriptTag, serializeSafeJsonForInlineScript } from '../client-assets.mjs';
-import { renderSharedDocumentHead } from '../shared-head.mjs';
+import { renderSharedDocumentHead, compactHtmlFragment } from '../shared-head.mjs';
 
 export function getKeywordsPageHtml(initialSlug = '', _initialKeyword = '', folderId = '') {
   const safeFolderId = String(folderId || '').trim();
@@ -75,19 +75,19 @@ ${renderSharedDocumentHead({
   ${renderAppSidebar({ activeNav: safeFolderId ? 'folders' : 'keywords', refreshHandler: safeFolderId ? 'refreshWorkspace(true)' : 'fetchKeywords(true)' })}
 
   <!-- Main Full-Width Executive Container (Offset for Unified Desktop Sidebar) -->
-  <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
+  <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? 'md:!ml-20' : 'md:ml-64 lg:ml-72'">
 
-    ${safeFolderId ? renderCampaignWorkspaceHeader({ activeRoom: 'keywords', folderId: safeFolderId }) : ''}
+    ${safeFolderId ? compactHtmlFragment(renderCampaignWorkspaceHeader({ activeRoom: 'keywords', folderId: safeFolderId })) : ''}
 
-    ${getKeywordsDashboardViewHtml()}
+    ${compactHtmlFragment(getKeywordsDashboardViewHtml())}
 
-    ${getKeywordsSerpStudioViewHtml()}
+    ${compactHtmlFragment(getKeywordsSerpStudioViewHtml())}
 
   </main>
 
-  ${getKeywordsModalsHtml()}
+  ${compactHtmlFragment(getKeywordsModalsHtml())}
 
-  ${getKeywordDrawersAndModalsHtml()}
+  ${compactHtmlFragment(getKeywordDrawersAndModalsHtml())}
 
 ${renderClientJsScriptTag('keywords')}
 </body>
