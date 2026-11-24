@@ -20,6 +20,9 @@ const PIN_FAIL_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
 const PIN_MAX_FAILURES = 5;
 const PIN_RATE_MAP_MAX_SIZE = 2000;
 const TUNNEL_DOWN_STATUSES = new Set([502, 503, 504, 520, 521, 522, 523, 524, 530]);
+const HEALTH_PROBE_TIMEOUT_MS = 3500;
+const NAV_INITIAL_TIMEOUT_MS = 5000;
+const ORIGIN_FULL_TIMEOUT_MS = 15000;
 
 // Isolate-level throttling & brute-force protection stores
 let lastWakeAt = 0;
@@ -618,7 +621,9 @@ export default {
       acceptHeader.includes('text/html') ||
       ((methodUpper === 'GET' || methodUpper === 'HEAD') && !acceptHeader.includes('application/json'))
     );
-    const timeoutMs = (isBrowserNavigation || isHealthProbe) ? 3500 : 15000;
+    const timeoutMs = isHealthProbe
+      ? HEALTH_PROBE_TIMEOUT_MS
+      : (isBrowserNavigation ? NAV_INITIAL_TIMEOUT_MS : ORIGIN_FULL_TIMEOUT_MS);
 
     try {
       const originRequest = new Request(request, {
@@ -661,6 +666,27 @@ export default {
     }
 
     if (vpsAwake) {
+      let effectiveTimeoutMs = timeoutMs;
+      const canRetrySafeRequest = (methodUpper === 'GET' || methodUpper === 'HEAD') && (
+        !response || TUNNEL_DOWN_STATUSES.has(response.status)
+      );
+
+      if (canRetrySafeRequest) {
+        effectiveTimeoutMs = ORIGIN_FULL_TIMEOUT_MS;
+        try {
+          const retryRequest = new Request(request, {
+            headers: originHeaders,
+            signal: AbortSignal.timeout(ORIGIN_FULL_TIMEOUT_MS)
+          });
+          const retryResponse = await fetch(retryRequest);
+          if (retryResponse) {
+            return retryResponse;
+          }
+        } catch (_) {
+          response = null;
+        }
+      }
+
       if (response) {
         return response;
       }
@@ -669,7 +695,7 @@ export default {
         return new Response(JSON.stringify({
           success: false,
           error: 'GATEWAY_TIMEOUT',
-          message: `Origin request to '${url.pathname}' timed out after ${timeoutMs}ms, but VPS instance is awake and healthy.`
+          message: `Origin request to '${url.pathname}' timed out after ${effectiveTimeoutMs}ms, but VPS instance is awake and healthy.`
         }), {
           status: 504,
           headers: {
@@ -678,7 +704,7 @@ export default {
           }
         });
       }
-      return new Response(`<!DOCTYPE html><html lang="en" class="dark"><body style="background:#09090b;color:#fafafa;font-family:sans-serif;padding:40px;text-align:center;"><h2>Origin Request Timeout</h2><p>The request timed out after ${timeoutMs}ms, but the server is awake and healthy. Please reload.</p></body></html>`, {
+      return new Response(renderOriginTimeoutHtml(effectiveTimeoutMs), {
         status: 504,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
@@ -1216,3 +1242,59 @@ export function renderWakingHtml(initialWakeInfo = null) {
 </body>
 </html>`;
 }
+
+export function renderOriginTimeoutHtml(timeoutMs = ORIGIN_FULL_TIMEOUT_MS) {
+  const safeMs = Number.isFinite(Number(timeoutMs)) ? Math.max(1000, Math.round(Number(timeoutMs))) : ORIGIN_FULL_TIMEOUT_MS;
+  return `<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Origin Request Timeout — Pin Arbitrage Engine</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: #09090B;
+      color: #FAFAFA;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .card {
+      background: #121215;
+      border: 1px solid #27272A;
+      border-radius: 12px;
+      max-width: 440px;
+      width: 100%;
+      padding: 2rem;
+      text-align: center;
+    }
+    h1 { font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem; }
+    p { font-size: 0.875rem; color: #A1A1AA; line-height: 1.55; margin-bottom: 1.5rem; }
+    .btn {
+      display: inline-block;
+      background: #E11D48;
+      color: #FAFAFA;
+      border: none;
+      border-radius: 8px;
+      padding: 0.65rem 1.25rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn:hover { background: #BE123C; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Origin Request Timeout</h1>
+    <p>The request timed out after ${safeMs}ms, but the server is awake and healthy. Please reload to try again.</p>
+    <button type="button" class="btn" onclick="window.location.reload()">Reload Page</button>
+  </div>
+</body>
+</html>`;
+}
+

@@ -386,3 +386,144 @@ test('Wake-Shield neutralizes //evil.com?logout=true open redirects and escapes 
     globalThis.fetch = originalFetch;
   }
 });
+
+test('Wake-Shield transparently retries safe GET navigations with full 15s budget when /api/health confirms origin is awake', async () => {
+  _resetWakeShieldState();
+  const env = makeEnv();
+  const validCookie = await issueShieldCookieToken(env.SHIELD_PIN);
+  const originalFetch = globalThis.fetch;
+
+  let creatorsAttempts = 0;
+  let healthAttempts = 0;
+  globalThis.fetch = async (reqOrUrl) => {
+    const u = typeof reqOrUrl === 'string' ? reqOrUrl : reqOrUrl.url;
+    if (u.endsWith('/api/health')) {
+      healthAttempts++;
+      return new Response(JSON.stringify({ status: 'healthy' }), { status: 200 });
+    }
+    if (u.includes('/folders/5/creators')) {
+      creatorsAttempts++;
+      if (creatorsAttempts === 1) {
+        throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+      }
+      return new Response('<html><body>Creator Hub OK</body></html>', {
+        status: 200,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' }
+      });
+    }
+    return new Response('unexpected', { status: 500 });
+  };
+
+  try {
+    const res = await wakeShieldWorker.fetch(
+      new Request('https://app.hymum.com/folders/5/creators', {
+        method: 'GET',
+        headers: {
+          Cookie: `pae_shield_auth=${validCookie}`,
+          Accept: 'text/html'
+        }
+      }),
+      env,
+      {}
+    );
+    assert.equal(res.status, 200);
+    assert.equal(creatorsAttempts, 2, 'Safe GET navigation must retry once after /api/health confirms VM is awake');
+    assert.equal(healthAttempts, 1);
+    const body = await res.text();
+    assert.ok(body.includes('Creator Hub OK'));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Wake-Shield retries transient 502 on GET when healthy, returns styled 504 if retry also times out, and never retries POST mutations', async () => {
+  _resetWakeShieldState();
+  const env = makeEnv();
+  const validCookie = await issueShieldCookieToken(env.SHIELD_PIN);
+  const originalFetch = globalThis.fetch;
+
+  // Case 1: Transient 502 on GET recovers on retry
+  let transientAttempts = 0;
+  globalThis.fetch = async (reqOrUrl) => {
+    const u = typeof reqOrUrl === 'string' ? reqOrUrl : reqOrUrl.url;
+    if (u.endsWith('/api/health')) {
+      return new Response(JSON.stringify({ status: 'healthy' }), { status: 200 });
+    }
+    transientAttempts++;
+    if (transientAttempts === 1) {
+      return new Response('Bad Gateway', { status: 502 });
+    }
+    return new Response('<html><body>Recovered</body></html>', { status: 200 });
+  };
+
+  try {
+    const recoveredRes = await wakeShieldWorker.fetch(
+      new Request('https://app.hymum.com/folders/5/creators', {
+        headers: { Cookie: `pae_shield_auth=${validCookie}`, Accept: 'text/html' }
+      }),
+      env,
+      {}
+    );
+    assert.equal(recoveredRes.status, 200);
+    assert.equal(transientAttempts, 2);
+
+    // Case 2: Both initial GET and retry time out while /api/health is healthy -> 504 with Reload button
+    let doubleTimeoutAttempts = 0;
+    globalThis.fetch = async (reqOrUrl) => {
+      const u = typeof reqOrUrl === 'string' ? reqOrUrl : reqOrUrl.url;
+      if (u.endsWith('/api/health')) {
+        return new Response(JSON.stringify({ status: 'healthy' }), { status: 200 });
+      }
+      doubleTimeoutAttempts++;
+      throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    };
+
+    const html504Res = await wakeShieldWorker.fetch(
+      new Request('https://app.hymum.com/folders/5/creators', {
+        headers: { Cookie: `pae_shield_auth=${validCookie}`, Accept: 'text/html' }
+      }),
+      env,
+      {}
+    );
+    assert.equal(html504Res.status, 504);
+    assert.equal(doubleTimeoutAttempts, 2);
+    const html504 = await html504Res.text();
+    assert.ok(html504.includes('15000ms'));
+    assert.ok(html504.includes('Reload Page'));
+    assert.equal(html504.includes(env.INSTABOX_MACHINE_ID), false);
+
+    // Case 3: Non-idempotent POST timeout must NOT retry
+    let postAttempts = 0;
+    globalThis.fetch = async (reqOrUrl) => {
+      const u = typeof reqOrUrl === 'string' ? reqOrUrl : reqOrUrl.url;
+      if (u.endsWith('/api/health')) {
+        return new Response(JSON.stringify({ status: 'healthy' }), { status: 200 });
+      }
+      postAttempts++;
+      throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    };
+
+    const post504Res = await wakeShieldWorker.fetch(
+      new Request('https://app.hymum.com/api/keywords', {
+        method: 'POST',
+        headers: {
+          Cookie: `pae_shield_auth=${validCookie}`,
+          Origin: 'https://app.hymum.com',
+          'Sec-Fetch-Site': 'same-origin',
+          'Content-Type': 'application/json',
+          Accept: 'application/json'
+        },
+        body: JSON.stringify({ keyword: 'soup' })
+      }),
+      env,
+      {}
+    );
+    assert.equal(post504Res.status, 504);
+    assert.equal(postAttempts, 1, 'Mutating POST requests must never be retried automatically');
+    const post504Json = await post504Res.json();
+    assert.equal(post504Json.error, 'GATEWAY_TIMEOUT');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
