@@ -139,7 +139,7 @@ export function renderDashboardCreatorModals() {
           <div>
             <h3 class="font-bold text-slate-900 dark:text-white text-base">Launch 20-Runner Parallel Crawler</h3>
             <p class="text-xs text-slate-500 dark:text-slate-400">
-              Target: <strong class="text-sky-500 font-mono" x-text="'@' + ghaTargetAccount"></strong> • Board-Level Parallel Partitioning
+              Target: <strong class="text-sky-500 font-mono" x-text="(ghaBulkUsernames && ghaBulkUsernames.length > 0) ? ghaTargetAccount : ('@' + ghaTargetAccount)"></strong> • Board-Level Parallel Partitioning
             </p>
           </div>
         </div>
@@ -303,7 +303,7 @@ export function renderDashboardCreatorModals() {
 
   <!-- Floating Action Bar for Selected Account Pins (Fixed bottom toolbar) -->
   <div
-    x-show="selectedCreatorPinIds.length > 0 && isDossierOpen"
+    x-show="selectedCreatorPinIds.length > 0 && (activeCreator || isDossierOpen)"
     x-cloak
     class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 dark:bg-[#121215]/95 text-white backdrop-blur-md border border-slate-700/80 dark:border-[#27272A] rounded-2xl px-5 py-3 shadow-2xl flex items-center gap-4 animate-in fade-in slide-in-from-bottom-5"
   >

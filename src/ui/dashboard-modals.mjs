@@ -8,11 +8,11 @@ import { renderDashboardClusterModals } from './modals/dashboard-cluster-modals.
 import { renderDashboardCreatorModals } from './modals/dashboard-creator-modals.mjs';
 import { renderCreatorVisualFeedModal } from './shared/creator-visual-feed-modal.mjs';
 
-export function getDashboardModalsHtml() {
+export function getDashboardModalsHtml({ includeClusterModals = true } = {}) {
   return [
     renderDashboardDossierDrawers(),
-    renderDashboardClusterModals(),
+    includeClusterModals ? renderDashboardClusterModals() : '',
     renderDashboardCreatorModals(),
     renderCreatorVisualFeedModal({ variant: 'dashboard' })
-  ].join('\n\n');
+  ].filter(Boolean).join('\n\n');
 }

@@ -26,21 +26,24 @@ export function renderCreatorsAssignModal() {
       <!-- Search Filter -->
       <div class="relative shrink-0">
         <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
-        <input type="text" x-model="assignCreatorSearch" placeholder="Search creators by username or display name..."
+        <input type="text" x-model="assignCreatorSearch" @input.debounce.250ms="fetchAssignCatalogCreators(assignCreatorSearch)" placeholder="Search global creators by username or display name..."
                class="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-[#27272A] text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500/40">
       </div>
 
       <!-- Creators List -->
       <div class="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[220px]">
-        <template x-if="isAssignExistingCreatorModalOpen">
+        <template x-if="isAssignExistingCreatorModalOpen && isLoadingAssignCatalog">
+          <div class="py-8 text-center text-xs text-slate-400 font-mono">Loading creator catalog...</div>
+        </template>
+        <template x-if="isAssignExistingCreatorModalOpen && !isLoadingAssignCatalog">
           <div class="space-y-2">
-            <template x-for="c in (competitors || []).filter(comp => !assignCreatorSearch.trim() || (comp.username && comp.username.toLowerCase().includes(assignCreatorSearch.toLowerCase().replace('@', ''))) || (comp.display_name && comp.display_name.toLowerCase().includes(assignCreatorSearch.toLowerCase()))).slice(0, 100)" :key="c.id || c.username">
+            <template x-for="c in (assignCatalogCreators || []).filter(comp => !assignCreatorSearch.trim() || (comp.username && comp.username.toLowerCase().includes(assignCreatorSearch.toLowerCase().replace('@', ''))) || (comp.display_name && comp.display_name.toLowerCase().includes(assignCreatorSearch.toLowerCase()))).slice(0, 100)" :key="c.id || c.username">
               <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-[#27272A] flex items-center justify-between gap-3 hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition">
                 <div class="flex items-center gap-2.5 min-w-0">
-                  <template x-if="c.image_url">
-                    <img :src="c.image_url" class="w-8 h-8 rounded-full object-cover shrink-0 border border-slate-200 dark:border-[#27272A]">
+                  <template x-if="c.avatar_url">
+                    <img :src="c.avatar_url" class="w-8 h-8 rounded-full object-cover shrink-0 border border-slate-200 dark:border-[#27272A]">
                   </template>
-                  <template x-if="!c.image_url">
+                  <template x-if="!c.avatar_url">
                     <div class="w-8 h-8 rounded-full bg-purple-500/10 text-purple-600 flex items-center justify-center font-bold text-xs shrink-0">
                       <span x-text="(c.username || '?')[0].toUpperCase()"></span>
                     </div>
@@ -58,15 +61,18 @@ export function renderCreatorsAssignModal() {
                 </div>
 
                 <button type="button"
-                        @click="assignCreatorToFolder(c.id, scopedFolderId)"
+                        @click="assignCreatorToFolder(c.competitor_id || c.id || c.username, scopedFolderId)"
                         class="px-2.5 py-1 rounded-lg text-xs font-semibold transition shrink-0 cursor-pointer flex items-center gap-1"
-                        :class="isCreatorInFolder(c.id, scopedFolderId)
+                        :class="isCreatorInFolder(c.competitor_id || c.id || c.username, scopedFolderId)
                           ? 'bg-purple-600 text-white shadow-xs'
                           : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-[#27272A]'">
-                  <span x-text="isCreatorInFolder(c.id, scopedFolderId) ? '✓ Linked' : '+ Link'"></span>
+                  <span x-text="isCreatorInFolder(c.competitor_id || c.id || c.username, scopedFolderId) ? '✓ Linked' : '+ Link'"></span>
                 </button>
               </div>
             </template>
+            <div x-show="!assignCatalogCreators || assignCatalogCreators.length === 0" class="py-8 text-center text-xs text-slate-400">
+              No matching creators found in catalog.
+            </div>
           </div>
         </template>
       </div>

@@ -3,11 +3,16 @@
  * Extracted from src/modules/keywords/folders-service.mjs
  */
 
-import { normalizePinterestUsername, RESERVED_PINTEREST_PATHS, syncCompetitorProfile } from '../creators/competitors-crud.mjs';
+import {
+  normalizePinterestUsername,
+  RESERVED_PINTEREST_PATHS,
+  syncCompetitorProfile,
+  sanitizeStoredCeilingDelta
+} from '../creators/competitors-crud.mjs';
 import { normalizeFolderMetadata, invalidateFolderCache } from './folders-crossover.mjs';
 import { ignoreAndRemoveSerpPin } from './displaced-and-tombstones.mjs';
 import { safeWaitUntil } from '../../http/security-and-response.mjs';
-import { DEFAULT_WORKSPACE_ID, parsePositiveWorkspaceId } from '../workspaces/service.mjs';
+import { DEFAULT_WORKSPACE_ID, parsePositiveWorkspaceId, resolveWorkspaceRawCookie } from '../workspaces/service.mjs';
 
 function isMissingWorkspaceColumnError(err) {
   return /column\s+"?(?:workspace_id|serp_top_n|pin_graph_rules)"?\s+does\s+not\s+exist/i.test(err?.message || '');
@@ -1234,6 +1239,10 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
       JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
       JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
       WHERE kfi.folder_id = ${fid}
+        AND NOT EXISTS (
+          SELECT 1 FROM keyword_ignored_pins kip
+          WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
+        )
         AND ump.creator_username IS NOT NULL AND ump.creator_username <> ''
         AND LOWER(TRIM(ump.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
     ),
@@ -1299,19 +1308,49 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
     ORDER BY (fci.id IS NOT NULL) DESC, fcs.pin_count DESC, COALESCE(cp.monthly_reach, 0) DESC;
   `;
 
-  // Also include any explicitly linked competitors that might not have active pins in SERP currently
+  // Also include any explicitly linked competitors that might not have passed the high-signal SERP filter
   const linkedItems = await sql`
+    WITH all_folder_pins AS (
+      SELECT
+        ksp.pin_id,
+        LOWER(TRIM(ump.creator_username)) AS clean_username,
+        ump.save_count,
+        ump.daily_save_velocity,
+        ksp.is_displaced
+      FROM keyword_folder_items kfi
+      JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
+      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+      WHERE kfi.folder_id = ${fid}
+        AND NOT EXISTS (
+          SELECT 1 FROM keyword_ignored_pins kip
+          WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
+        )
+        AND ump.creator_username IS NOT NULL AND ump.creator_username <> ''
+    ),
+    aggregated_creators AS (
+      SELECT
+        clean_username,
+        COUNT(DISTINCT pin_id)::int AS pin_count,
+        COUNT(DISTINCT pin_id) FILTER (WHERE NOT is_displaced)::int AS active_pin_count,
+        COUNT(DISTINCT pin_id) FILTER (WHERE is_displaced)::int AS vault_pin_count,
+        COALESCE(MAX(save_count), 0)::bigint AS top_pin_saves,
+        COALESCE(MAX(COALESCE(daily_save_velocity, 0)), 0)::numeric AS max_velocity,
+        COALESCE(BOOL_OR(NOT is_displaced), FALSE) AS has_active_pins,
+        COALESCE(BOOL_OR(is_displaced), FALSE) AS has_vault_pins
+      FROM all_folder_pins
+      GROUP BY clean_username
+    )
     SELECT
       cp.id::text AS id,
       cp.id AS competitor_id,
       LOWER(TRIM(cp.username)) AS username,
-      0::int AS pin_count,
-      0::int AS active_pin_count,
-      0::int AS vault_pin_count,
-      FALSE AS has_active_pins,
-      FALSE AS has_vault_pins,
-      0::bigint AS top_pin_saves,
-      0::numeric AS max_velocity,
+      COALESCE(ac.pin_count, 0)::int AS pin_count,
+      COALESCE(ac.active_pin_count, 0)::int AS active_pin_count,
+      COALESCE(ac.vault_pin_count, 0)::int AS vault_pin_count,
+      COALESCE(ac.has_active_pins, FALSE) AS has_active_pins,
+      COALESCE(ac.has_vault_pins, FALSE) AS has_vault_pins,
+      COALESCE(ac.top_pin_saves, 0)::bigint AS top_pin_saves,
+      COALESCE(ac.max_velocity, 0)::numeric AS max_velocity,
       cp.display_name,
       cp.avatar_url,
       COALESCE(cp.monthly_reach, 0)::bigint AS monthly_reach,
@@ -1336,41 +1375,45 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
       FALSE AS auto_discovered
     FROM folder_competitor_items fci
     JOIN competitor_profiles cp ON cp.id = fci.competitor_id
-    WHERE fci.folder_id = ${fid}
-      AND LOWER(TRIM(cp.username)) NOT IN (
-        SELECT LOWER(TRIM(ump.creator_username))
-        FROM keyword_folder_items kfi2
-        JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi2.keyword_id
-        JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
-        WHERE kfi2.folder_id = ${fid} AND ksp.is_displaced = FALSE
-          AND ump.creator_username IS NOT NULL AND ump.creator_username <> ''
-      );
+    LEFT JOIN aggregated_creators ac ON ac.clean_username = LOWER(TRIM(cp.username))
+    WHERE fci.folder_id = ${fid};
   `;
 
   const existingUsernames = new Set(rows.map(r => (r.username || '').toLowerCase()));
   const dedupedLinked = linkedItems.filter(r => !existingUsernames.has((r.username || '').toLowerCase()));
-  const allRows = [...rows, ...dedupedLinked].map(r => ({
-    ...r,
-    pin_count: Number(r.pin_count || 0),
-    active_pin_count: Number(r.active_pin_count || 0),
-    vault_pin_count: Number(r.vault_pin_count || 0),
-    has_active_pins: Boolean(r.has_active_pins),
-    has_vault_pins: Boolean(r.has_vault_pins),
-    top_pin_saves: Number(r.top_pin_saves || 0),
-    follower_count: Number(r.follower_count || 0),
-    monthly_reach: Number(r.monthly_reach || 0),
-    profile_views: Number(r.profile_views || 0),
-    total_pins: Number(r.total_pins || 0),
-    total_boards: Number(r.total_boards || 0),
-    delta_reach_24h: Number(r.delta_reach_24h || 0),
-    reach_delta_7d: Number(r.reach_delta_7d || 0),
-    delta_views_24h: Number(r.delta_views_24h || 0),
-    views_delta_7d: Number(r.views_delta_7d || 0),
-    delta_pins_24h: Number(r.delta_pins_24h || 0),
-    pins_delta_7d: Number(r.pins_delta_7d || 0),
-    delta_boards_24h: Number(r.delta_boards_24h || 0),
-    boards_delta_7d: Number(r.boards_delta_7d || 0),
-  }));
+  const allRows = [...rows, ...dedupedLinked].map(r => {
+    const monthlyReach = Number(r.monthly_reach || 0);
+    const profileViews = Number(r.profile_views || 0);
+    const pinsDelta7d = Number(r.pins_delta_7d || 0);
+    const deltaPins24h = Number(r.delta_pins_24h || 0);
+    const measuredCadence = pinsDelta7d > 0
+      ? Number((pinsDelta7d / 7).toFixed(1))
+      : (deltaPins24h > 0 ? Number(deltaPins24h.toFixed(1)) : null);
+
+    return {
+      ...r,
+      pin_count: Number(r.pin_count || 0),
+      active_pin_count: Number(r.active_pin_count || 0),
+      vault_pin_count: Number(r.vault_pin_count || 0),
+      has_active_pins: Boolean(r.has_active_pins),
+      has_vault_pins: Boolean(r.has_vault_pins),
+      top_pin_saves: Number(r.top_pin_saves || 0),
+      follower_count: Number(r.follower_count || 0),
+      monthly_reach: monthlyReach,
+      profile_views: profileViews,
+      total_pins: Number(r.total_pins || 0),
+      total_boards: Number(r.total_boards || 0),
+      delta_reach_24h: sanitizeStoredCeilingDelta(monthlyReach, r.delta_reach_24h),
+      reach_delta_7d: sanitizeStoredCeilingDelta(monthlyReach, r.reach_delta_7d),
+      delta_views_24h: sanitizeStoredCeilingDelta(profileViews, r.delta_views_24h),
+      views_delta_7d: sanitizeStoredCeilingDelta(profileViews, r.views_delta_7d),
+      delta_pins_24h: deltaPins24h,
+      pins_delta_7d: pinsDelta7d,
+      delta_boards_24h: Number(r.delta_boards_24h || 0),
+      boards_delta_7d: Number(r.boards_delta_7d || 0),
+      pins_per_day: measuredCadence
+    };
+  });
   const linked = allRows.filter(r => r.is_linked);
   const discovered = allRows.filter(r => !r.is_linked);
 
@@ -1378,14 +1421,16 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
   const totalImpressions = allRows.reduce((sum, r) => sum + Number(r.profile_views || 0), 0);
   const totalPins = allRows.reduce((sum, r) => sum + Number(r.total_pins || 0), 0);
   const nonAggregatorRows = allRows.filter(r => Number(r.total_pins || 0) < 1000000);
-  const cadencePool = nonAggregatorRows.length > 0 ? nonAggregatorRows : allRows;
-  const avgCadence = cadencePool.length > 0
-    ? Number((cadencePool.reduce((sum, r) => sum + (Number(r.total_pins || 0) / 365), 0) / cadencePool.length).toFixed(1))
+  const totalPinsExAggregators = nonAggregatorRows.reduce((sum, r) => sum + Number(r.total_pins || 0), 0);
+  const megaAggregatorCount = allRows.length - nonAggregatorRows.length;
+  const cadenceRows = nonAggregatorRows.filter(r => r.pins_per_day !== null && r.pins_per_day > 0);
+  const avgCadence = cadenceRows.length > 0
+    ? Number((cadenceRows.reduce((sum, r) => sum + Number(r.pins_per_day || 0), 0) / cadenceRows.length).toFixed(1))
     : 0;
 
-  const totalDeltaAudience24h = allRows.reduce((sum, r) => sum + Math.max(0, Number(r.delta_reach_24h || 0)), 0);
-  const totalDeltaImpressions24h = allRows.reduce((sum, r) => sum + Math.max(0, Number(r.delta_views_24h || 0)), 0);
-  const totalDeltaPins24h = allRows.reduce((sum, r) => sum + Math.max(0, Number(r.delta_pins_24h || 0)), 0);
+  const totalDeltaAudience24h = allRows.reduce((sum, r) => sum + Number(r.delta_reach_24h || 0), 0);
+  const totalDeltaImpressions24h = allRows.reduce((sum, r) => sum + Number(r.delta_views_24h || 0), 0);
+  const totalDeltaPins24h = allRows.reduce((sum, r) => sum + Number(r.delta_pins_24h || 0), 0);
 
   return {
     linked_creators: linked,
@@ -1401,6 +1446,8 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
       combined_audience: totalAudience,
       combined_impressions: totalImpressions,
       combined_pins: totalPins,
+      combined_pins_ex_aggregators: totalPinsExAggregators,
+      mega_aggregator_count: megaAggregatorCount,
       avg_pinning_cadence: avgCadence,
       delta_24h: totalDeltaAudience24h,
       delta_reach_24h: totalDeltaAudience24h,
@@ -1421,7 +1468,7 @@ export async function autoDiscoverFolderCreators(sql, folderId, options = {}) {
 /**
  * Toggle creator tracking between auto-discovered and actively tracked
  */
-export async function toggleFolderCreatorTracking(sql, folderId, competitorIdOrUsername) {
+export async function toggleFolderCreatorTracking(sql, folderId, competitorIdOrUsername, { linkOnly = false } = {}) {
   const fid = Number(folderId);
   if (!fid) throw new Error('Invalid folder ID');
 
@@ -1465,6 +1512,9 @@ export async function toggleFolderCreatorTracking(sql, folderId, competitorIdOrU
   `;
 
   if (existingLink) {
+    if (linkOnly) {
+      return { success: true, is_tracked: true, auto_discovered: false, already_linked: true, folder_id: fid, competitor_id: competitorId };
+    }
     await unlinkCreatorFromFolder(sql, fid, competitorId);
     return { success: true, is_tracked: false, auto_discovered: true, folder_id: fid, competitor_id: competitorId };
   } else {
@@ -1479,14 +1529,25 @@ export async function toggleFolderCreatorTracking(sql, folderId, competitorIdOrU
  * Sets custom_label (defaulting to 'SERP Auto • ${folder.name}') and tracking_mode = 'pulse_only'.
  * Triggers initial lightweight pulse if options.sync_now === true.
  */
-export async function bulkPulseTrackFolderCreators(sql, folderId, options = {}, { ctx = null } = {}) {
+export async function bulkPulseTrackFolderCreators(sql, folderId, options = {}, { env = null, ctx = null, workspaceId = null } = {}) {
   const fid = Number(folderId);
   if (!fid) throw new Error('Invalid folder ID');
 
   const [folder] = await sql`
-    SELECT id, name, metadata FROM keyword_folders WHERE id = ${fid} LIMIT 1;
+    SELECT id, name, workspace_id, metadata FROM keyword_folders WHERE id = ${fid} LIMIT 1;
   `;
   if (!folder) throw new Error(`Folder ${fid} not found`);
+
+  const effectiveWid = Number(workspaceId || folder.workspace_id || DEFAULT_WORKSPACE_ID);
+  const resolvedCookieObj = await resolveWorkspaceRawCookie(sql, effectiveWid).catch(() => ({ rawCookie: '' }));
+  const rawWsCookie = typeof resolvedCookieObj === 'string'
+    ? resolvedCookieObj.trim()
+    : String(resolvedCookieObj?.rawCookie || '').trim();
+  const wsCookie = rawWsCookie || (
+    effectiveWid === DEFAULT_WORKSPACE_ID
+      ? (env?.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env?.PINTEREST_COOKIE : '') || '')
+      : ''
+  );
 
   const customLabel = (typeof options.custom_label === 'string' && options.custom_label.trim())
     ? options.custom_label.trim()
@@ -1509,6 +1570,10 @@ export async function bulkPulseTrackFolderCreators(sql, folderId, options = {}, 
       JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
       WHERE kfi.folder_id = ${fid}
         AND ksp.is_displaced IS FALSE
+        AND NOT EXISTS (
+          SELECT 1 FROM keyword_ignored_pins kip
+          WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
+        )
         AND ump.creator_username IS NOT NULL AND ump.creator_username <> ''
         AND LOWER(TRIM(ump.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous');
     `;
@@ -1560,8 +1625,11 @@ export async function bulkPulseTrackFolderCreators(sql, folderId, options = {}, 
         NOW()
       FROM target_handles th
       ON CONFLICT (username) DO UPDATE SET
-        tracking_mode = COALESCE(EXCLUDED.tracking_mode, competitor_profiles.tracking_mode),
-        custom_label = COALESCE(EXCLUDED.custom_label, competitor_profiles.custom_label),
+        tracking_mode = CASE
+          WHEN competitor_profiles.tracking_mode = 'full' THEN 'full'
+          ELSE COALESCE(EXCLUDED.tracking_mode, competitor_profiles.tracking_mode)
+        END,
+        custom_label = COALESCE(NULLIF(TRIM(competitor_profiles.custom_label), ''), EXCLUDED.custom_label),
         source_folder_id = COALESCE(competitor_profiles.source_folder_id, EXCLUDED.source_folder_id),
         updated_at = NOW()
       RETURNING id, username
@@ -1588,8 +1656,8 @@ export async function bulkPulseTrackFolderCreators(sql, folderId, options = {}, 
       NOW()
     FROM all_profiles ap
     ON CONFLICT (folder_id, competitor_id) DO UPDATE SET
-      custom_label = COALESCE(EXCLUDED.custom_label, folder_competitor_items.custom_label),
-      source = 'serp_auto'
+      custom_label = COALESCE(NULLIF(TRIM(folder_competitor_items.custom_label), ''), EXCLUDED.custom_label),
+      source = COALESCE(NULLIF(TRIM(folder_competitor_items.source), ''), 'serp_auto')
     RETURNING folder_id, competitor_id;
   `;
 
@@ -1599,7 +1667,7 @@ export async function bulkPulseTrackFolderCreators(sql, folderId, options = {}, 
     WHERE id = ${fid};
   `;
 
-  invalidateFolderCache(fid);
+  invalidateFolderCache(fid, effectiveWid);
 
   // If sync_now requested, perform initial pulse sync on target creators
   let syncedCount = 0;
@@ -1609,7 +1677,7 @@ export async function bulkPulseTrackFolderCreators(sql, folderId, options = {}, 
 
     for (const username of pulseTargets) {
       try {
-        await syncCompetitorProfile(sql, username, null, { pulseOnly: true });
+        await syncCompetitorProfile(sql, username, wsCookie, { pulseOnly: true, disableGlobalCookieFallback: true });
         syncedCount++;
       } catch (err) {
         console.warn(`[BulkPulseTrack] Initial sync failed for ${username}:`, err.message);
@@ -1622,7 +1690,7 @@ export async function bulkPulseTrackFolderCreators(sql, folderId, options = {}, 
         async () => {
           for (const username of backgroundTargets) {
             try {
-              await syncCompetitorProfile(sql, username, null, { pulseOnly: true });
+              await syncCompetitorProfile(sql, username, wsCookie, { pulseOnly: true, disableGlobalCookieFallback: true });
             } catch (_) {}
           }
         },

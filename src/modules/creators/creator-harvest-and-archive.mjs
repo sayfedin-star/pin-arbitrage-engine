@@ -32,25 +32,37 @@ export async function getTopDestinationUrls(sql, competitorId, {
   // [INVARIANT: ONE-WAY-PROMOTION] Zero auto-hydration from archive.
 
   let primaryDomain = '';
+  let cleanUsername = '';
   try {
-    const [c] = await sql`SELECT website_url FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
+    const [c] = await sql`SELECT username, website_url FROM competitor_profiles WHERE id = ${numericId} LIMIT 1;`;
+    if (c?.username) cleanUsername = normalizePinterestUsername(c.username);
     if (c?.website_url) {
       primaryDomain = c.website_url.toLowerCase().trim().replace(/^https?:\/\/(www\.)?/, '').replace(/\/.*$/, '').replace(/^www\./, '');
       if (primaryDomain.includes('pinterest.') || primaryDomain.includes('pin.it')) primaryDomain = '';
     }
     if (!primaryDomain) {
       const [domRow] = await sql`
-        SELECT COALESCE(ump.clean_domain, '') AS clean_dom
-        FROM competitor_board_pins cbp
-        JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
-        WHERE cbp.competitor_id = ${numericId}
-          AND COALESCE(ump.clean_domain, '') <> ''
-          AND ump.clean_domain NOT ILIKE '%pinterest.%'
-          AND ump.clean_domain NOT ILIKE '%pin.it%'
-          AND ump.clean_domain NOT ILIKE '%amazon.%'
-          AND ump.clean_domain NOT ILIKE '%etsy.%'
+        WITH direct_pins AS (
+          SELECT ump.clean_domain, ump.save_count
+          FROM competitor_board_pins cbp
+          JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+          WHERE cbp.competitor_id = ${numericId}
+          UNION ALL
+          SELECT ump.clean_domain, ump.save_count
+          FROM universal_master_pins ump
+          WHERE ${cleanUsername} <> ''
+            AND LOWER(TRIM(ump.creator_username)) = ${cleanUsername}
+            AND NOT EXISTS (SELECT 1 FROM competitor_board_pins cbp_ex WHERE cbp_ex.competitor_id = ${numericId})
+        )
+        SELECT COALESCE(clean_domain, '') AS clean_dom
+        FROM direct_pins
+        WHERE COALESCE(clean_domain, '') <> ''
+          AND clean_domain NOT ILIKE '%pinterest.%'
+          AND clean_domain NOT ILIKE '%pin.it%'
+          AND clean_domain NOT ILIKE '%amazon.%'
+          AND clean_domain NOT ILIKE '%etsy.%'
         GROUP BY clean_dom
-        ORDER BY COUNT(*) DESC, SUM(COALESCE(ump.save_count, 0)) DESC
+        ORDER BY COUNT(*) DESC, SUM(COALESCE(save_count, 0)) DESC
         LIMIT 1;
       `;
       if (domRow?.clean_dom) primaryDomain = domRow.clean_dom;
@@ -66,26 +78,52 @@ export async function getTopDestinationUrls(sql, competitorId, {
 
   // Double escaped for PostgreSQL template literals: \\1, \\., \\?
   const rows = await sql`
-    WITH raw_pins AS (
+    WITH direct_creator_pins AS (
       SELECT
         cbp.pin_id,
-        CASE WHEN ${activeScope} = 'external' THEN 'external'::text ELSE 'official'::text END AS attribution_source,
-        COALESCE(ump.destination_url, '') AS destination_url,
-        COALESCE(ump.clean_domain, ump.domain, '') AS link_domain,
-        COALESCE(ump.save_count, 0) AS save_count,
-        COALESCE(ump.repin_count, 0) AS repin_count,
+        ump.destination_url,
+        ump.clean_domain,
+        ump.domain,
+        ump.save_count,
+        ump.repin_count,
         ump.created_at_pinterest,
-        COALESCE(ump.is_product, false) AS is_product
+        ump.is_product
       FROM competitor_board_pins cbp
       JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
       WHERE cbp.competitor_id = ${numericId}
-        AND ${activeScope} <> 'curators'
-        AND COALESCE(ump.destination_url, '') != ''
-        AND COALESCE(ump.destination_url, '') NOT LIKE '%pinterest.com%'
+      UNION ALL
+      SELECT
+        ump.pin_id,
+        ump.destination_url,
+        ump.clean_domain,
+        ump.domain,
+        ump.save_count,
+        ump.repin_count,
+        ump.created_at_pinterest,
+        ump.is_product
+      FROM universal_master_pins ump
+      WHERE ${cleanUsername} <> ''
+        AND LOWER(TRIM(ump.creator_username)) = ${cleanUsername}
+        AND NOT EXISTS (SELECT 1 FROM competitor_board_pins cbp_chk WHERE cbp_chk.competitor_id = ${numericId})
+    ),
+    raw_pins AS (
+      SELECT
+        dcp.pin_id,
+        CASE WHEN ${activeScope} = 'external' THEN 'external'::text ELSE 'official'::text END AS attribution_source,
+        COALESCE(dcp.destination_url, '') AS destination_url,
+        COALESCE(dcp.clean_domain, dcp.domain, '') AS link_domain,
+        COALESCE(dcp.save_count, 0) AS save_count,
+        COALESCE(dcp.repin_count, 0) AS repin_count,
+        dcp.created_at_pinterest,
+        COALESCE(dcp.is_product, false) AS is_product
+      FROM direct_creator_pins dcp
+      WHERE ${activeScope} <> 'curators'
+        AND COALESCE(dcp.destination_url, '') != ''
+        AND COALESCE(dcp.destination_url, '') NOT LIKE '%pinterest.com%'
         AND (
           ${primaryDomain} = ''
-          OR (${activeScope} IN ('official', 'ecosystem') AND COALESCE(ump.clean_domain, '') = ${primaryDomain})
-          OR (${activeScope} = 'external' AND COALESCE(ump.clean_domain, '') <> ${primaryDomain})
+          OR (${activeScope} IN ('official', 'ecosystem') AND COALESCE(dcp.clean_domain, '') = ${primaryDomain})
+          OR (${activeScope} = 'external' AND COALESCE(dcp.clean_domain, '') <> ${primaryDomain})
         )
       UNION ALL
       SELECT
@@ -104,8 +142,8 @@ export async function getTopDestinationUrls(sql, competitorId, {
         AND COALESCE(ump.destination_url, '') != ''
         AND COALESCE(ump.destination_url, '') NOT LIKE '%pinterest.com%'
         AND NOT EXISTS (
-          SELECT 1 FROM competitor_board_pins cbp_ex
-          WHERE cbp_ex.competitor_id = ${numericId} AND cbp_ex.pin_id = ump.pin_id
+          SELECT 1 FROM direct_creator_pins dcp_ex
+          WHERE dcp_ex.pin_id = ump.pin_id
         )
     ),
     base AS (
@@ -330,7 +368,7 @@ export async function getCompetitorRelatedIntersections(sql, competitorId, optio
   const selfNodes = Number(statsRow?.self_nodes || 0);
   const rivalNodes = Number(statsRow?.rival_nodes || 0);
   const retentionRate = totalNodes > 0 ? Number(((selfNodes / totalNodes) * 100).toFixed(1)) : 0;
-  const leakageRate = Number((100 - retentionRate).toFixed(1));
+  const leakageRate = totalNodes > 0 ? Number((100 - retentionRate).toFixed(1)) : 0;
 
   const total = Number(countRow?.total || 0);
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -534,9 +572,12 @@ export async function auditSweepCompetitor(sql, competitorIdOrUsername, options 
     audited_at: new Date().toISOString()
   };
 
+  const effectiveCookie = typeof options?.cookie === 'string' ? options.cookie : '';
+  const disableGlobalCookieFallback = Boolean(options?.disableGlobalCookieFallback);
+
   // 1. Scrape fresh unauthenticated profile and record snapshot
   try {
-    const profileRes = await syncCompetitorProfile(sql, cleanUsername, options.cookie || '');
+    const profileRes = await syncCompetitorProfile(sql, cleanUsername, effectiveCookie, { disableGlobalCookieFallback });
     if (profileRes?.ok) {
       auditReport.profile_updated = true;
       auditReport.profile = profileRes.profile;
@@ -548,7 +589,7 @@ export async function auditSweepCompetitor(sql, competitorIdOrUsername, options 
   // 2. Sync boards
   if (numericId) {
     try {
-      const boardRes = await syncCompetitorBoards(sql, numericId, cleanUsername, options.cookie || '');
+      const boardRes = await syncCompetitorBoards(sql, numericId, cleanUsername, effectiveCookie, { disableGlobalCookieFallback });
       auditReport.boards_synced = boardRes?.synced_boards_count || boardRes?.synced || 0;
     } catch (err) {
       console.warn(`[auditSweep] syncCompetitorBoards notice:`, err.message);
@@ -597,21 +638,25 @@ export async function auditSweepCompetitor(sql, competitorIdOrUsername, options 
  * High-speed parallel synchronization of creator profile & boards metadata.
  * Returns live impressions, total audience, and follower counts without crawling pins.
  */
-export async function quickPulseCreator(sql, idOrUsername, cookie = '') {
-  const numericId = await resolveNumericCompetitorId(sql, idOrUsername);
+export async function quickPulseCreator(sql, idOrUsername, cookie = '', options = {}) {
+  const rawInput = typeof idOrUsername === 'string'
+    ? idOrUsername.replace(/^serp_/i, '').trim()
+    : idOrUsername;
+  const numericId = await resolveNumericCompetitorId(sql, rawInput);
   let cleanUsername = null;
   if (numericId) {
     const [comp] = await sql`SELECT username FROM competitor_profiles WHERE id = ${numericId};`;
     cleanUsername = comp ? comp.username : null;
   } else {
-    cleanUsername = normalizePinterestUsername(idOrUsername);
+    cleanUsername = normalizePinterestUsername(rawInput);
   }
   if (!cleanUsername) throw new Error('Valid creator username or ID is required.');
 
   const effectiveCookie = cookie || '';
+  const disableGlobalCookieFallback = Boolean(options?.disableGlobalCookieFallback);
 
   let activeId = numericId;
-  const profilePromise = syncCompetitorProfile(sql, cleanUsername, effectiveCookie);
+  const profilePromise = syncCompetitorProfile(sql, cleanUsername, effectiveCookie, { disableGlobalCookieFallback });
   const boardsPromise = activeId ? syncCompetitorBoards(sql, activeId, cleanUsername, effectiveCookie) : Promise.resolve(null);
 
   const [profileRes, initialBoardsRes] = await Promise.all([
@@ -778,6 +823,7 @@ export async function deepHarvestCreator(
   idOrUsername,
   {
     cookie = '',
+    disableGlobalCookieFallback = false,
     env = null,
     maxPinRefresh = 20,
     maxPages = 500,
@@ -787,7 +833,7 @@ export async function deepHarvestCreator(
     signal = null
   } = {}
 ) {
-  const pulse = await quickPulseCreator(sql, idOrUsername, cookie);
+  const pulse = await quickPulseCreator(sql, idOrUsername, cookie, { disableGlobalCookieFallback });
   const numericId = pulse.creator_id;
   const cleanUsername = pulse.username;
 

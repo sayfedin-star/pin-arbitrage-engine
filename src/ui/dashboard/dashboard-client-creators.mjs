@@ -7,7 +7,40 @@
  */
 
 export function getDashboardCreatorsFleetMethods() {
-  return `        async fetchCompetitors(bypassCache = false, opts = {}) {
+  return `        getCreatorSelectionKey(creatorOrKey) {
+          if (creatorOrKey === undefined || creatorOrKey === null) return '';
+          if (typeof creatorOrKey === 'object') {
+            const cid = creatorOrKey.competitor_id ?? creatorOrKey.id;
+            const cidStr = cid !== undefined && cid !== null ? String(cid).trim() : '';
+            if (cidStr && /^\\d+$/.test(cidStr)) return cidStr;
+            if (cidStr && cidStr.startsWith('serp_')) return cidStr.toLowerCase();
+            const uname = String(creatorOrKey.username || '').replace(/^@+/, '').trim().toLowerCase();
+            return uname ? ('serp_' + uname) : '';
+          }
+          const raw = String(creatorOrKey).trim();
+          if (/^\\d+$/.test(raw)) return raw;
+          if (raw.startsWith('serp_')) return raw.toLowerCase();
+          const clean = raw.replace(/^@+/, '').toLowerCase();
+          return clean ? ('serp_' + clean) : '';
+        },
+
+        formatCreatorActivity(c) {
+          if (!c) return '—';
+          if (c.activity_status) return '• ' + c.activity_status;
+          if (c.last_synced_at) {
+            const diffMs = Date.now() - new Date(c.last_synced_at).getTime();
+            if (!isNaN(diffMs) && diffMs >= 0) {
+              const hrs = Math.floor(diffMs / 3600000);
+              const days = Math.floor(hrs / 24);
+              if (days >= 1) return '• ' + days + 'd ago';
+              if (hrs >= 1) return '• ' + hrs + 'h ago';
+              return '• just now';
+            }
+          }
+          return 'Unsynced';
+        },
+
+        async fetchCompetitors(bypassCache = false, opts = {}) {
           if (bypassCache) {
             this._clientCache?.creators?.clear();
             this._clientCache?.boards?.clear();
@@ -137,20 +170,79 @@ export function getDashboardCreatorsFleetMethods() {
           }
         },
 
-        async deleteCompetitor(id) {
-          const confirmed = await window.PAE.confirm('Are you sure you want to stop tracking this creator?', {
-            title: 'Remove Tracked Creator',
-            confirmLabel: 'Remove Creator',
+        async deleteCompetitor(target) {
+          const isObj = target && typeof target === 'object';
+          const key = this.getCreatorSelectionKey(target);
+          const compObj = isObj
+            ? target
+            : (this.competitors || []).find(c => this.getCreatorSelectionKey(c) === key) || null;
+          const rawId = compObj ? (compObj.competitor_id ?? compObj.id) : target;
+          const isNumeric = /^\\d+$/.test(String(rawId ?? '').trim());
+          const numericId = isNumeric ? Number(rawId) : null;
+          const cleanUsername = String(compObj?.username || (!isNumeric ? key : '')).replace(/^serp_/, '').replace(/^@+/, '').trim().toLowerCase();
+
+          // Scoped Room 3: NEVER perform destructive global delete from inside /folders/:id/creators
+          if (this.scopedFolderId) {
+            const isLinked = compObj ? (compObj.is_linked !== false && compObj.is_tracked !== false) : Boolean(numericId);
+            if (!isLinked || (!numericId && !cleanUsername)) {
+              this.showToast('@' + (cleanUsername || 'creator') + ' is auto-discovered from SERP (not linked to this folder).');
+              return;
+            }
+            const confirmed = await window.PAE.confirm(
+              'Remove @' + (cleanUsername || numericId) + ' from this campaign folder? The creator stays in your global catalog.',
+              {
+                title: 'Remove Creator from Folder',
+                confirmLabel: 'Remove from Folder',
+                danger: true
+              }
+            );
+            if (!confirmed) return;
+            const previousCompetitors = [...(this.competitors || [])];
+            this.competitors = this.competitors.filter(c => this.getCreatorSelectionKey(c) !== key);
+            try {
+              const seg = numericId ? String(numericId) : cleanUsername;
+              const res = await window.apiFetch(
+                this.getApiUrl('/api/folders/' + encodeURIComponent(this.scopedFolderId) + '/creators/' + encodeURIComponent(seg)),
+                { method: 'DELETE' }
+              );
+              if (res.ok) {
+                if (this.activeCreator && this.getCreatorSelectionKey(this.activeCreator) === key) {
+                  this.closeCreatorProfile();
+                }
+                await this.loadFolderCreators(this.scopedFolderId);
+                this.showToast('Removed @' + (cleanUsername || seg) + ' from folder.');
+              } else {
+                this.competitors = previousCompetitors;
+                const err = await res.json().catch(() => ({}));
+                this.showToast('Failed to remove creator from folder: ' + (err.error || err.message || ('HTTP ' + res.status)));
+              }
+            } catch (e) {
+              this.competitors = previousCompetitors;
+              this.showToast('Error removing creator from folder: ' + (e.message || 'Network error'));
+            } finally {
+              this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
+            }
+            return;
+          }
+
+          if (!numericId) {
+            this.showToast('Cannot delete untracked SERP discovery entry globally.');
+            return;
+          }
+
+          const confirmed = await window.PAE.confirm('Are you sure you want to permanently delete this creator globally across all folders?', {
+            title: 'Delete Tracked Creator Globally',
+            confirmLabel: 'Delete Globally',
             danger: true
           });
           if (!confirmed) return;
           const previousCompetitors = [...(this.competitors || [])];
           // Optimistically remove from UI
-          this.competitors = this.competitors.filter(c => Number(c.id) !== Number(id));
+          this.competitors = this.competitors.filter(c => this.getCreatorSelectionKey(c) !== key);
           try {
-            const res = await window.apiFetch(this.getApiUrl('/api/creators?id=' + id), { method: 'DELETE' });
+            const res = await window.apiFetch(this.getApiUrl('/api/creators?id=' + numericId), { method: 'DELETE' });
             if (res.ok) {
-              if (this.activeCreator && Number(this.activeCreator.id) === Number(id)) {
+              if (this.activeCreator && Number(this.activeCreator.id) === numericId) {
                 this.closeCreatorProfile();
               }
               await this.fetchCompetitors(true);
@@ -184,12 +276,15 @@ export function getDashboardCreatorsFleetMethods() {
           const requestBody = isAlreadyIn
             ? undefined
             : JSON.stringify(isNumeric ? { competitor_id: cid } : { username: cleanUsername });
+          const fetchOpts = isAlreadyIn
+            ? { method }
+            : {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: requestBody
+              };
           try {
-            const res = await (window.safeApiFetch || fetch)(url, {
-              method,
-              headers: { 'Content-Type': 'application/json' },
-              body: requestBody
-            });
+            const res = await (window.safeApiFetch || fetch)(url, fetchOpts);
             if (res.ok) {
               if (!this.folderCreatorMap[fid]) this.folderCreatorMap[fid] = new Set();
               if (isAlreadyIn) {
@@ -205,12 +300,51 @@ export function getDashboardCreatorsFleetMethods() {
               if (folderObj) {
                 folderObj.creator_count = this.folderCreatorMap[fid].size;
               }
+              if (this.scopedFolderId && String(this.scopedFolderId) === fid) {
+                await this.loadFolderCreators(fid);
+              }
             } else {
               const err = await res.json().catch(() => ({}));
               this.showToast(err.message || 'Failed to update folder assignment');
             }
           } catch (e) {
             this.showToast('Network error: ' + e.message);
+          }
+        },
+
+        async ensureCreatorLinkedToFolder(competitorIdOrUsername, folderId) {
+          if (!competitorIdOrUsername || !folderId) return false;
+          const fid = String(folderId);
+          const rawId = String(competitorIdOrUsername).trim();
+          const isNumeric = /^\\d+$/.test(rawId);
+          const cid = isNumeric ? Number(rawId) : rawId;
+          const cleanUsername = isNumeric ? null : rawId.replace(/^serp_/, '').replace(/^@+/, '').trim().toLowerCase();
+          const isAlreadyIn = this.isCreatorInFolder(cid, fid) || (cleanUsername && this.isCreatorInFolder(cleanUsername, fid));
+          if (isAlreadyIn) {
+            return true;
+          }
+          try {
+            const res = await (window.safeApiFetch || fetch)(
+              '/api/folders/' + encodeURIComponent(fid) + '/creators',
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(isNumeric ? { competitor_id: cid, action: 'link' } : { username: cleanUsername, action: 'link' })
+              }
+            );
+            if (res.ok) {
+              if (!this.folderCreatorMap[fid]) this.folderCreatorMap[fid] = new Set();
+              this.folderCreatorMap[fid].add(cid);
+              if (cleanUsername) this.folderCreatorMap[fid].add(cleanUsername);
+              const folderObj = (this.foldersList || []).find(f => String(f.id) === fid);
+              if (folderObj) {
+                folderObj.creator_count = this.folderCreatorMap[fid].size;
+              }
+              return true;
+            }
+            return false;
+          } catch (_) {
+            return false;
           }
         },
 
@@ -373,7 +507,7 @@ export function getDashboardCreatorsFleetMethods() {
               this.sanitizeCsvCell(c.profile_views != null ? c.profile_views : 0),
               this.sanitizeCsvCell(c.total_pins != null ? c.total_pins : 0),
               this.sanitizeCsvCell(c.total_boards != null ? c.total_boards : 0),
-              this.sanitizeCsvCell(c.activity_status || '1d ago')
+              this.sanitizeCsvCell(c.activity_status || '—')
             ].join(','));
           }
           const blob = new Blob([lines.join(String.fromCharCode(10))], { type: 'text/csv;charset=utf-8;' });
@@ -387,31 +521,34 @@ export function getDashboardCreatorsFleetMethods() {
           URL.revokeObjectURL(url);
         },
 
-        toggleSelectCompetitor(id) {
-          if (id === undefined || id === null) return;
-          const numId = Number(id);
-          const idx = this.selectedCompetitorIds.indexOf(numId);
+        toggleSelectCompetitor(idOrCreator) {
+          if (idOrCreator === undefined || idOrCreator === null) return;
+          const key = this.getCreatorSelectionKey(idOrCreator);
+          if (!key) return;
+          const idx = this.selectedCompetitorIds.findIndex(k => String(k) === key);
           if (idx >= 0) {
             this.selectedCompetitorIds.splice(idx, 1);
           } else {
-            this.selectedCompetitorIds.push(numId);
+            this.selectedCompetitorIds.push(key);
           }
         },
 
         get isAllCompetitorsSelected() {
           if (!this.filteredCompetitors || this.filteredCompetitors.length === 0 || this.selectedCompetitorIds.length === 0) return false;
-          const selectedSet = new Set(this.selectedCompetitorIds);
-          return this.filteredCompetitors.every(c => selectedSet.has(Number(c.id)));
+          const selectedSet = new Set(this.selectedCompetitorIds.map(k => String(k)));
+          return this.filteredCompetitors.every(c => selectedSet.has(this.getCreatorSelectionKey(c)));
         },
 
         toggleSelectAllCompetitors() {
           if (!this.filteredCompetitors || this.filteredCompetitors.length === 0) return;
-          const filteredIds = this.filteredCompetitors.map(c => Number(c.id));
-          const allSelected = filteredIds.every(id => this.selectedCompetitorIds.includes(id));
+          const filteredKeys = this.filteredCompetitors.map(c => this.getCreatorSelectionKey(c)).filter(Boolean);
+          const selectedSet = new Set(this.selectedCompetitorIds.map(k => String(k)));
+          const allSelected = filteredKeys.length > 0 && filteredKeys.every(k => selectedSet.has(k));
           if (allSelected) {
-            this.selectedCompetitorIds = this.selectedCompetitorIds.filter(id => !filteredIds.includes(id));
+            const dropSet = new Set(filteredKeys);
+            this.selectedCompetitorIds = this.selectedCompetitorIds.filter(k => !dropSet.has(String(k)));
           } else {
-            const set = new Set([...this.selectedCompetitorIds, ...filteredIds]);
+            const set = new Set([...this.selectedCompetitorIds.map(k => String(k)), ...filteredKeys]);
             this.selectedCompetitorIds = Array.from(set);
           }
         },
@@ -422,22 +559,25 @@ export function getDashboardCreatorsFleetMethods() {
 
         async quickPulseCreatorAction(competitor) {
           if (!competitor) return;
-          const compId = competitor.id;
+          const pulseKey = this.getCreatorSelectionKey(competitor);
+          const compId = competitor.competitor_id ?? competitor.id;
+          const isNumeric = /^\\d+$/.test(String(compId ?? '').trim());
           const username = (competitor.username || '').replace(/^@+/, '').trim();
-          this.pulsingCreatorId = compId;
+          this.pulsingCreatorId = pulseKey || username;
           this.showToast('Quick Pulsing @' + username + ' (syncing impressions, total audience & boards)...');
           try {
+            const payload = isNumeric ? { id: Number(compId), username } : { username };
             const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/creators/quick-pulse'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ id: compId, username })
+              body: JSON.stringify(payload)
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok && data?.success) {
               this.showToast('Quick Pulse complete for @' + username + '!');
               this._clientCache?.boards?.clear();
               await this.fetchCompetitors();
-              if (this.activeCreator && (this.activeCreator.id === compId || (this.activeCreator.username || '').replace(/^@+/, '') === username)) {
+              if (this.activeCreator && (this.getCreatorSelectionKey(this.activeCreator) === pulseKey || (this.activeCreator.username || '').replace(/^@+/, '') === username)) {
                 this._clientCache?.creators?.delete(username.toLowerCase());
                 await this.openCreatorDossier(this.activeCreator);
               }
@@ -600,14 +740,17 @@ export function getDashboardCreatorsFleetMethods() {
           let successCount = 0;
           let failedCount = 0;
           for (let i = 0; i < count; i++) {
-            const cid = this.selectedCompetitorIds[i];
-            const comp = (this.competitors || []).find(c => Number(c.id) === Number(cid));
+            const selKey = String(this.selectedCompetitorIds[i]);
+            const comp = (this.competitors || []).find(c => this.getCreatorSelectionKey(c) === selKey);
             if (!comp) continue;
+            const rawCid = comp.competitor_id ?? comp.id;
+            const isNum = /^\\d+$/.test(String(rawCid ?? '').trim());
+            const cleanUsername = (comp.username || '').replace(/^@+/, '').trim();
             try {
               const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/creators/quick-pulse'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: cid })
+                body: JSON.stringify(isNum ? { id: Number(rawCid), username: cleanUsername } : { username: cleanUsername })
               });
               if (res && res.ok) {
                 successCount++;
@@ -633,8 +776,9 @@ export function getDashboardCreatorsFleetMethods() {
 
         async bulkRefreshWinnersSelected() {
           if (!this.selectedCompetitorIds.length) return;
-          const usernames = this.selectedCompetitorIds.map(id => {
-            const comp = (this.competitors || []).find(c => Number(c.id) === Number(id));
+          const usernames = this.selectedCompetitorIds.map(sel => {
+            const selKey = String(sel);
+            const comp = (this.competitors || []).find(c => this.getCreatorSelectionKey(c) === selKey);
             return comp?.username ? comp.username.replace(/^@+/, '').trim() : null;
           }).filter(Boolean);
           if (!usernames.length) return;
@@ -665,8 +809,14 @@ export function getDashboardCreatorsFleetMethods() {
 
         bulkOpenFleetCrawlModal() {
           if (!this.selectedCompetitorIds.length) return;
-          const firstComp = (this.competitors || []).find(c => Number(c.id) === Number(this.selectedCompetitorIds[0]));
-          this.openGhaCrawlerModal(firstComp || { username: this.selectedCompetitorIds.length + ' Selected Creators' });
+          const usernames = this.selectedCompetitorIds.map(sel => {
+            const selKey = String(sel);
+            const comp = (this.competitors || []).find(c => this.getCreatorSelectionKey(c) === selKey);
+            if (comp?.username) return comp.username.replace(/^@+/, '').trim();
+            return selKey.startsWith('serp_') ? selKey.replace(/^serp_/, '').trim() : null;
+          }).filter(Boolean);
+          if (!usernames.length) return;
+          this.openGhaCrawlerModal({ username: usernames.length + ' Selected Creators' }, { bulkUsernames: usernames });
         },
 
         async dispatchRefreshWinnersAction(creator) {
@@ -702,22 +852,85 @@ export function getDashboardCreatorsFleetMethods() {
         async bulkDeleteSelectedCompetitors() {
           if (!this.selectedCompetitorIds.length) return;
           const count = this.selectedCompetitorIds.length;
-          const confirmed = await window.PAE.confirm('Are you sure you want to stop tracking ' + count + ' selected creators?', {
-            title: 'Remove Selected Creators',
-            confirmLabel: 'Remove ' + count + ' Creators',
+          const selectedKeys = new Set(this.selectedCompetitorIds.map(k => String(k)));
+
+          if (this.scopedFolderId) {
+            const confirmed = await window.PAE.confirm(
+              'Remove ' + count + ' selected creator(s) from this campaign folder? Creators remain in your global catalog.',
+              {
+                title: 'Remove Selected Creators from Folder',
+                confirmLabel: 'Remove ' + count + ' from Folder',
+                danger: true
+              }
+            );
+            if (!confirmed) return;
+
+            const competitorIds = [];
+            const usernames = [];
+            for (const selKey of selectedKeys) {
+              const comp = (this.competitors || []).find(c => this.getCreatorSelectionKey(c) === selKey);
+              const rawCid = comp ? (comp.competitor_id ?? comp.id) : selKey;
+              if (/^\\d+$/.test(String(rawCid ?? '').trim())) {
+                competitorIds.push(Number(rawCid));
+              } else {
+                const u = String(comp?.username || selKey).replace(/^serp_/, '').replace(/^@+/, '').trim();
+                if (u) usernames.push(u);
+              }
+            }
+
+            const previousCompetitors = [...(this.competitors || [])];
+            this.competitors = this.competitors.filter(c => !selectedKeys.has(this.getCreatorSelectionKey(c)));
+            this.selectedCompetitorIds = [];
+            try {
+              const res = await window.apiFetch(
+                this.getApiUrl('/api/folders/' + encodeURIComponent(this.scopedFolderId) + '/creators/bulk-remove'),
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ competitor_ids: competitorIds, usernames })
+                }
+              );
+              if (res.ok) {
+                const data = await res.json().catch(() => ({}));
+                await this.loadFolderCreators(this.scopedFolderId);
+                this.showToast('Removed ' + (data.removed_count ?? count) + ' creator(s) from folder.');
+              } else {
+                this.competitors = previousCompetitors;
+                const err = await res.json().catch(() => ({}));
+                this.showToast('Failed to remove creators from folder: ' + (err.error || err.message || ('HTTP ' + res.status)));
+              }
+            } catch (e) {
+              this.competitors = previousCompetitors;
+              this.showToast('Error removing creators from folder: ' + (e.message || 'Network error'));
+            } finally {
+              this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
+            }
+            return;
+          }
+
+          const confirmed = await window.PAE.confirm('Are you sure you want to permanently delete ' + count + ' selected creators globally?', {
+            title: 'Delete Selected Creators Globally',
+            confirmLabel: 'Delete ' + count + ' Globally',
             danger: true
           });
           if (!confirmed) return;
           const previousCompetitors = [...(this.competitors || [])];
-          const toDelete = new Set(this.selectedCompetitorIds.map(Number));
-          this.competitors = this.competitors.filter(c => !toDelete.has(Number(c.id)));
-          const idsToDelete = [...this.selectedCompetitorIds];
+          const numericIdsToDelete = [];
+          for (const selKey of selectedKeys) {
+            if (/^\\d+$/.test(selKey)) numericIdsToDelete.push(Number(selKey));
+          }
+          if (numericIdsToDelete.length === 0) {
+            this.showToast('No persisted numeric creator IDs selected for global deletion.');
+            return;
+          }
+          const deleteSet = new Set(numericIdsToDelete.map(String));
+          this.competitors = this.competitors.filter(c => !deleteSet.has(this.getCreatorSelectionKey(c)));
           this.selectedCompetitorIds = [];
 
           let failedCount = 0;
           let lastErrorMessage = '';
           try {
-            for (const cid of idsToDelete) {
+            for (const cid of numericIdsToDelete) {
               try {
                 const res = await window.apiFetch(this.getApiUrl('/api/creators?id=' + cid), { method: 'DELETE' });
                 if (!res.ok) {
@@ -732,12 +945,12 @@ export function getDashboardCreatorsFleetMethods() {
             }
             await this.fetchCompetitors(true);
             if (failedCount === 0) {
-              this.showToast('Removed ' + count + ' selected competitors.');
-            } else if (failedCount === count) {
+              this.showToast('Removed ' + numericIdsToDelete.length + ' selected competitors.');
+            } else if (failedCount === numericIdsToDelete.length) {
               this.competitors = previousCompetitors;
               this.showToast('Failed to delete competitors: ' + lastErrorMessage);
             } else {
-              this.showToast('Removed ' + (count - failedCount) + ' competitors (' + failedCount + ' failed: ' + lastErrorMessage + ')');
+              this.showToast('Removed ' + (numericIdsToDelete.length - failedCount) + ' competitors (' + failedCount + ' failed: ' + lastErrorMessage + ')');
             }
           } catch (e) {
             this.competitors = previousCompetitors;
@@ -749,19 +962,19 @@ export function getDashboardCreatorsFleetMethods() {
 
         async bulkToggleSelectedStatus(activeStatus) {
           if (!this.selectedCompetitorIds.length) return;
-          const selectedSet = new Set(this.selectedCompetitorIds.map(Number));
+          const selectedSet = new Set(this.selectedCompetitorIds.map(k => String(k)));
           const count = this.selectedCompetitorIds.length;
           const previousCompetitors = [...(this.competitors || [])];
           const previousActiveCreator = this.activeCreator ? { ...this.activeCreator } : null;
 
           // 1. Instant optimistic reactive update across array
           this.competitors = (this.competitors || []).map(comp => {
-            if (selectedSet.has(Number(comp.id))) {
+            if (selectedSet.has(this.getCreatorSelectionKey(comp))) {
               return { ...comp, is_active: activeStatus };
             }
             return comp;
           });
-          if (this.activeCreator && selectedSet.has(Number(this.activeCreator.id))) {
+          if (this.activeCreator && selectedSet.has(this.getCreatorSelectionKey(this.activeCreator))) {
             this.activeCreator = { ...this.activeCreator, is_active: activeStatus };
           }
 
@@ -770,12 +983,19 @@ export function getDashboardCreatorsFleetMethods() {
           let failedCount = 0;
           let lastError = '';
           try {
-            for (const cid of this.selectedCompetitorIds) {
+            for (const sel of this.selectedCompetitorIds) {
+              const selKey = String(sel);
+              const comp = (this.competitors || []).find(c => this.getCreatorSelectionKey(c) === selKey);
+              const rawCid = comp ? (comp.competitor_id ?? comp.id) : selKey;
+              const isNum = /^\\d+$/.test(String(rawCid ?? '').trim());
+              const payload = isNum
+                ? { id: Number(rawCid), is_active: activeStatus }
+                : { username: String(comp?.username || selKey).replace(/^serp_/, '').replace(/^@+/, '').trim(), is_active: activeStatus };
               try {
                 const res = await window.apiFetch(this.getApiUrl('/api/creators/status'), {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ id: cid, is_active: activeStatus })
+                  body: JSON.stringify(payload)
                 });
                 if (res && res.ok) {
                   updatedCount++;
@@ -1013,10 +1233,13 @@ export function getDashboardCreatorsDossierMethods() {
               }
             } else {
               // Untracked creator / 404
-              this.closeCreatorProfile(true);
+              this.closeCreatorProfile(false);
               this.currentTab = 'creators_archive';
               if (typeof window !== 'undefined') {
-                window.history.replaceState({}, '', '/accounts');
+                const fallbackPath = this.scopedFolderId
+                  ? ('/folders/' + encodeURIComponent(this.scopedFolderId) + '/creators')
+                  : '/accounts';
+                window.history.replaceState({}, '', fallbackPath);
               }
               this.showToast('Creator profile @' + handle + ' is not tracked.');
               return;

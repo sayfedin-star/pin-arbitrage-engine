@@ -108,7 +108,7 @@ export async function getCompetitorsOverview(sql) {
     const topProfile = topProfileRes?.[0] || null;
 
     return {
-      tracked_profiles: totals.total_profiles || 0,
+      tracked_profiles: Number(totals.total_profiles ?? totals.tracked_profiles ?? 0),
       active_count: totals.active_count || 0,
       paused_count: totals.paused_count || 0,
       competitor_count: totals.competitor_count || 0,
@@ -116,7 +116,7 @@ export async function getCompetitorsOverview(sql) {
       total_audience: Number(totals.total_audience || 0),
       total_impressions: Number(totals.total_impressions || 0),
       combined_reach: Number(totals.combined_reach || totals.total_audience || 0),
-      pins_tracked: Number(totals.total_pins_tracked || 0),
+      pins_tracked: Number(totals.total_pins_tracked ?? totals.pins_tracked ?? 0),
       top_competitor: topProfile ? {
         handle: `@${topProfile.username}`,
         reach: formatMetric(topProfile.monthly_reach, true)
@@ -289,10 +289,10 @@ export async function trackCompetitor(sql, { username, display_name, account_typ
 /**
  * Resilient live crawl of a Pinterest user profile
  */
-export async function syncCompetitorProfile(sql, username, cookie = (typeof process !== 'undefined' && process?.env ? process.env.PINTEREST_COOKIE : null), options = {}) {
+export async function syncCompetitorProfile(sql, username, cookie = '', options = {}) {
   if (typeof cookie === 'object' && cookie !== null) {
     options = cookie;
-    cookie = (typeof process !== 'undefined' && process?.env ? process.env.PINTEREST_COOKIE : null);
+    cookie = '';
   }
   options = options || {};
 
@@ -300,7 +300,9 @@ export async function syncCompetitorProfile(sql, username, cookie = (typeof proc
   if (!cleanUsername) throw new Error('Username is required.');
 
   const [existingProfile] = await sql`
-    SELECT id, tracking_mode, custom_label, source_folder_id, monthly_reach, profile_views,
+    SELECT id, tracking_mode, custom_label, source_folder_id,
+           avatar_url, display_name, monthly_reach, profile_views,
+           total_pins, total_boards, follower_count,
            (metadata->>'profile_pulse_only')::boolean AS profile_pulse_only
     FROM competitor_profiles
     WHERE username = ${cleanUsername}

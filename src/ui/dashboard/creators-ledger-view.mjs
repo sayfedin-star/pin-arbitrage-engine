@@ -98,7 +98,7 @@ export function renderCreatorsLedgerView({ safeFolderId = '' } = {}) {
               <div class="flex flex-col gap-0.5">
                 <span class="text-[10px] uppercase text-slate-500 dark:text-[#71717A] font-bold">Combined Audience</span>
                 <span class="text-base font-bold text-slate-900 dark:text-white" x-text="formatNumber(folderCompetitorTotals?.combined_audience || totalAudienceSum || 0)">0</span>
-                <span class="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold" x-text="(folderCompetitorTotals?.delta_24h ? ('+' + formatNumber(folderCompetitorTotals.delta_24h) + ' 24h') : '+0 24h')">+0 24h</span>
+                <span class="text-[10px] font-semibold" :class="Number(folderCompetitorTotals?.delta_24h || 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : (Number(folderCompetitorTotals?.delta_24h || 0) < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-400')" x-text="Number(folderCompetitorTotals?.delta_24h || 0) > 0 ? ('+' + formatNumber(folderCompetitorTotals.delta_24h) + ' 24h') : (Number(folderCompetitorTotals?.delta_24h || 0) < 0 ? (formatNumber(folderCompetitorTotals.delta_24h) + ' 24h') : '0 24h')">0 24h</span>
               </div>
               <div class="flex flex-col gap-0.5">
                 <span class="text-[10px] uppercase text-slate-500 dark:text-[#71717A] font-bold">Combined Impressions</span>
@@ -109,11 +109,14 @@ export function renderCreatorsLedgerView({ safeFolderId = '' } = {}) {
                 <span class="text-[10px] uppercase text-slate-500 dark:text-[#71717A] font-bold">Combined Catalog Pins</span>
                 <span class="text-base font-bold text-slate-900 dark:text-white" x-text="formatNumber(folderCompetitorTotals?.combined_pins || 0)">0</span>
                 <span class="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold" x-text="(folderCompetitorTotals?.total_creators || (filteredCompetitors ? filteredCompetitors.length : 0)) + ' Creators'"></span>
+                <template x-if="Number(folderCompetitorTotals?.mega_aggregator_count || 0) > 0">
+                  <span class="text-[10px] text-slate-500 dark:text-slate-400" x-text="formatNumber(folderCompetitorTotals?.combined_pins_ex_aggregators || 0) + ' ex-mega (&lt;1M)'"></span>
+                </template>
               </div>
               <div class="flex flex-col gap-0.5">
                 <span class="text-[10px] uppercase text-slate-500 dark:text-[#71717A] font-bold">Avg Pinning Cadence</span>
-                <span class="text-base font-bold text-slate-900 dark:text-white" x-text="(folderCompetitorTotals?.avg_pinning_cadence || 0) + ' Pins / Day'">0 Pins / Day</span>
-                <span class="text-[10px] text-slate-400">Velocity</span>
+                <span class="text-base font-bold text-slate-900 dark:text-white" x-text="Number(folderCompetitorTotals?.avg_pinning_cadence || 0) > 0 ? (folderCompetitorTotals.avg_pinning_cadence + ' Pins / Day') : '—'">—</span>
+                <span class="text-[10px] text-slate-400">Measured Velocity</span>
               </div>
             </div>
           </template>
@@ -215,8 +218,8 @@ export function renderCreatorsLedgerView({ safeFolderId = '' } = {}) {
                 <i data-lucide="play" class="w-3 h-3 shrink-0"></i>
                 <span>Resume</span>
               </button>
-              <!-- Delete -->
-              <button @click="bulkDeleteSelectedCompetitors()" class="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 border border-rose-500/30 dark:bg-rose-500/20 dark:hover:bg-rose-500/30 dark:text-rose-300 transition cursor-pointer" title="Delete selected competitors">
+              <!-- Delete / Remove from Folder -->
+              <button @click="bulkDeleteSelectedCompetitors()" class="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 border border-rose-500/30 dark:bg-rose-500/20 dark:hover:bg-rose-500/30 dark:text-rose-300 transition cursor-pointer" :title="scopedFolderId ? 'Remove selected creators from this folder' : 'Delete selected competitors globally'">
                 <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
               </button>
             </div>
@@ -238,12 +241,17 @@ export function renderCreatorsLedgerView({ safeFolderId = '' } = {}) {
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono tabular-nums">
-                <template x-for="c in paginatedCompetitors" :key="c.id || ('serp_' + (c.username || 'unknown'))">
+                <template x-for="c in paginatedCompetitors" :key="getCreatorSelectionKey(c) || ('serp_' + (c.username || 'unknown'))">
                   <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition" :class="c.is_active === false ? 'opacity-75 bg-amber-500/[0.03] dark:bg-amber-500/[0.05]' : ''">
-                    <td class="py-3 px-3"><input type="checkbox" :checked="selectedCompetitorIds.includes(Number(c.id))" @change="toggleSelectCompetitor(c.id)" class="rounded border-slate-300 dark:border-[#27272A] text-purple-600 cursor-pointer"></td>
+                    <td class="py-3 px-3"><input type="checkbox" :checked="selectedCompetitorIds.some(k => String(k) === getCreatorSelectionKey(c))" @change="toggleSelectCompetitor(c)" class="rounded border-slate-300 dark:border-[#27272A] text-purple-600 cursor-pointer"></td>
                     <td class="py-3 px-3 font-sans">
                       <div class="flex items-center space-x-2.5 cursor-pointer" @click="openCreatorDossier(c)">
-                        <img :src="c.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=64&h=64&fit=crop&crop=face'" class="w-8 h-8 rounded-full object-cover border border-slate-200 dark:border-[#27272A] hover:scale-105 transition">
+                        <template x-if="c.avatar_url">
+                          <img :src="c.avatar_url" class="w-8 h-8 rounded-full object-cover border border-slate-200 dark:border-[#27272A] hover:scale-105 transition shrink-0">
+                        </template>
+                        <template x-if="!c.avatar_url">
+                          <div class="w-8 h-8 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold text-xs border border-purple-500/20 shrink-0" x-text="(c.username || '?').replace(/^@+/, '').slice(0, 1).toUpperCase()"></div>
+                        </template>
                         <div>
                           <div class="font-bold text-slate-900 dark:text-white hover:text-purple-600 dark:hover:text-purple-400 flex items-center space-x-1 flex-wrap">
                             <span x-text="'@' + c.username"></span>
@@ -315,7 +323,7 @@ export function renderCreatorsLedgerView({ safeFolderId = '' } = {}) {
                         </template>
                       </div>
                       <!-- Pinning Cadence (Pins / Day) [INVARIANT: PINNING-CADENCE] -->
-                      <div class="text-[10px] text-slate-400 font-mono tabular-nums font-normal" x-text="(c.pins_per_day || (c.total_pins ? (c.total_pins / 365).toFixed(1) : 0)) + ' Pins / Day'">0 Pins / Day</div>
+                      <div class="text-[10px] text-slate-400 font-mono tabular-nums font-normal" x-text="c.pins_per_day != null ? (c.pins_per_day + ' Pins / Day') : (Number(c.pins_delta_7d || 0) > 0 ? ((Number(c.pins_delta_7d) / 7).toFixed(1) + ' Pins / Day') : (Number(c.delta_pins_24h || 0) > 0 ? (Number(c.delta_pins_24h).toFixed(1) + ' Pins / Day') : '—'))">—</div>
                     </td>
                     <td class="py-3 px-3 text-center">
                       <button @click="openBoardsModal(c)" class="px-2.5 py-1 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-700 dark:text-purple-300 font-bold text-[11px] transition flex items-center justify-center space-x-1.5 mx-auto border border-purple-500/30 active:scale-95" title="Click to view boards breakdown & activity">
@@ -332,7 +340,7 @@ export function renderCreatorsLedgerView({ safeFolderId = '' } = {}) {
                       </div>
                     </td>
                     <td class="py-3 px-3 text-center">
-                      <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 whitespace-nowrap" x-text="'• ' + (c.activity_status || '1d ago')"></span>
+                      <span class="px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap border" :class="c.activity_status ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200 dark:border-[#27272A]'" x-text="formatCreatorActivity(c)"></span>
                     </td>
                     <td class="py-3 px-3 text-center">
                       <div class="flex items-center justify-center space-x-1">
@@ -353,9 +361,9 @@ export function renderCreatorsLedgerView({ safeFolderId = '' } = {}) {
                           <i data-lucide="layout-grid" class="w-3.5 h-3.5 text-emerald-500"></i>
                         </button>
                         <!-- ⚡ Quick Pulse (~2s Edge) -->
-                        <button @click.stop="quickPulseCreatorAction(c)" :disabled="pulsingCreatorId === c.id" class="px-2 py-1 text-[11px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg border border-amber-500/30 transition flex items-center space-x-1 cursor-pointer disabled:opacity-50" title="Pulse Profile (~2s): Instant Edge sync of Impressions, Total Audience & Boards">
-                          <i data-lucide="zap" class="w-3 h-3 text-amber-500" :class="pulsingCreatorId === c.id ? 'animate-spin' : ''"></i>
-                          <span x-text="pulsingCreatorId === c.id ? 'Pulsing...' : 'Pulse'"></span>
+                        <button @click.stop="quickPulseCreatorAction(c)" :disabled="pulsingCreatorId !== null && pulsingCreatorId === getCreatorSelectionKey(c)" class="px-2 py-1 text-[11px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 rounded-lg border border-amber-500/30 transition flex items-center space-x-1 cursor-pointer disabled:opacity-50" title="Pulse Profile (~2s): Instant Edge sync of Impressions, Total Audience & Boards">
+                          <i data-lucide="zap" class="w-3 h-3 text-amber-500" :class="(pulsingCreatorId !== null && pulsingCreatorId === getCreatorSelectionKey(c)) ? 'animate-spin' : ''"></i>
+                          <span x-text="(pulsingCreatorId !== null && pulsingCreatorId === getCreatorSelectionKey(c)) ? 'Pulsing...' : 'Pulse'"></span>
                         </button>
                         <!-- 🏆 Refresh Winners (GitHub Actions) -->
                         <button @click.stop="dispatchRefreshWinnersAction(c)" class="p-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30 transition cursor-pointer" title="Refresh Winners: Dispatch background refresh of winning pin stats on GitHub Actions">
@@ -391,8 +399,8 @@ export function renderCreatorsLedgerView({ safeFolderId = '' } = {}) {
                             </div>
                           </template>
                         </div>
-                        <!-- Delete Competitor -->
-                        <button @click.stop="deleteCompetitor(c.id)" class="p-1.5 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500 transition cursor-pointer" title="Delete competitor">
+                        <!-- Delete Competitor / Remove from Folder -->
+                        <button @click.stop="deleteCompetitor(c)" class="p-1.5 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500 transition cursor-pointer" :title="scopedFolderId ? 'Remove creator from this folder' : 'Delete competitor globally'">
                           <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                         </button>
                       </div>

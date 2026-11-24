@@ -382,7 +382,9 @@ export function getDashboardBoardsAndPinMethods() {
           this.isBoardsModalOpen = false;
           this.selectedCreatorPinIds = [];
           if (updateHistory && typeof window !== 'undefined') {
-            const target = (this.currentTab === 'creators_archive') ? '/accounts' : '/';
+            const target = this.scopedFolderId
+              ? ('/folders/' + encodeURIComponent(this.scopedFolderId) + '/creators')
+              : ((this.currentTab === 'creators_archive') ? '/accounts' : '/');
             if (window.location.pathname !== target) {
               window.history.pushState({}, '', target);
             }
@@ -404,7 +406,13 @@ export function getDashboardBoardsAndPinMethods() {
         openGhaCrawlerModal(creator = null, options = {}) {
           const target = creator || this.activeCreator;
           if (!target) return;
-          this.ghaTargetAccount = (target.username || '').replace(/^@+/, '').trim();
+          if (Array.isArray(options.bulkUsernames) && options.bulkUsernames.length > 0) {
+            this.ghaBulkUsernames = options.bulkUsernames.map(u => String(u || '').replace(/^@+/, '').trim()).filter(Boolean);
+            this.ghaTargetAccount = this.ghaBulkUsernames.length + ' Selected Creators';
+          } else {
+            this.ghaBulkUsernames = [];
+            this.ghaTargetAccount = (target.username || '').replace(/^@+/, '').trim();
+          }
           this.ghaCrawlMode = options.mode || 'discovery';
           if (options.scope === 'custom') {
             this.ghaBoardScope = 'custom';
@@ -466,13 +474,8 @@ export function getDashboardBoardsAndPinMethods() {
         },
 
         async submitGhaCrawlerDispatch() {
-          const isBulk = this.selectedCompetitorIds.length > 1 && this.ghaTargetAccount.includes('Selected');
-          const bulkUsernames = isBulk
-            ? this.selectedCompetitorIds.map(id => {
-                const comp = (this.competitors || []).find(c => Number(c.id) === Number(id));
-                return comp?.username ? comp.username.replace(/^@+/, '').trim() : null;
-              }).filter(Boolean)
-            : null;
+          const isBulk = Array.isArray(this.ghaBulkUsernames) && this.ghaBulkUsernames.length > 0;
+          const bulkUsernames = isBulk ? [...this.ghaBulkUsernames] : null;
 
           const handle = (this.ghaTargetAccount || '').replace(/^@+/, '').trim();
           if (!handle && (!bulkUsernames || !bulkUsernames.length)) return;
@@ -701,6 +704,7 @@ export function getDashboardBoardsAndPinMethods() {
           this.isSubmittingCreator = true;
           try {
             // 1. Ensure competitor profile is registered in database before crawling
+            let createdCompetitorId = null;
             if (this.newCompetitorAlsoTrack || this.newCompetitorDiscoverPins) {
               const res = await window.apiFetch(this.getApiUrl('/api/creators'), {
                 method: 'POST',
@@ -717,6 +721,8 @@ export function getDashboardBoardsAndPinMethods() {
                 this.showToast('Failed to add creator: ' + (errData?.error || res.statusText || 'Error'));
                 return;
               }
+              const createData = await res.json().catch(() => ({}));
+              createdCompetitorId = createData?.competitor?.id || null;
               this.showToast('Creator @' + handle + ' added to tracking!');
               // Await live profile sync before UI refresh
               await this.syncCompetitor(handle);
@@ -750,13 +756,11 @@ export function getDashboardBoardsAndPinMethods() {
             // Reset modal & refresh
             this.newCompetitorHandle = '';
             this.isAddCompetitorModalOpen = false;
-            await this.fetchCompetitors();
             if (this.scopedFolderId) {
-              const comp = (this.competitors || []).find(c => (c.username || '').replace(/^@+/, '') === handle);
-              if (comp && comp.id) {
-                await this.assignCreatorToFolder(comp.id, this.scopedFolderId);
-                await this.loadFolderCreators(this.scopedFolderId);
-              }
+              await this.ensureCreatorLinkedToFolder(createdCompetitorId || handle, this.scopedFolderId);
+              await this.loadFolderCreators(this.scopedFolderId);
+            } else {
+              await this.fetchCompetitors();
             }
           } catch (e) {
             this.showToast('Error tracking creator: ' + e.message);

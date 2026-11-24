@@ -22,8 +22,11 @@ import {
   deleteCompetitorSeed,
   getQualificationRules,
   updateQualificationRules,
-  deleteCompetitor
+  deleteCompetitor,
+  sanitizeStoredCeilingDelta,
+  formatMetric
 } from '../modules/creators/competitors-crud.mjs';
+import { escapeSqlWildcards } from '../utils.mjs';
 import {
   syncCompetitorPins,
   reEvaluateArchivedPins,
@@ -55,6 +58,31 @@ import { fetchCreatorLatestPinsPidgets, fetchBoardSectionsResource } from '../co
 import { dispatchGitHubWorkflow, resolveGitHubAuth } from '../http/github-workflow.mjs';
 import { verifyApiAuthentication } from '../http/security-and-response.mjs';
 import { deletePinSnapshotByTarget } from '../modules/pins/snapshot-service.mjs';
+import { DEFAULT_WORKSPACE_ID, resolveWorkspaceRawCookie } from '../modules/workspaces/service.mjs';
+import { invalidateFolderCache } from '../modules/keywords/folders-crossover.mjs';
+
+const CLIENT_COOKIE_FORBIDDEN_PAYLOAD = {
+  ok: false,
+  error: 'CLIENT_COOKIE_FORBIDDEN',
+  message: 'Client-supplied cookies are rejected; workspace cookies are resolved server-side.'
+};
+
+function hasForbiddenClientCookie(body) {
+  return Boolean(body && body.cookie !== undefined && String(body.cookie).trim() !== '');
+}
+
+async function resolveWorkspaceCookieForCreators(sql, workspaceId, env) {
+  const numericWid = Number(workspaceId) || DEFAULT_WORKSPACE_ID;
+  const resolved = await resolveWorkspaceRawCookie(sql, numericWid).catch(() => ({ rawCookie: '' }));
+  const wsCookie = typeof resolved === 'string'
+    ? resolved.trim()
+    : String(resolved?.rawCookie || '').trim();
+  if (wsCookie) return wsCookie;
+  if (numericWid === DEFAULT_WORKSPACE_ID) {
+    return env?.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env?.PINTEREST_COOKIE : '') || '';
+  }
+  return '';
+}
 
 /**
  * Fast URI discriminator for Creators & Boards routes
@@ -92,9 +120,11 @@ export async function handleCreatorsRoutes(routeCtx) {
   } = routeCtx;
 
   const invalidateCreatorsCache = () => {
+    invalidateFolderCache(null, workspaceId);
     if (typeof invalidateEdgeCache === 'function') {
       invalidateEdgeCache('creators');
       invalidateEdgeCache('competitors');
+      invalidateEdgeCache('folders');
       invalidateEdgeCache('pinarchive');
       invalidateEdgeCache('topics');
       invalidateEdgeCache('settings');
@@ -109,10 +139,13 @@ export async function handleCreatorsRoutes(routeCtx) {
       return jsonResponse({ success: true, settings }, 200, -1);
     }
     if (method === 'POST') {
-      invalidateCreatorsCache();
-      const body = await request.json().catch(() => ({}));
-      const updated = await updateCreatorHubSettings(sql, body);
-      return jsonResponse({ success: true, settings: updated }, 200, -1);
+      try {
+        const body = await request.json().catch(() => ({}));
+        const updated = await updateCreatorHubSettings(sql, body);
+        return jsonResponse({ success: true, settings: updated }, 200, -1);
+      } finally {
+        invalidateCreatorsCache();
+      }
     }
     return (typeof routeCtx.methodNotAllowedResponse === 'function'
       ? routeCtx.methodNotAllowedResponse('GET, POST')
@@ -174,11 +207,15 @@ export async function handleCreatorsRoutes(routeCtx) {
   // 0C. Smart Sync Endpoints (Quick Pulse & Deep Harvest)
   if (method === 'POST' && pathname === '/api/creators/quick-pulse') {
     const body = await request.json().catch(() => ({}));
+    if (hasForbiddenClientCookie(body)) {
+      return jsonResponse(CLIENT_COOKIE_FORBIDDEN_PAYLOAD, 400);
+    }
     const targetId = body.id || body.username || searchParams.get('id') || searchParams.get('username');
     if (!targetId) return jsonResponse({ error: 'Creator ID or username is required' }, 400);
-    const cookie = body.cookie || env?.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env?.PINTEREST_COOKIE : null);
+    // [INVARIANT: WORKSPACE-COOKIE-ISOLATION] Reject client-supplied body.cookie; resolve strictly from active workspace.
+    const cookie = await resolveWorkspaceCookieForCreators(sql, workspaceId, env);
     try {
-      const result = await quickPulseCreator(sql, targetId, cookie);
+      const result = await quickPulseCreator(sql, targetId, cookie, { disableGlobalCookieFallback: true });
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       if (err.message && (err.message.includes('429') || err.message.includes('403')) && typeof tripPinterestCircuitBreaker === 'function') {
@@ -192,9 +229,13 @@ export async function handleCreatorsRoutes(routeCtx) {
 
   if (method === 'POST' && pathname === '/api/creators/deep-harvest') {
     const body = await request.json().catch(() => ({}));
+    if (hasForbiddenClientCookie(body)) {
+      return jsonResponse(CLIENT_COOKIE_FORBIDDEN_PAYLOAD, 400);
+    }
     const targetId = body.id || body.username || searchParams.get('id') || searchParams.get('username');
     if (!targetId) return jsonResponse({ error: 'Creator ID or username is required' }, 400);
-    const cookie = body.cookie || env?.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env?.PINTEREST_COOKIE : null);
+    // [INVARIANT: WORKSPACE-COOKIE-ISOLATION] Reject client-supplied body.cookie; resolve strictly from active workspace.
+    const cookie = await resolveWorkspaceCookieForCreators(sql, workspaceId, env);
     const maxBoards = Math.max(1, Math.min(Number(body.max_boards || 12), 25));
     const maxPagesPerBoard = Math.max(1, Math.min(Number(body.max_pages_per_board || 10), 25));
     const maxPages = Math.max(1, Math.min(Number(body.max_pages || 30), 60));
@@ -202,6 +243,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     try {
       const result = await deepHarvestCreator(sql, targetId, {
         cookie,
+        disableGlobalCookieFallback: true,
         env,
         maxBoards,
         maxPagesPerBoard,
@@ -224,11 +266,14 @@ export async function handleCreatorsRoutes(routeCtx) {
   // POST /api/creators/sync
   if (method === 'POST' && pathname === '/api/creators/sync') {
     const body = await request.json().catch(() => ({}));
+    if (hasForbiddenClientCookie(body)) {
+      return jsonResponse(CLIENT_COOKIE_FORBIDDEN_PAYLOAD, 400);
+    }
     const username = body.username;
     if (!username) return jsonResponse({ error: 'username is required' }, 400);
-    const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
+    const cookie = await resolveWorkspaceCookieForCreators(sql, workspaceId, env);
     try {
-      const updated = await syncCompetitorProfile(sql, username, cookie);
+      const updated = await syncCompetitorProfile(sql, username, cookie, { disableGlobalCookieFallback: true });
       return jsonResponse({ success: true, profile: updated });
     } catch (err) {
       if (err.message && (err.message.includes('429') || err.message.includes('rate limit'))) {
@@ -262,9 +307,12 @@ export async function handleCreatorsRoutes(routeCtx) {
   if (method === 'POST' && pathname === '/api/creators/sync-boards') {
     try {
       const body = await request.json().catch(() => ({}));
+      if (hasForbiddenClientCookie(body)) {
+        return jsonResponse(CLIENT_COOKIE_FORBIDDEN_PAYLOAD, 400);
+      }
       const { competitor_id, username } = body;
       if (!competitor_id && !username) return jsonResponse({ error: 'competitor_id or username is required' }, 400);
-      const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
+      const cookie = await resolveWorkspaceCookieForCreators(sql, workspaceId, env);
       const result = await syncCompetitorBoards(sql, competitor_id, username, cookie);
       if (!result.ok) return jsonResponse({ success: false, ...result }, 400);
       return jsonResponse({ success: true, ...result });
@@ -279,9 +327,12 @@ export async function handleCreatorsRoutes(routeCtx) {
   if (method === 'POST' && pathname === '/api/creators/sync-pins') {
     try {
       const body = await request.json().catch(() => ({}));
+      if (hasForbiddenClientCookie(body)) {
+        return jsonResponse(CLIENT_COOKIE_FORBIDDEN_PAYLOAD, 400);
+      }
       const { competitor_id, username, mode, max_pages } = body;
       if (!username && !competitor_id) return jsonResponse({ error: 'username or competitor_id is required' }, 400);
-      const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
+      const cookie = await resolveWorkspaceCookieForCreators(sql, workspaceId, env);
       const result = await syncCompetitorPins(sql, competitor_id, username, { mode, maxPages: max_pages, cookie });
       if (!result.ok) return jsonResponse({ success: false, ...result }, 400);
       return jsonResponse({ success: true, ...result });
@@ -330,7 +381,12 @@ export async function handleCreatorsRoutes(routeCtx) {
   // POST /api/creators/audit-sweep
   if (method === 'POST' && pathname === '/api/creators/audit-sweep') {
     const body = await request.json().catch(() => ({}));
+    if (hasForbiddenClientCookie(body)) {
+      return jsonResponse(CLIENT_COOKIE_FORBIDDEN_PAYLOAD, 400);
+    }
     const { competitor_id, username, competitor_ids } = body;
+    const cookie = await resolveWorkspaceCookieForCreators(sql, workspaceId, env);
+    const sweepOpts = { cookie, disableGlobalCookieFallback: true };
     try {
       if (Array.isArray(competitor_ids) && competitor_ids.length > 0) {
         const results = [];
@@ -338,7 +394,7 @@ export async function handleCreatorsRoutes(routeCtx) {
         let totalBoardsSynced = 0;
         for (const cId of competitor_ids) {
           try {
-            const r = await auditSweepCompetitor(sql, cId);
+            const r = await auditSweepCompetitor(sql, cId, sweepOpts);
             totalPinsAudited += (r.total_pins_inventory || 0);
             totalBoardsSynced += (r.boards_synced || 0);
             results.push({ id: cId, ...r });
@@ -355,7 +411,7 @@ export async function handleCreatorsRoutes(routeCtx) {
         });
       }
       if (!username && !competitor_id) return jsonResponse({ error: 'username or competitor_id is required' }, 400);
-      const result = await auditSweepCompetitor(sql, competitor_id || username, body);
+      const result = await auditSweepCompetitor(sql, competitor_id || username, sweepOpts);
       if (!result.ok) return jsonResponse({ success: false, ...result }, 400);
       return jsonResponse({ success: true, ...result });
     } catch (err) {
@@ -405,20 +461,18 @@ export async function handleCreatorsRoutes(routeCtx) {
     }
   }
 
-  // GET /api/creators/board-detail ([INVARIANT: READ-ONLY-GET-SAFE]: never scrape or mutate DB on unauthenticated GET)
+  // GET /api/creators/board-detail ([INVARIANT: READ-ONLY-GET-SAFE]: never scrape or mutate DB on GET; use POST /api/creators/board-detail/sync)
   if (method === 'GET' && pathname === '/api/creators/board-detail') {
     const username = searchParams.get('username') || searchParams.get('account') || searchParams.get('id');
     const board = searchParams.get('board') || searchParams.get('board_name') || searchParams.get('slug') || searchParams.get('board_slug');
     if (!username || !board) return jsonResponse({ error: 'username and board are required' }, 400);
     try {
-      const wantsRefresh = searchParams.get('refresh') === 'true';
-      const isAuthed = wantsRefresh && Boolean(verifyApiAuthentication(request, env)?.authorized);
       const boardData = await getOrSyncBoardDetail(sql, username, board, {
-        forceRefresh: isAuthed,
-        allowScrape: isAuthed,
-        readOnly: !isAuthed
+        forceRefresh: false,
+        allowScrape: false,
+        readOnly: true
       });
-      return jsonResponse({ success: true, board: boardData }, 200, isAuthed ? 0 : 60);
+      return jsonResponse({ success: true, board: boardData }, 200, 60);
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
     }
@@ -702,11 +756,15 @@ export async function handleCreatorsRoutes(routeCtx) {
   // POST /api/creators/related-pins/harvest-live
   if (method === 'POST' && pathname === '/api/creators/related-pins/harvest-live') {
     const body = await request.json().catch(() => ({}));
+    if (hasForbiddenClientCookie(body)) {
+      return jsonResponse(CLIENT_COOKIE_FORBIDDEN_PAYLOAD, 400);
+    }
     const id = body.competitor_id || body.id;
     const pinId = body.pin_id;
     if (!id || !pinId) return jsonResponse({ error: 'competitor_id and pin_id are required' }, 400);
+    const cookie = await resolveWorkspaceCookieForCreators(sql, workspaceId, env);
     try {
-      const result = await harvestSinglePinRelatedLive(sql, id, pinId, { env });
+      const result = await harvestSinglePinRelatedLive(sql, id, pinId, { env, rawCookie: cookie });
       return jsonResponse({ success: true, ...result });
     } catch (err) {
       return jsonResponse({ success: false, error: err.message }, 500);
@@ -786,6 +844,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     const numericWid = Number(workspaceId) || 1;
     const explicitWsScope = searchParams.get('workspace_scope') === '1' || searchParams.get('workspace_scope') === 'true';
     const enforceWorkspaceScope = numericWid !== 1 || explicitWsScope;
+    const useGlobalFallback = numericWid === 1;
 
     const cacheKey = buildCanonicalCacheKey('creators', {
       workspaceId: numericWid,
@@ -798,20 +857,38 @@ export async function handleCreatorsRoutes(routeCtx) {
 
     try {
       const data = await getCachedOrFetch(cacheKey, async () => {
-        const overview = await getCompetitorsOverview(sql);
-        const competitors = await listCompetitors(sql, {
-          account_type,
-          search,
-          limit: enforceWorkspaceScope ? 5000 : limit,
-          offset: enforceWorkspaceScope ? 0 : offset
-        });
-        if (overview?._degraded || competitors?._degraded) {
-          const degradedErr = new Error('Creators overview or list query degraded due to transient DB failure');
-          degradedErr.status = 503;
-          throw degradedErr;
-        }
-        if (!enforceWorkspaceScope) {
-          return { overview, competitors, workspace_id: numericWid };
+        if (!enforceWorkspaceScope || useGlobalFallback) {
+          const [overview, competitors] = await Promise.all([
+            getCompetitorsOverview(sql),
+            listCompetitors(sql, { account_type, search, limit, offset })
+          ]);
+          if (overview?._degraded || competitors?._degraded) {
+            const degradedErr = new Error('Creators overview or list query degraded due to transient DB failure');
+            degradedErr.status = 503;
+            throw degradedErr;
+          }
+          if (!enforceWorkspaceScope) {
+            return { overview, competitors, workspace_id: numericWid };
+          }
+          const totalScopedCreators = Math.max(Number(overview?.tracked_profiles ?? overview?.competitor_count ?? 0), competitors.length);
+          const totalImpressions = Number(overview?.total_impressions ?? 0);
+          const totalAudience = Number(overview?.total_audience ?? 0);
+          const pinsTracked = Number(overview?.pins_tracked ?? 0);
+          return {
+            overview: {
+              ...overview,
+              tracked_profiles: totalScopedCreators,
+              total_scoped_creators: totalScopedCreators,
+              total_audience: totalAudience,
+              total_impressions: totalImpressions,
+              avg_monthly_views: totalScopedCreators > 0 ? Math.round(totalImpressions / totalScopedCreators) : 0,
+              combined_reach: totalAudience,
+              pins_tracked: pinsTracked
+            },
+            competitors,
+            workspace_id: numericWid,
+            workspace_scoped: true
+          };
         }
 
         // Workspace-scoped filter via workspace_watchlist + folder_competitor_items for this workspace
@@ -844,42 +921,163 @@ export async function handleCreatorsRoutes(routeCtx) {
           if (h) allowedHandles.add(h);
         }
 
-        // Default workspace (id === 1) keeps full Radar discovery even after adding items to Watchlist
-        // (avoiding the single-item / partial-import collapse footgun); non-default workspaces stay strictly isolated.
-        const useGlobalFallback = numericWid === 1;
-        const fullScoped = useGlobalFallback
-          ? (competitors || [])
-          : (competitors || []).filter((c) => {
-              const handle = String(c?.username || '').replace(/^@/, '').trim().toLowerCase();
-              return allowedIds.has(Number(c?.id)) || (handle && allowedHandles.has(handle));
-            });
+        if (allowedIds.size === 0 && allowedHandles.size === 0) {
+          return {
+            overview: {
+              tracked_profiles: 0,
+              total_scoped_creators: 0,
+              active_count: 0,
+              paused_count: 0,
+              competitor_count: 0,
+              own_count: 0,
+              total_audience: 0,
+              total_impressions: 0,
+              avg_monthly_views: 0,
+              combined_reach: 0,
+              pins_tracked: 0,
+              top_competitor: null
+            },
+            competitors: [],
+            workspace_id: numericWid,
+            workspace_scoped: true
+          };
+        }
 
-        const pagedCompetitors = fullScoped.slice(offset, offset + limit);
-        const totalScopedCreators = useGlobalFallback
-          ? Math.max(Number(overview?.tracked_profiles ?? overview?.competitor_count ?? 0), fullScoped.length)
-          : fullScoped.length;
-        const totalImpressions = useGlobalFallback && overview?.total_impressions != null
-          ? Number(overview.total_impressions)
-          : fullScoped.reduce((sum, c) => sum + Number(c?.profile_views || 0), 0);
-        const totalAudience = useGlobalFallback && overview?.total_audience != null
-          ? Number(overview.total_audience)
-          : fullScoped.reduce((sum, c) => sum + Number(c?.monthly_reach || 0), 0);
-        const pinsTracked = useGlobalFallback && overview?.pins_tracked != null
-          ? Number(overview.pins_tracked)
-          : fullScoped.reduce((sum, c) => sum + Number(c?.total_pins || 0), 0);
-        const avgDivisor = totalScopedCreators > 0 ? totalScopedCreators : fullScoped.length;
-        const scopedOverview = {
-          ...overview,
-          tracked_profiles: totalScopedCreators,
-          total_scoped_creators: totalScopedCreators,
-          active_count: fullScoped.filter((c) => c?.is_active !== false).length,
-          paused_count: fullScoped.filter((c) => c?.is_active === false).length,
-          total_audience: totalAudience,
-          total_impressions: totalImpressions,
-          avg_monthly_views: avgDivisor > 0 ? Math.round(totalImpressions / avgDivisor) : 0,
-          combined_reach: totalAudience,
-          pins_tracked: pinsTracked
-        };
+        const allowedIdsArr = Array.from(allowedIds).filter((n) => Number.isFinite(n) && n > 0);
+        const allowedHandlesArr = Array.from(allowedHandles);
+        const cleanSearch = (search && typeof search === 'string' && search.trim())
+          ? escapeSqlWildcards(search.toLowerCase().replace('@', '').trim())
+          : null;
+        const searchPattern = cleanSearch ? `%${cleanSearch}%` : null;
+        const filterAccountType = (account_type && account_type !== 'all') ? account_type : null;
+
+        const [scopedOverviewRows, scopedCompetitorRows] = await Promise.all([
+          sql`
+            WITH ws_profiles AS (
+              SELECT id, username, account_type, is_active, monthly_reach, profile_views, total_pins
+              FROM competitor_profiles
+              WHERE COALESCE(account_type, 'competitor') <> 'system'
+                AND (
+                  id = ANY(${allowedIdsArr}::int[])
+                  OR LOWER(TRIM(username)) = ANY(${allowedHandlesArr}::text[])
+                )
+            ),
+            top_ws AS (
+              SELECT username, monthly_reach
+              FROM ws_profiles
+              WHERE monthly_reach > 0
+              ORDER BY monthly_reach DESC
+              LIMIT 1
+            )
+            SELECT
+              COUNT(*)::int AS total_scoped_creators,
+              COUNT(CASE WHEN is_active = TRUE THEN 1 END)::int AS active_count,
+              COUNT(CASE WHEN is_active = FALSE THEN 1 END)::int AS paused_count,
+              COUNT(CASE WHEN account_type = 'competitor' THEN 1 END)::int AS competitor_count,
+              COUNT(CASE WHEN account_type = 'own' THEN 1 END)::int AS own_count,
+              COALESCE(SUM(monthly_reach), 0)::bigint AS total_audience,
+              COALESCE(SUM(profile_views), 0)::bigint AS total_impressions,
+              COALESCE(SUM(total_pins), 0)::bigint AS pins_tracked,
+              (SELECT username FROM top_ws) AS top_username,
+              (SELECT monthly_reach FROM top_ws) AS top_monthly_reach
+            FROM ws_profiles;
+          `,
+          sql`
+            SELECT
+              id, username, display_name, avatar_url, website_url,
+              account_type, is_active, tracking_mode, source_folder_id, custom_label,
+              monthly_reach, delta_reach_24h, reach_delta_7d,
+              profile_views, delta_views_24h, views_delta_7d,
+              total_pins, delta_pins_24h, pins_delta_7d,
+              total_boards, delta_boards_24h, boards_delta_7d,
+              follower_count, activity_status, last_synced_at, updated_at, created_at
+            FROM competitor_profiles
+            WHERE COALESCE(account_type, 'competitor') <> 'system'
+              AND (
+                id = ANY(${allowedIdsArr}::int[])
+                OR LOWER(TRIM(username)) = ANY(${allowedHandlesArr}::text[])
+              )
+              AND (${filterAccountType}::text IS NULL OR account_type = ${filterAccountType})
+              AND (${searchPattern}::text IS NULL OR LOWER(username) LIKE ${searchPattern} ESCAPE '\\' OR LOWER(COALESCE(display_name, '')) LIKE ${searchPattern} ESCAPE '\\')
+            ORDER BY monthly_reach DESC
+            LIMIT ${limit} OFFSET ${offset};
+          `
+        ]);
+
+        const filteredScopedRows = (Array.isArray(scopedCompetitorRows) ? scopedCompetitorRows : []).filter((c) => {
+          const handle = String(c?.username || '').replace(/^@/, '').trim().toLowerCase();
+          return allowedIds.has(Number(c?.id)) || (handle && allowedHandles.has(handle));
+        });
+
+        const pagedCompetitors = filteredScopedRows.map((p) => {
+          const mReach = Number(p.monthly_reach || 0);
+          const pViews = Number(p.profile_views || 0);
+          return {
+            ...p,
+            handle: `@${p.username}`,
+            monthly_reach: mReach,
+            delta_reach_24h: sanitizeStoredCeilingDelta(mReach, p.delta_reach_24h),
+            reach_delta_7d: sanitizeStoredCeilingDelta(mReach, p.reach_delta_7d),
+            profile_views: pViews,
+            delta_views_24h: sanitizeStoredCeilingDelta(pViews, p.delta_views_24h),
+            views_delta_7d: sanitizeStoredCeilingDelta(pViews, p.views_delta_7d),
+            total_pins: Number(p.total_pins || 0),
+            delta_pins_24h: Number(p.delta_pins_24h || 0),
+            pins_delta_7d: Number(p.pins_delta_7d || 0),
+            total_boards: Number(p.total_boards || 0),
+            delta_boards_24h: Number(p.delta_boards_24h || 0),
+            boards_delta_7d: Number(p.boards_delta_7d || 0),
+            follower_count: Number(p.follower_count || 0)
+          };
+        });
+
+        const overviewRow = Array.isArray(scopedOverviewRows) ? scopedOverviewRows[0] : null;
+        let scopedOverview;
+        if (overviewRow && overviewRow.total_scoped_creators !== undefined) {
+          const totalScopedCreators = Number(overviewRow.total_scoped_creators || 0);
+          const totalAudience = Number(overviewRow.total_audience || 0);
+          const totalImpressions = Number(overviewRow.total_impressions || 0);
+          const pinsTracked = Number(overviewRow.pins_tracked || 0);
+          const topUser = overviewRow.top_username ? String(overviewRow.top_username).trim() : '';
+          const topReach = Number(overviewRow.top_monthly_reach || 0);
+          scopedOverview = {
+            tracked_profiles: totalScopedCreators,
+            total_scoped_creators: totalScopedCreators,
+            active_count: Number(overviewRow.active_count || 0),
+            paused_count: Number(overviewRow.paused_count || 0),
+            competitor_count: Number(overviewRow.competitor_count || 0),
+            own_count: Number(overviewRow.own_count || 0),
+            total_audience: totalAudience,
+            total_impressions: totalImpressions,
+            avg_monthly_views: totalScopedCreators > 0 ? Math.round(totalImpressions / totalScopedCreators) : 0,
+            combined_reach: totalAudience,
+            pins_tracked: pinsTracked,
+            top_competitor: topUser && topReach > 0 ? { handle: `@${topUser}`, reach: formatMetric(topReach, true) } : null
+          };
+        } else {
+          const totalScopedCreators = pagedCompetitors.length;
+          const totalAudience = pagedCompetitors.reduce((sum, c) => sum + Number(c?.monthly_reach || 0), 0);
+          const totalImpressions = pagedCompetitors.reduce((sum, c) => sum + Number(c?.profile_views || 0), 0);
+          const pinsTracked = pagedCompetitors.reduce((sum, c) => sum + Number(c?.total_pins || 0), 0);
+          const topCreator = [...pagedCompetitors]
+            .filter((c) => Number(c?.monthly_reach || 0) > 0)
+            .sort((a, b) => Number(b.monthly_reach || 0) - Number(a.monthly_reach || 0))[0] || null;
+          scopedOverview = {
+            tracked_profiles: totalScopedCreators,
+            total_scoped_creators: totalScopedCreators,
+            active_count: pagedCompetitors.filter((c) => c?.is_active !== false).length,
+            paused_count: pagedCompetitors.filter((c) => c?.is_active === false).length,
+            competitor_count: pagedCompetitors.filter((c) => (c?.account_type || 'competitor') === 'competitor').length,
+            own_count: pagedCompetitors.filter((c) => c?.account_type === 'own').length,
+            total_audience: totalAudience,
+            total_impressions: totalImpressions,
+            avg_monthly_views: totalScopedCreators > 0 ? Math.round(totalImpressions / totalScopedCreators) : 0,
+            combined_reach: totalAudience,
+            pins_tracked: pinsTracked,
+            top_competitor: topCreator ? { handle: `@${topCreator.username}`, reach: formatMetric(topCreator.monthly_reach, true) } : null
+          };
+        }
+
         return {
           overview: scopedOverview,
           competitors: pagedCompetitors,
@@ -1063,7 +1261,6 @@ export async function handleCreatorsRoutes(routeCtx) {
 
   // 5. Delete Pin Metric Snapshot (DELETE /api/creators/pin-snapshot)
   if (method === 'DELETE' && pathname === '/api/creators/pin-snapshot') {
-    invalidateCreatorsCache();
     const body = await request.json().catch(() => ({}));
     const snapshotId = searchParams.get('id') || searchParams.get('snapshot_id') || body.id || body.snapshot_id;
     const pinId = searchParams.get('pin_id') || body.pin_id;
@@ -1088,6 +1285,7 @@ export async function handleCreatorsRoutes(routeCtx) {
     if (!delRes.ok) {
       return jsonResponse({ error: delRes.message || 'Valid YYYY-MM-DD snapshot date or intraday checkpoint ID is required' }, delRes.status || 400);
     }
+    invalidateCreatorsCache();
     if (typeof invalidateEdgeCache === 'function') {
       await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
       if (typeof buildCanonicalCacheKey === 'function') {

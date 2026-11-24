@@ -428,7 +428,7 @@ export async function syncCompetitorPins(sql, competitorId, username, { mode = '
         INSERT INTO competitor_boards (competitor_id, board_id, name, url, pin_count, follower_count, last_pinned_at, created_at, updated_at)
         SELECT 
           ${numericId},
-          'cb-' || substr(md5(lower(trim(cp.board_name))), 1, 16),
+          'cb-' || substr(md5(${String(numericId)} || ':' || lower(trim(cp.board_name))), 1, 16),
           trim(cp.board_name),
           'https://www.pinterest.com/' || ${cleanUsername} || '/' || lower(regexp_replace(trim(cp.board_name), '[^a-zA-Z0-9]+', '-', 'g')) || '/',
           count(*)::int,

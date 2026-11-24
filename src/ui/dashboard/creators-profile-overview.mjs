@@ -258,7 +258,7 @@ export function renderCreatorsProfileOverview() {
                 <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2 hover:bg-slate-50/50 dark:hover:bg-slate-900/30 transition">
                   <div class="flex items-center justify-between">
                     <span class="text-[10px] font-mono tabular-nums uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold">Output Velocity</span>
-                    <span class="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 border border-amber-500/20 font-mono tabular-nums" x-text="(activeCreatorDetail?.pinning_velocity?.days_span || 20) + 'd span'"></span>
+                    <span class="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 border border-amber-500/20 font-mono tabular-nums" x-text="Number(activeCreatorDetail?.pinning_velocity?.days_span || 0) > 0 ? (activeCreatorDetail.pinning_velocity.days_span + 'd span') : '—'"></span>
                   </div>
                   <div>
                     <div class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white font-mono tabular-nums" x-text="(activeCreatorDetail?.pinning_velocity?.pins_per_day || '0.0') + ' Pins/Day'"></div>
@@ -411,7 +411,7 @@ export function renderCreatorsProfileOverview() {
 
               <!-- Snapshots Pagination Footer Bar -->
               <div class="flex items-center justify-between border-t border-slate-200 dark:border-[#27272A] px-5 py-3 bg-slate-50/50 dark:bg-slate-900/30 text-xs text-slate-500">
-                <span x-text="'Showing 1-' + paginatedCreatorSnapshots.length + ' of ' + activeCreatorSnapshots.length + ' snapshots'"></span>
+                <span x-text="(() => { const total = activeCreatorSnapshots.length; const sz = creatorSnapTimeframe === 'all' ? 100 : Number(creatorSnapTimeframe || 14); const start = total === 0 ? 0 : ((creatorSnapPage - 1) * sz + 1); const end = Math.min(creatorSnapPage * sz, total); return 'Showing ' + start + '-' + end + ' of ' + total + ' snapshots'; })()"></span>
                 <div class="flex items-center gap-2">
                   <button @click="creatorSnapPage = Math.max(1, creatorSnapPage - 1)" :disabled="creatorSnapPage <= 1" class="rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] px-3 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-40 transition shadow-2xs cursor-pointer">Previous</button>
                   <span class="font-bold text-slate-900 dark:text-white" x-text="'Page ' + creatorSnapPage + ' of ' + Math.max(1, Math.ceil(activeCreatorSnapshots.length / (creatorSnapTimeframe === 'all' ? 100 : Number(creatorSnapTimeframe))))"></span>

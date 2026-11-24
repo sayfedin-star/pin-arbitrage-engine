@@ -42,9 +42,9 @@ ${renderCreatorsLedgerView({ safeFolderId })}
               </a>
 
               <!-- ⚡ Quick Pulse (~2s Edge) -->
-              <button @click="quickPulseCreatorAction(activeCreator)" :disabled="pulsingCreatorId === activeCreator.id" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 text-xs font-bold text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 transition shadow-2xs cursor-pointer disabled:opacity-50" title="Pulse Profile (~2s): Instant Edge sync of Impressions, Total Audience & Boards">
-                <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-500" :class="pulsingCreatorId === activeCreator.id ? 'animate-spin' : ''"></i>
-                <span x-text="pulsingCreatorId === activeCreator.id ? 'Pulsing...' : 'Pulse Profile'"></span>
+              <button @click="quickPulseCreatorAction(activeCreator)" :disabled="pulsingCreatorId !== null && pulsingCreatorId === getCreatorSelectionKey(activeCreator)" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 text-xs font-bold text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 transition shadow-2xs cursor-pointer disabled:opacity-50" title="Pulse Profile (~2s): Instant Edge sync of Impressions, Total Audience & Boards">
+                <i data-lucide="zap" class="w-3.5 h-3.5 text-amber-500" :class="(pulsingCreatorId !== null && pulsingCreatorId === getCreatorSelectionKey(activeCreator)) ? 'animate-spin' : ''"></i>
+                <span x-text="(pulsingCreatorId !== null && pulsingCreatorId === getCreatorSelectionKey(activeCreator)) ? 'Pulsing...' : 'Pulse Profile'"></span>
               </button>
 
               <!-- 🏆 Refresh Winners (GitHub Actions) -->
@@ -84,18 +84,25 @@ ${renderCreatorsLedgerView({ safeFolderId })}
               <!-- Left: Avatar & Meta -->
               <div class="flex items-start gap-4">
                 <div class="relative">
-                  <img
-                    :src="activeCreator.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&h=200&q=80'"
-                    alt="Avatar"
-                    class="h-16 w-16 rounded-2xl object-cover border border-slate-200 dark:border-[#27272A] shadow-2xs flex-shrink-0 bg-slate-100 dark:bg-slate-800"
-                  />
+                  <template x-if="activeCreator.avatar_url">
+                    <img
+                      :src="activeCreator.avatar_url"
+                      alt="Avatar"
+                      class="h-16 w-16 rounded-2xl object-cover border border-slate-200 dark:border-[#27272A] shadow-2xs flex-shrink-0 bg-slate-100 dark:bg-slate-800"
+                    />
+                  </template>
+                  <template x-if="!activeCreator.avatar_url">
+                    <div class="h-16 w-16 rounded-2xl border border-purple-500/20 bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center font-extrabold text-xl shadow-2xs flex-shrink-0" x-text="(activeCreator.username || '?').replace(/^@+/, '').slice(0, 1).toUpperCase()"></div>
+                  </template>
                 </div>
 
                 <div class="space-y-1.5 min-w-0">
                   <div class="flex flex-wrap items-center gap-2.5">
                     <h1 class="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white" x-text="(activeCreator.username || '').replace(/^@+/, '')"></h1>
                     <span class="inline-flex items-center gap-1 rounded-full bg-purple-500/10 px-2.5 py-0.5 text-[11px] font-bold text-purple-600 dark:text-purple-400 border border-purple-500/20"><i data-lucide="target" class="w-3 h-3 shrink-0"></i><span x-text="activeCreator.account_type === 'own' ? 'Own Account' : 'Competitor'"></span></span>
-                    <span class="rounded-full bg-rose-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-rose-600 dark:text-rose-400 border border-rose-500/20">General</span>
+                    <template x-if="activeCreator.custom_label">
+                      <span class="rounded-full bg-indigo-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" x-text="activeCreator.custom_label"></span>
+                    </template>
                     <span x-show="activeCreator.is_active === false" class="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-[11px] font-bold text-amber-600 dark:text-amber-400 border border-amber-500/30"><i data-lucide="pause" class="w-3 h-3 shrink-0"></i><span>Ingest Paused</span></span>
                     <span x-show="activeCreator.is_active !== false" class="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"><span class="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0" aria-hidden="true"></span><span>Active Ingest</span></span>
                   </div>

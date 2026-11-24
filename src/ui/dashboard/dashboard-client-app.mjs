@@ -87,9 +87,28 @@ export function getDashboardClientAppScript() {
         },
         isAssignExistingCreatorModalOpen: false,
         assignCreatorSearch: '',
+        assignCatalogCreators: [],
+        isLoadingAssignCatalog: false,
+        async fetchAssignCatalogCreators(query = '') {
+          this.isLoadingAssignCatalog = true;
+          try {
+            const q = String(query || '').replace(/^@+/, '').trim();
+            const endpoint = '/api/creators?limit=100' + (q ? ('&search=' + encodeURIComponent(q)) : '');
+            const res = await (window.safeApiFetch || fetch)(this.getApiUrl(endpoint));
+            if (res.ok) {
+              const data = await res.json().catch(() => ({}));
+              this.assignCatalogCreators = Array.isArray(data.competitors) ? data.competitors : [];
+            }
+          } catch (_) {
+          } finally {
+            this.isLoadingAssignCatalog = false;
+            this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
+          }
+        },
         openAssignExistingCreatorModal() {
           this.assignCreatorSearch = '';
           this.isAssignExistingCreatorModalOpen = true;
+          this.fetchAssignCatalogCreators('');
           this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
         },
         closeAssignExistingCreatorModal() {
@@ -495,6 +514,7 @@ export function getDashboardClientAppScript() {
         // GitHub Actions 20-Runner Crawler & Board Partitioning Modal State
         isGhaCrawlerModalOpen: false,
         ghaTargetAccount: '',
+        ghaBulkUsernames: [],
         ghaCrawlMode: 'discovery',
         ghaMaxPages: '500',
         ghaBoardScope: 'all',
@@ -630,33 +650,55 @@ export function getDashboardClientAppScript() {
         },
 
         get folderCompetitorTotals() {
-          const list = (this.filteredCompetitors && this.filteredCompetitors.length > 0)
-            ? this.filteredCompetitors
-            : (this.competitors || []);
+          const isUnfiltered = !this.competitorSearch?.trim()
+            && (!this.competitorFilter || this.competitorFilter === 'all')
+            && (!this.creatorDiscoveryFilter || this.creatorDiscoveryFilter === 'all');
+          if (isUnfiltered && this.folderCompetitorTotalsData) {
+            return this.folderCompetitorTotalsData;
+          }
+          const list = !isUnfiltered
+            ? (this.filteredCompetitors || [])
+            : ((this.filteredCompetitors && this.filteredCompetitors.length > 0)
+              ? this.filteredCompetitors
+              : (this.competitors || []));
           if (list.length > 0) {
             const combinedAudience = list.reduce((sum, c) => sum + (Number(c.monthly_reach) || 0), 0);
             const combinedImpressions = list.reduce((sum, c) => sum + (Number(c.profile_views) || 0), 0);
             const combinedPins = list.reduce((sum, c) => sum + (Number(c.total_pins) || 0), 0);
-            const delta24h = list.reduce((sum, c) => sum + Math.max(0, Number(c.delta_reach_24h || c.delta_24h || 0)), 0);
+            const delta24h = list.reduce((sum, c) => sum + Number(c.delta_reach_24h ?? c.delta_24h ?? 0), 0);
             const nonAggregatorList = list.filter(c => Number(c.total_pins || 0) < 1000000);
-            const cadencePool = nonAggregatorList.length > 0 ? nonAggregatorList : list;
-            const avgCadence = cadencePool.length > 0
-              ? Number((cadencePool.reduce((sum, c) => sum + (Number(c.total_pins || 0) / 365), 0) / cadencePool.length).toFixed(1))
+            const combinedPinsExAggregators = nonAggregatorList.reduce((sum, c) => sum + (Number(c.total_pins) || 0), 0);
+            const megaAggregatorCount = list.length - nonAggregatorList.length;
+            const cadenceRows = nonAggregatorList.filter(c => {
+              if (c.pins_per_day != null && Number(c.pins_per_day) > 0) return true;
+              return Number(c.pins_delta_7d || 0) > 0 || Number(c.delta_pins_24h || 0) > 0;
+            });
+            const avgCadence = cadenceRows.length > 0
+              ? Number((cadenceRows.reduce((sum, c) => {
+                  const val = c.pins_per_day != null
+                    ? Number(c.pins_per_day)
+                    : (Number(c.pins_delta_7d || 0) > 0 ? Number(c.pins_delta_7d) / 7 : Number(c.delta_pins_24h || 0));
+                  return sum + val;
+                }, 0) / cadenceRows.length).toFixed(1))
               : 0;
             return {
               combined_audience: combinedAudience,
               combined_impressions: combinedImpressions,
               combined_pins: combinedPins,
+              combined_pins_ex_aggregators: combinedPinsExAggregators,
+              mega_aggregator_count: megaAggregatorCount,
               total_creators: list.length,
               delta_24h: delta24h,
               avg_pinning_cadence: avgCadence
             };
           }
-          if (this.folderCompetitorTotalsData) return this.folderCompetitorTotalsData;
+          if (isUnfiltered && this.folderCompetitorTotalsData) return this.folderCompetitorTotalsData;
           return {
             combined_audience: 0,
             combined_impressions: 0,
             combined_pins: 0,
+            combined_pins_ex_aggregators: 0,
+            mega_aggregator_count: 0,
             total_creators: 0,
             delta_24h: 0,
             avg_pinning_cadence: 0
@@ -670,20 +712,38 @@ export function getDashboardClientAppScript() {
           try {
             const fid = this.scopedFolderId || this.folderFilter;
             if (fid) {
-              const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/folders/' + encodeURIComponent(fid) + '/creators'), {
-                method: wasTracked ? 'DELETE' : 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ competitor_id: c.competitor_id || c.id, username: c.username })
-              });
-              if (res.ok) {
-                await this.loadFolderCreators(fid);
+              const targetId = c.competitor_id || c.id;
+              const isNum = /^\\d+$/.test(String(targetId || '').trim());
+              const cleanUser = String(c.username || '').replace(/^serp_/, '').replace(/^@+/, '').trim();
+              const endpoint = wasTracked
+                ? ('/api/folders/' + encodeURIComponent(fid) + '/creators/' + encodeURIComponent(isNum ? String(targetId).trim() : cleanUser))
+                : ('/api/folders/' + encodeURIComponent(fid) + '/creators');
+              const fetchOpts = wasTracked
+                ? { method: 'DELETE' }
+                : {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ competitor_id: isNum ? Number(targetId) : undefined, username: cleanUser })
+                  };
+              const res = await (window.safeApiFetch || fetch)(this.getApiUrl(endpoint), fetchOpts);
+              if (!res.ok) {
+                c.is_tracked = wasTracked;
+                const err = await res.json().catch(() => ({}));
+                if (typeof this.showToast === 'function') {
+                  this.showToast('Failed to update tracking: ' + (err.error || err.message || ('HTTP ' + res.status)), 'error');
+                }
+                return;
               }
+              await this.loadFolderCreators(fid);
             }
             if (typeof this.showToast === 'function') {
               this.showToast(c.is_tracked ? 'Tracking @' + c.username : 'Untracked @' + c.username, 'success');
             }
-          } catch (_) {
+          } catch (e) {
             c.is_tracked = wasTracked;
+            if (typeof this.showToast === 'function') {
+              this.showToast('Error updating tracking: ' + (e?.message || 'Network error'), 'error');
+            }
           }
         },
 
@@ -1625,7 +1685,8 @@ ${getDashboardSeedComputedProperties()}
               'api', 'fleet', 'settings', 'admin', 'health', 'favicon.ico', 
               'robots.txt', 'index.html', 'assets', 'static', 'pin', 'related_pins', 'related-pins', 'relatedpins', 'intersections', 'archive', 'explorer',
               'accounts', 'creators', 'creator', 'pinarchive', 'keywords', 'keyword', 'board-idea', 'board-ideas', 'overview', 'home', 'dashboard', 'domains',
-              'folders', 'folder', 'campaign-folders', 'discovery', 'board', 'boards', 'feed', 'search', 'newborn'
+              'folders', 'folder', 'campaign-folders', 'discovery', 'board', 'boards', 'feed', 'search', 'newborn',
+              'watchlist', 'radar', 'campaigns', 'pulse'
             ]);
             const CREATOR_SUB_TABS = {
               'links': 'top_urls',
@@ -1729,6 +1790,11 @@ ${getDashboardSeedComputedProperties()}
                 if (typeof window !== 'undefined' && window.location.pathname !== '/') {
                   window.history.replaceState(null, '', '/');
                 }
+              } else if (cleanPFirst === 'folders' && pSecond && (pThird || '').toLowerCase() === 'creators') {
+                if (this.activePinId) this.closePinPage(false);
+                if (this.activeBoardName) this.closeBoardPage(false);
+                if (this.activeCreator) this.closeCreatorProfile(false);
+                this.currentTab = 'creators_archive';
               } else if (cleanPFirst === 'accounts' || cleanPFirst === 'creators' || cleanPFirst === 'pinarchive') {
                 if (this.activePinId) this.closePinPage(false);
                 if (this.activeBoardName) this.closeBoardPage(false);

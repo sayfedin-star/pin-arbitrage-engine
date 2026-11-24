@@ -277,7 +277,7 @@ export function renderCreatorsProfileBoards() {
 
                       <button
                         type="button"
-                        @click="openBoardSectionsModal(b.id || b.board_id, b.name)"
+                        @click="openBoardSectionsModal(b.board_id || b.id, b.name)"
                         class="py-1.5 px-2 rounded-xl text-xs font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 transition active:scale-95 flex items-center justify-center gap-1 cursor-pointer"
                         title="Inspect Board Subsections & Internal Taxonomies"
                       >
@@ -391,7 +391,7 @@ export function renderCreatorsProfileBoards() {
                             </button>
                             <button
                               type="button"
-                              @click="openBoardSectionsModal(b.id || b.board_id, b.name)"
+                              @click="openBoardSectionsModal(b.board_id || b.id, b.name)"
                               class="px-2.5 py-1 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[11px] font-bold hover:bg-amber-500/20 transition cursor-pointer"
                               title="Inspect Board Subsections"
                             >

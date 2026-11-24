@@ -390,7 +390,6 @@ export async function handleFoldersRoutes({
             success: true,
             folder_id: folderId,
             creators: discoveryData.all_creators,
-            linked_creators: discoveryData.linked_creators,
             vault_scope: vaultScope,
             totals: discoveryData.totals
           };
@@ -402,11 +401,91 @@ export async function handleFoldersRoutes({
         return jsonResponse(payload, 200, refresh ? 0 : 30);
       }
 
-      // POST /api/folders/:id/creators/bulk-pulse-track -> bulkPulseTrackFolderCreators(sql, folderId, body, { env, ctx })
+      // POST /api/folders/:id/creators/bulk-pulse-track -> bulkPulseTrackFolderCreators(sql, folderId, body, { env, ctx, workspaceId })
       if (method === 'POST' && parts.length === 3 && parts[2] === 'bulk-pulse-track') {
         const body = await request.json().catch(() => ({}));
-        const result = await bulkPulseTrackFolderCreators(sql, folderId, body, { env, ctx });
+        if (body && body.cookie !== undefined && String(body.cookie).trim() !== '') {
+          return jsonResponse({
+            ok: false,
+            error: 'CLIENT_COOKIE_FORBIDDEN',
+            message: 'Client-supplied cookies are rejected; workspace cookies are resolved server-side.'
+          }, 400);
+        }
+        const result = await bulkPulseTrackFolderCreators(sql, folderId, body, { env, ctx, workspaceId });
+        invalidateFolderCache(folderId, workspaceId);
+        if (typeof invalidateEdgeCache === 'function') {
+          await invalidateEdgeCache('folders').catch(() => {});
+          await invalidateEdgeCache('creators').catch(() => {});
+        }
         return jsonResponse(result, 200);
+      }
+
+      // POST /api/folders/:id/creators/bulk-remove -> unlink selected creators ONLY from this folder
+      if (method === 'POST' && parts.length === 3 && parts[2] === 'bulk-remove') {
+        const body = await request.json().catch(() => ({}));
+        const rawIds = Array.isArray(body.competitor_ids) ? body.competitor_ids : (Array.isArray(body.ids) ? body.ids : []);
+        const rawUsernames = Array.isArray(body.usernames) ? body.usernames : [];
+
+        const numericIds = new Set();
+        const candidateUsernames = new Set();
+        let skippedCount = 0;
+
+        for (const item of rawIds) {
+          const str = String(item ?? '').trim();
+          if (!str) continue;
+          if (/^\d+$/.test(str)) {
+            numericIds.add(Number(str));
+          } else {
+            const clean = str.replace(/^serp_/, '').replace(/^@+/, '').trim().toLowerCase();
+            if (clean) candidateUsernames.add(clean);
+            else skippedCount++;
+          }
+        }
+        for (const u of rawUsernames) {
+          const clean = String(u ?? '').replace(/^serp_/, '').replace(/^@+/, '').trim().toLowerCase();
+          if (clean) candidateUsernames.add(clean);
+        }
+
+        if (candidateUsernames.size > 0) {
+          const userArr = Array.from(candidateUsernames);
+          const matchedRows = await sql`
+            SELECT id, LOWER(username) AS uname
+            FROM competitor_profiles
+            WHERE LOWER(username) = ANY(${userArr}::text[]);
+          `;
+          const matchedSet = new Set();
+          for (const r of (matchedRows || [])) {
+            if (r?.id) numericIds.add(Number(r.id));
+            if (r?.uname) matchedSet.add(r.uname);
+          }
+          for (const u of candidateUsernames) {
+            if (!matchedSet.has(u)) skippedCount++;
+          }
+        }
+
+        const idsToUnlink = Array.from(numericIds).filter((n) => Number.isFinite(n) && n > 0);
+        let removedCount = 0;
+        if (idsToUnlink.length > 0) {
+          const deleted = await sql`
+            DELETE FROM folder_competitor_items
+            WHERE folder_id = ${Number(folderId)}
+              AND competitor_id = ANY(${idsToUnlink}::int[])
+            RETURNING competitor_id;
+          `;
+          removedCount = Array.isArray(deleted) ? deleted.length : 0;
+        }
+
+        invalidateFolderCache(folderId, workspaceId);
+        if (typeof invalidateEdgeCache === 'function') {
+          await invalidateEdgeCache('folders').catch(() => {});
+          await invalidateEdgeCache('creators').catch(() => {});
+        }
+        return jsonResponse({
+          success: true,
+          folder_id: Number(folderId),
+          removed_count: removedCount,
+          skipped_count: skippedCount
+        }, 200);
       }
 
       // POST /api/folders/:id/creators -> linkCreatorToFolder or toggleFolderCreatorTracking fallback
@@ -416,50 +495,59 @@ export async function handleFoldersRoutes({
         if (Number.isFinite(numericCid) && numericCid > 0) {
           const linked = await linkCreatorToFolder(sql, folderId, numericCid);
           invalidateFolderCache(folderId, workspaceId);
+          if (typeof invalidateEdgeCache === 'function') {
+            await invalidateEdgeCache('folders').catch(() => {});
+            await invalidateEdgeCache('creators').catch(() => {});
+          }
           return jsonResponse({ success: true, linked, folder_id: folderId });
         }
         const rawUser = String(body.username || body.competitor_id || body.creator_id || body.id || '');
         const cleanUsername = rawUser.replace(/^serp_/, '').trim().toLowerCase().replace(/^@/, '');
         if (cleanUsername) {
-          const result = await toggleFolderCreatorTracking(sql, folderId, cleanUsername);
+          const linkOnly = String(body.action || '').toLowerCase() === 'link';
+          const result = await toggleFolderCreatorTracking(sql, folderId, cleanUsername, { linkOnly });
           invalidateFolderCache(folderId, workspaceId);
+          if (typeof invalidateEdgeCache === 'function') {
+            await invalidateEdgeCache('folders').catch(() => {});
+            await invalidateEdgeCache('creators').catch(() => {});
+          }
           return jsonResponse({ success: true, linked: result.is_tracked, folder_id: folderId, ...result });
         }
         return jsonResponse({ success: false, error: 'Valid competitor_id or username is required' }, 400);
       }
 
-      // DELETE /api/folders/:id/creators/:cid OR DELETE /api/folders/:id/creators (with body/query)
+      // DELETE /api/folders/:id/creators/:cid OR DELETE /api/folders/:id/creators (with query/body)
       if (method === 'DELETE' && (parts.length === 2 || parts.length === 3)) {
         let competitorId = null;
         let rawUser = '';
         if (parts.length === 3) {
-          const segment = parts[2];
+          const segment = decodeURIComponent(parts[2]);
           const num = Number(segment);
-          if (Number.isFinite(num) && num > 0) {
+          if (Number.isFinite(num) && num > 0 && /^\d+$/.test(segment.trim())) {
             competitorId = num;
           } else {
             rawUser = segment;
           }
         } else if (parts.length === 2) {
           const body = await request.json().catch(() => ({}));
-          const rawId = body.competitor_id || body.creator_id || body.id || searchParams.get('competitor_id') || searchParams.get('cid');
-          const num = Number(rawId);
-          if (Number.isFinite(num) && num > 0) {
-            competitorId = num;
+          const rawId = searchParams.get('competitor_id') || searchParams.get('cid') || body.competitor_id || body.creator_id || body.id;
+          const rawIdStr = String(rawId ?? '').trim();
+          if (rawIdStr && /^\d+$/.test(rawIdStr)) {
+            competitorId = Number(rawIdStr);
           } else {
-            rawUser = body.username || rawId || searchParams.get('username') || '';
+            rawUser = searchParams.get('username') || body.username || rawIdStr || '';
           }
         }
 
-        if (!competitorId && rawUser) {
-          const cleanUsername = String(rawUser).replace(/^serp_/, '').trim().toLowerCase().replace(/^@/, '');
-          if (cleanUsername) {
-            const [existing] = await sql`
-              SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanUsername} LIMIT 1;
-            `;
-            if (existing?.id) {
-              competitorId = existing.id;
-            }
+        const cleanUsername = String(rawUser || '').replace(/^serp_/, '').trim().toLowerCase().replace(/^@/, '');
+        if (!competitorId && cleanUsername) {
+          const [existing] = await sql`
+            SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanUsername} LIMIT 1;
+          `;
+          if (existing?.id) {
+            competitorId = existing.id;
+          } else {
+            return jsonResponse({ success: true, unlinked: false, skipped: true, folder_id: folderId });
           }
         }
 
@@ -468,6 +556,10 @@ export async function handleFoldersRoutes({
         }
         const unlinked = await unlinkCreatorFromFolder(sql, folderId, competitorId);
         invalidateFolderCache(folderId, workspaceId);
+        if (typeof invalidateEdgeCache === 'function') {
+          await invalidateEdgeCache('folders').catch(() => {});
+          await invalidateEdgeCache('creators').catch(() => {});
+        }
         return jsonResponse({ success: true, unlinked, folder_id: folderId });
       }
 

@@ -46,7 +46,7 @@ ${renderSharedDocumentHead({
 </head>
 <body x-cloak class="bg-[#F8FAFC] text-[#0F172A] dark:bg-[#09090B] dark:text-zinc-100 min-h-screen font-sans selection:bg-rose-500 selection:text-white antialiased transition-colors duration-200" x-data="dashboardApp('${safeFolderId}')" x-init="initDashboard()">
 
-  ${renderAppSidebar({ activeNav: 'overview', isDashboardSpa: true, refreshHandler: 'refreshAll()' })}
+  ${renderAppSidebar({ activeNav: safeFolderId ? 'folders' : 'overview', isDashboardSpa: true, refreshHandler: 'refreshAll()' })}
 
   <!-- Main Content Area (Offset for Desktop Sidebar) -->
   <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">
@@ -67,9 +67,9 @@ ${renderSharedDocumentHead({
 
     <div x-show="!activeBoardName" x-cloak class="space-y-6">
 
-      ${getDashboardOverviewHtml()}
+      ${safeFolderId ? '' : getDashboardOverviewHtml()}
 
-      ${getDashboardRelatedPinsHtml()}
+      ${safeFolderId ? '' : getDashboardRelatedPinsHtml()}
 
       ${getDashboardCreatorsHtml({ safeFolderId })}
 
@@ -77,7 +77,7 @@ ${renderSharedDocumentHead({
 
   </main>
 
-  ${getDashboardModalsHtml()}
+  ${getDashboardModalsHtml({ includeClusterModals: !safeFolderId })}
 
   <!-- Toast Notification -->
   <div x-show="toastMessage"

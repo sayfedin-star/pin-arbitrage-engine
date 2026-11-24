@@ -516,6 +516,24 @@ test('T1 (WP-1): Workspace 1 Radar preserves full discovery after Watchlist addi
     }
     if (q.includes('FROM folders') || q.includes('FROM folder_items')) return Promise.resolve([]);
     if (q.includes('FROM competitor_profiles') && q.includes('COUNT(*)')) {
+      if (q.includes('ANY(')) {
+        const arrayVals = values.filter(Array.isArray);
+        const idsSet = new Set((arrayVals[0] || []).map(Number));
+        const handlesSet = new Set((arrayVals[1] || []).map((s) => String(s).toLowerCase()));
+        const scoped = allCreators.filter((c) => idsSet.has(Number(c.id)) || handlesSet.has(String(c.username).toLowerCase()));
+        return Promise.resolve([{
+          total_scoped_creators: scoped.length,
+          active_count: scoped.length,
+          paused_count: 0,
+          competitor_count: scoped.length,
+          own_count: 0,
+          total_audience: scoped.reduce((s, c) => s + c.monthly_reach, 0),
+          total_impressions: scoped.reduce((s, c) => s + c.profile_views, 0),
+          pins_tracked: scoped.reduce((s, c) => s + c.total_pins, 0),
+          top_username: scoped[0]?.username || null,
+          top_monthly_reach: scoped[0]?.monthly_reach || 0
+        }]);
+      }
       return Promise.resolve([{
         tracked_profiles: allCreators.length,
         total_audience: allCreators.reduce((s, c) => s + c.monthly_reach, 0),
@@ -524,11 +542,18 @@ test('T1 (WP-1): Workspace 1 Radar preserves full discovery after Watchlist addi
       }]);
     }
     if (q.includes('FROM competitor_profiles')) {
+      let pool = allCreators;
+      if (q.includes('ANY(')) {
+        const arrayVals = values.filter(Array.isArray);
+        const idsSet = new Set((arrayVals[0] || []).map(Number));
+        const handlesSet = new Set((arrayVals[1] || []).map((s) => String(s).toLowerCase()));
+        pool = allCreators.filter((c) => idsSet.has(Number(c.id)) || handlesSet.has(String(c.username).toLowerCase()));
+      }
       // Respect LIMIT bound in SQL query (last two numeric values are limit & offset)
       const numericVals = values.filter((v) => typeof v === 'number');
       const lim = numericVals[0] ?? 60;
       const off = numericVals[1] ?? 0;
-      return Promise.resolve(allCreators.slice(off, off + lim));
+      return Promise.resolve(pool.slice(off, off + lim));
     }
     if (q.includes('FROM domain_intelligence') || q.includes('FROM pins')) {
       return Promise.resolve(allDomains);
