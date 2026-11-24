@@ -58,8 +58,8 @@ import { fetchCreatorLatestPinsPidgets, fetchBoardSectionsResource } from '../co
 import { dispatchGitHubWorkflow, resolveGitHubAuth } from '../http/github-workflow.mjs';
 import { verifyApiAuthentication } from '../http/security-and-response.mjs';
 import { deletePinSnapshotByTarget } from '../modules/pins/snapshot-service.mjs';
-import { DEFAULT_WORKSPACE_ID, resolveWorkspaceRawCookie } from '../modules/workspaces/service.mjs';
-import { invalidateFolderCache } from '../modules/keywords/folders-crossover.mjs';
+import { DEFAULT_WORKSPACE_ID, resolveWorkspaceRawCookie, assertFolderInWorkspace } from '../modules/workspaces/service.mjs';
+import { invalidateFolderCache, normalizeFolderMetadata } from '../modules/keywords/folders-crossover.mjs';
 
 const CLIENT_COOKIE_FORBIDDEN_PAYLOAD = {
   ok: false,
@@ -635,6 +635,23 @@ export async function handleCreatorsRoutes(routeCtx) {
   // POST /api/creators/dispatch-crawl
   if (method === 'POST' && pathname === '/api/creators/dispatch-crawl') {
     const body = await request.json().catch(() => ({}));
+    const scopedFolderId = body.folder_id ?? searchParams?.get?.('folder_id') ?? null;
+    if (scopedFolderId !== null && scopedFolderId !== undefined && String(scopedFolderId).trim() !== '') {
+      const folderRow = await assertFolderInWorkspace(sql, scopedFolderId, workspaceId);
+      const folderMeta = normalizeFolderMetadata(folderRow?.metadata);
+      if (
+        folderMeta.pause_competitors ||
+        folderMeta.block_fleet ||
+        folderMeta.block_gha_fleet ||
+        ['paused', 'archived'].includes(String(folderMeta.status || '').toLowerCase())
+      ) {
+        return jsonResponse({
+          success: false,
+          error: 'FOLDER_COMPETITORS_PAUSED',
+          message: 'Competitor crawling is paused or fleet ingestion is blocked for this campaign.'
+        }, 409);
+      }
+    }
     const rawUsernames = Array.isArray(body.usernames) ? body.usernames : [body.username || body.target_account || ''];
     const usernames = rawUsernames.map(u => String(u || '').replace(/^@+/, '').trim()).filter(Boolean);
     if (!usernames.length) return jsonResponse({ error: 'username or target_account is required' }, 400);

@@ -66,9 +66,15 @@ export function getFoldersClientAppScript() {
         pruneForm: {
           scope: 'displaced',
           min_pin_age_days: 30,
+          min_folder_age_days: '',
           max_saves: 5,
+          max_repins: '',
+          skip_rising_velocity: true,
           keyword_ids: []
         },
+        serpTopNInherited: true,
+        pinGraphInherited: true,
+        _savedSettingsSnapshot: '',
 
         isLinklessVacuumDomain(domainStr) {
           const d = String(domainStr || '').trim().toLowerCase();
@@ -433,75 +439,100 @@ export function getFoldersClientAppScript() {
           });
         },
 
+        invalidatePrunePreview() {
+          this.prunePreviewResult = null;
+        },
+
+        togglePruneKeywordId(id) {
+          const kid = Number(id);
+          if (!kid) return;
+          const cur = Array.isArray(this.pruneForm.keyword_ids) ? this.pruneForm.keyword_ids.map(Number) : [];
+          if (cur.includes(kid)) {
+            this.pruneForm.keyword_ids = cur.filter(x => x !== kid);
+          } else {
+            this.pruneForm.keyword_ids = [...cur, kid];
+          }
+          this.invalidatePrunePreview();
+        },
+
+        buildPrunePayload(dryRun = true) {
+          const parseOptInt = (v) => {
+            if (v === '' || v === null || v === undefined) return null;
+            const n = Number(v);
+            if (!Number.isFinite(n)) return v;
+            return Math.round(n);
+          };
+          const kwIds = Array.isArray(this.pruneForm.keyword_ids) && this.pruneForm.keyword_ids.length
+            ? this.pruneForm.keyword_ids.map(Number).filter(Boolean)
+            : [];
+          return {
+            dry_run: Boolean(dryRun),
+            keyword_ids: kwIds,
+            scope: this.pruneForm.scope || 'displaced',
+            min_pin_age_days: parseOptInt(this.pruneForm.min_pin_age_days),
+            min_folder_age_days: parseOptInt(this.pruneForm.min_folder_age_days),
+            max_saves: parseOptInt(this.pruneForm.max_saves),
+            max_repins: parseOptInt(this.pruneForm.max_repins),
+            skip_rising_velocity: Boolean(this.pruneForm.skip_rising_velocity)
+          };
+        },
+
         async runPrunePreview() {
           if (!this.activeFolderId) return;
           this.pruningLoading = true;
           try {
-            const kwIds = this.pruneForm.keyword_ids?.length 
-              ? this.pruneForm.keyword_ids 
-              : (this.activeFolder?.items || []).map(i => i.keyword_id || i.id).filter(Boolean);
-
+            const payload = this.buildPrunePayload(true);
             const res = await (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId + '/prune-pins', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                dry_run: true,
-                keyword_ids: kwIds,
-                scope: this.pruneForm.scope || 'displaced',
-                min_pin_age_days: Number(this.pruneForm.min_pin_age_days) || 30,
-                max_saves: Number(this.pruneForm.max_saves) || 5
-              })
+              body: JSON.stringify(payload)
             });
-            const data = await res.json();
+            const data = await res.json().catch(() => ({}));
             if (res.ok) {
               const count = data.candidates_count ?? data.matched_count ?? 0;
               this.prunePreviewResult = { ...data, candidates_count: count, matched_count: count };
-              this.showToast('Dry run preview: ' + count + ' candidate pins identified for pruning', 'info');
+              this.showToast('Dry run preview: ' + count + ' candidate pin(s) identified for pruning', 'info');
             } else {
-              this.showToast(data.message || 'Prune preview failed', 'error');
+              this.showToast(data.message || data.error || 'Prune preview failed', 'error');
             }
           } catch (e) {
             this.showToast('Network error during prune preview: ' + e.message, 'error');
           } finally {
             this.pruningLoading = false;
+            if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
           }
         },
 
         async executePrune() {
           if (!this.activeFolderId) return;
-          const confirmed = await window.PAE.confirm(
-            'Are you sure you want to prune candidate pins? They will be tombstoned to keyword_ignored_pins.',
-            {
-              title: 'Prune Candidate Pins',
-              confirmLabel: 'Prune Pins',
-              danger: true
-            }
-          );
+          const count = Number(this.prunePreviewResult?.candidates_count ?? this.prunePreviewResult?.matched_count ?? 0);
+          const confirmFn = typeof window !== 'undefined' ? window.PAE?.confirm : null;
+          const confirmed = typeof confirmFn === 'function'
+            ? await confirmFn(
+                'Prune ' + count + ' matching pin(s) from this campaign? Pruned pins are hidden from future SERP crawls for their keywords (including any other campaign sharing the same keyword).',
+                {
+                  title: 'Prune Candidate Pins',
+                  confirmLabel: 'Prune ' + count + ' Pins',
+                  danger: true
+                }
+              )
+            : false;
           if (!confirmed) return;
           this.pruningLoading = true;
           try {
-            const kwIds = this.pruneForm.keyword_ids?.length 
-              ? this.pruneForm.keyword_ids 
-              : (this.activeFolder?.items || []).map(i => i.keyword_id || i.id).filter(Boolean);
-
+            const payload = this.buildPrunePayload(false);
             const res = await (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId + '/prune-pins', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                dry_run: false,
-                keyword_ids: kwIds,
-                scope: this.pruneForm.scope || 'displaced',
-                min_pin_age_days: Number(this.pruneForm.min_pin_age_days) || 30,
-                max_saves: Number(this.pruneForm.max_saves) || 5
-              })
+              body: JSON.stringify(payload)
             });
-            const data = await res.json();
+            const data = await res.json().catch(() => ({}));
             if (res.ok) {
-              this.showToast('Successfully pruned ' + (data.pruned_count || 0) + ' pins!', 'success');
+              this.showToast('Successfully pruned ' + (data.pruned_count || 0) + ' pin(s)!', 'success');
               this.prunePreviewResult = null;
               await this.loadActiveFolder(true);
             } else {
-              this.showToast(data.message || 'Pruning execution failed', 'error');
+              this.showToast(data.message || data.error || 'Pruning execution failed', 'error');
             }
           } catch (e) {
             this.showToast('Network error during prune execution: ' + e.message, 'error');
@@ -510,15 +541,14 @@ export function getFoldersClientAppScript() {
           }
         },
 
-        globalDefaultMaxPins: '50',
         folderSettings: {
           name: '',
           description: '',
           color: '#6366f1',
           serp_top_n: 20,
           enable_serp_harvest: true,
-          max_pins: '50',
-          max_serp_pins: '50',
+          max_pins: 50,
+          max_serp_pins: 50,
           crawl_scope: 'all_pins',
           max_catalog_inspect: '0',
           pause_competitors: false,
@@ -1005,12 +1035,15 @@ export function getFoldersClientAppScript() {
               try {
                 const path = window.location.pathname || '';
                 const segs = path.split('/').filter(Boolean);
-                if (segs[0] === 'folders' && segs[1]) {
+                if ((segs[0] === 'folders' || segs[0] === 'campaigns') && segs[1]) {
                   const subRoute = (segs[2] || '').toLowerCase();
                   if (subRoute === 'settings') {
                     this.currentRoom = 'settings';
                   } else if (subRoute === 'crossover' || !subRoute) {
                     this.currentRoom = 'crossover';
+                    if (this.activeFolderId && !this.crossoverData && !this.crossoverLoading) {
+                      this.loadActiveFolder().catch(() => {});
+                    }
                   } else if (subRoute === 'keywords') {
                     this.currentRoom = 'keywords';
                   } else if (subRoute === 'creators') {
@@ -1176,7 +1209,7 @@ export function getFoldersClientAppScript() {
           const reqSeq = ++this._folderReqSeq;
           // Phase 1: Fast metadata hydration (< 50ms)
           try {
-            const shouldRefresh = forceRefresh === true || this.currentRoom === 'settings';
+            const shouldRefresh = forceRefresh === true;
             const folderUrl = '/api/folders/' + this.activeFolderId + (shouldRefresh ? '?refresh=true' : '');
             const folderRes = await (window.safeApiFetch || fetch)(folderUrl, signal ? { signal } : {});
             if (reqSeq !== this._folderReqSeq || (signal && signal.aborted)) return;
@@ -1187,17 +1220,17 @@ export function getFoldersClientAppScript() {
               this.activeFolder = fetched ? (this.activeFolder ? { ...this.activeFolder, ...fetched } : fetched) : null;
               this.syncFolderSettingsFromActive();
             } else {
-              this.showToast('Campaign folder not found', 'error');
+              const errData = await folderRes.json().catch(() => ({}));
+              this.showToast(errData.message || errData.error || ('Failed to load campaign folder (HTTP ' + folderRes.status + ')'), 'error');
             }
           } catch (e) {
             if ((signal && signal.aborted) || (e && e.name === 'AbortError')) return;
             if (reqSeq !== this._folderReqSeq) return;
             console.error('Error fetching folder metadata:', e);
+            this.showToast('Network error loading campaign folder', 'error');
           }
 
-          // Unnecessary 30s Crossover fetch bypassed when in settings room
-          this.loadTrackedPinsSummary().catch(() => {});
-          this.loadPinGraphSeeds().catch(() => {});
+          // Unnecessary 30s Crossover & Room 1 calls bypassed when in settings room
           if (this.currentRoom === 'settings') {
             this.crossoverLoading = false;
             if (forceRefresh === true) {
@@ -1205,6 +1238,9 @@ export function getFoldersClientAppScript() {
             }
             return;
           }
+
+          this.loadTrackedPinsSummary().catch(() => {});
+          this.loadPinGraphSeeds().catch(() => {});
 
           // Phase 2: Crossover Matrix analysis (< 30s)
           this.crossoverLoading = true;
@@ -1304,7 +1340,7 @@ export function getFoldersClientAppScript() {
                 auto_trigger_enabled: Boolean(wsPgr.auto_trigger_enabled),
                 linkless_only: Boolean(wsPgr.linkless_only),
                 min_repins: Number.isFinite(Number(wsPgr.min_repins)) ? Math.max(0, Number(wsPgr.min_repins)) : 500,
-                max_pages: Number.isFinite(Number(wsPgr.max_pages)) ? Math.min(100, Math.max(1, Number(wsPgr.max_pages))) : 20
+                max_pages: Number.isFinite(Number(wsPgr.max_pages)) ? Math.min(200, Math.max(1, Number(wsPgr.max_pages))) : 20
               }
             };
           } catch (_) {}
@@ -1312,14 +1348,16 @@ export function getFoldersClientAppScript() {
 
         isSerpTopNInherited() {
           const wsTopN = Number(this.workspaceSettingsDefaults?.default_serp_top_n || 20);
-          return Number(this.folderSettings?.serp_top_n || wsTopN) === wsTopN;
+          return Boolean(this.serpTopNInherited) && Number(this.folderSettings?.serp_top_n ?? wsTopN) === wsTopN;
         },
 
         resetSerpTopNToWorkspace() {
           this.folderSettings.serp_top_n = Number(this.workspaceSettingsDefaults?.default_serp_top_n || 20);
+          this.serpTopNInherited = true;
         },
 
         isPinGraphInherited() {
+          if (this.pinGraphInherited) return true;
           const cur = this.folderSettings?.pin_graph_rules || {};
           const ws = this.workspaceSettingsDefaults?.pin_graph_rules || {};
           return Boolean(cur.auto_trigger_enabled) === Boolean(ws.auto_trigger_enabled)
@@ -1336,6 +1374,50 @@ export function getFoldersClientAppScript() {
             min_repins: Number(ws.min_repins ?? 500),
             max_pages: Number(ws.max_pages ?? 20)
           };
+          this.pinGraphInherited = true;
+        },
+
+        isCampaignPausedOrBlocked() {
+          const st = String(this.activeFolder?.metadata?.status || '').toLowerCase();
+          return Boolean(
+            this.folderSettings?.pause_crawlers ||
+            this.folderSettings?.pause_competitors ||
+            this.folderSettings?.block_fleet ||
+            st === 'paused' ||
+            st === 'archived'
+          );
+        },
+
+        getCampaignPausedBadgeLabel() {
+          const st = String(this.activeFolder?.metadata?.status || '').toLowerCase();
+          if (this.folderSettings?.block_fleet) return 'Fleet Blocked';
+          if (st === 'archived') return 'Campaign Archived';
+          if (st === 'paused') return 'Campaign Paused';
+          if (this.folderSettings?.pause_crawlers && this.folderSettings?.pause_competitors) return 'All Crawlers Paused';
+          if (this.folderSettings?.pause_competitors) return 'Competitors Paused';
+          return 'Crawlers Paused';
+        },
+
+        _computeSettingsSnapshot() {
+          return JSON.stringify({
+            name: String(this.folderSettings?.name || '').trim(),
+            description: String(this.folderSettings?.description || '').trim(),
+            color: String(this.folderSettings?.color || '#6366f1').trim(),
+            serp_top_n: Number(this.folderSettings?.serp_top_n || 20),
+            max_serp_pins: Number(this.folderSettings?.max_serp_pins || 50),
+            pause_competitors: Boolean(this.folderSettings?.pause_competitors),
+            pause_crawlers: Boolean(this.folderSettings?.pause_crawlers),
+            block_fleet: Boolean(this.folderSettings?.block_fleet),
+            auto_discover_creators: Boolean(this.folderSettings?.auto_discover_creators),
+            serpTopNInherited: Boolean(this.serpTopNInherited),
+            pinGraphInherited: Boolean(this.pinGraphInherited),
+            pin_graph_rules: this.folderSettings?.pin_graph_rules || {}
+          });
+        },
+
+        hasUnsavedSettingsChanges() {
+          if (!this._savedSettingsSnapshot || !this.activeFolder) return false;
+          return this._computeSettingsSnapshot() !== this._savedSettingsSnapshot;
         },
 
         syncFolderSettingsFromActive() {
@@ -1349,50 +1431,54 @@ export function getFoldersClientAppScript() {
           }
           if (!meta || typeof meta !== 'object' || Array.isArray(meta)) meta = {};
 
-          const fallbackQuota = String(this.globalDefaultMaxPins || '50');
           const wsTopN = Number(this.workspaceSettingsDefaults?.default_serp_top_n || 20);
           const wsPgr = this.workspaceSettingsDefaults?.pin_graph_rules || {};
-          const pgr = (this.activeFolder.pin_graph_rules && typeof this.activeFolder.pin_graph_rules === 'object')
-            ? this.activeFolder.pin_graph_rules
-            : {};
+          let pgr = this.activeFolder.pin_graph_rules;
+          if (typeof pgr === 'string') {
+            try { pgr = JSON.parse(pgr); } catch (_) { pgr = {}; }
+          }
+          pgr = (pgr && typeof pgr === 'object' && !Array.isArray(pgr)) ? pgr : {};
+
+          const rawQuota = Number(meta.max_serp_pins ?? meta.max_pins ?? 50);
+          const quotaNum = Number.isFinite(rawQuota) ? Math.min(500, Math.max(10, Math.round(rawQuota))) : 50;
+          const folderTopN = Math.min(100, Math.max(5, Number(this.activeFolder.serp_top_n ?? wsTopN)));
+          const resolvedPgr = {
+            auto_trigger_enabled: pgr.auto_trigger_enabled !== undefined ? Boolean(pgr.auto_trigger_enabled) : Boolean(wsPgr.auto_trigger_enabled),
+            linkless_only: pgr.linkless_only !== undefined ? Boolean(pgr.linkless_only) : Boolean(wsPgr.linkless_only),
+            min_repins: (pgr.min_repins !== undefined && pgr.min_repins !== null && pgr.min_repins !== '' && Number.isFinite(Number(pgr.min_repins))) ? Math.max(0, Number(pgr.min_repins)) : Number(wsPgr.min_repins ?? 500),
+            max_pages: (pgr.max_pages !== undefined && pgr.max_pages !== null && pgr.max_pages !== '' && Number.isFinite(Number(pgr.max_pages))) ? Math.min(200, Math.max(1, Number(pgr.max_pages))) : Number(wsPgr.max_pages ?? 20)
+          };
+
           this.folderSettings = {
             name: this.activeFolder.name || '',
             description: this.activeFolder.description || '',
             color: this.activeFolder.color || '#6366f1',
-            serp_top_n: Math.min(100, Math.max(5, Number(this.activeFolder.serp_top_n ?? wsTopN))),
+            serp_top_n: folderTopN,
             enable_serp_harvest: meta.enable_serp_harvest !== undefined ? Boolean(meta.enable_serp_harvest) : true,
-            max_pins: String(meta.max_pins || fallbackQuota),
-            max_serp_pins: String(meta.max_serp_pins || meta.max_pins || fallbackQuota),
+            max_pins: quotaNum,
+            max_serp_pins: quotaNum,
             crawl_scope: String(meta.crawl_scope || 'all_pins'),
             max_catalog_inspect: String(meta.max_catalog_inspect || '0'),
             pause_competitors: Boolean(meta.pause_competitors),
             pause_crawlers: Boolean(meta.pause_crawlers),
             block_fleet: Boolean(meta.block_fleet),
             auto_discover_creators: meta.auto_discover_creators !== undefined ? Boolean(meta.auto_discover_creators) : true,
-            pin_graph_rules: {
-              auto_trigger_enabled: pgr.auto_trigger_enabled !== undefined ? Boolean(pgr.auto_trigger_enabled) : Boolean(wsPgr.auto_trigger_enabled),
-              linkless_only: pgr.linkless_only !== undefined ? Boolean(pgr.linkless_only) : Boolean(wsPgr.linkless_only),
-              min_repins: (pgr.min_repins !== undefined && pgr.min_repins !== null && pgr.min_repins !== '' && Number.isFinite(Number(pgr.min_repins))) ? Math.max(0, Number(pgr.min_repins)) : Number(wsPgr.min_repins ?? 500),
-              max_pages: (pgr.max_pages !== undefined && pgr.max_pages !== null && pgr.max_pages !== '' && Number.isFinite(Number(pgr.max_pages))) ? Math.min(100, Math.max(1, Number(pgr.max_pages))) : Number(wsPgr.max_pages ?? 20)
-            }
+            pin_graph_rules: resolvedPgr
           };
-        },
 
-        async fetchGlobalDefaultQuota() {
-          try {
-            const res = await (window.safeApiFetch || fetch)('/api/settings');
-            if (res.ok) {
-              const data = await res.json().catch(() => ({}));
-              const q = data?.settings?.max_serp_pins || data?.settings?.default_max_pins;
-              if (q && !isNaN(Number(q))) {
-                this.globalDefaultMaxPins = String(q);
-              }
-            }
-          } catch (_) {}
+          const hasExplicitPgrKeys = Object.keys(pgr).some((k) => pgr[k] !== undefined && pgr[k] !== null && pgr[k] !== '');
+          this.pinGraphInherited = !hasExplicitPgrKeys || (
+            Boolean(resolvedPgr.auto_trigger_enabled) === Boolean(wsPgr.auto_trigger_enabled)
+            && Boolean(resolvedPgr.linkless_only) === Boolean(wsPgr.linkless_only)
+            && Number(resolvedPgr.min_repins) === Number(wsPgr.min_repins ?? 500)
+            && Number(resolvedPgr.max_pages) === Number(wsPgr.max_pages ?? 20)
+          );
+          this.serpTopNInherited = meta.serp_top_n_inherited === true || (meta.serp_top_n_inherited !== false && folderTopN === wsTopN);
+          this._savedSettingsSnapshot = this._computeSettingsSnapshot();
         },
 
         async saveFolderSettings(andLaunchAudit = false) {
-          if (!this.activeFolderId) return;
+          if (!this.activeFolderId || !this.activeFolder || this.settingsLoading) return;
           this.settingsLoading = true;
           try {
             let meta = this.activeFolder?.metadata;
@@ -1404,21 +1490,38 @@ export function getFoldersClientAppScript() {
             }
             if (!meta || typeof meta !== 'object' || Array.isArray(meta)) meta = {};
 
-            const maxPinsVal = String(this.folderSettings.max_serp_pins || this.folderSettings.max_pins || this.globalDefaultMaxPins || '50');
+            const rawQuota = Number(this.folderSettings.max_serp_pins ?? this.folderSettings.max_pins ?? 50);
+            const maxPinsVal = Number.isFinite(rawQuota) ? Math.min(500, Math.max(10, Math.round(rawQuota))) : 50;
             const pgrForm = this.folderSettings.pin_graph_rules || {};
+            const wsPgr = this.workspaceSettingsDefaults?.pin_graph_rules || {};
+            const pgrInherited = this.isPinGraphInherited();
+            const topNInherited = this.isSerpTopNInherited();
+
+            const rawMinRepins = pgrForm.min_repins;
+            const cleanMinRepins = (rawMinRepins === '' || rawMinRepins === null || rawMinRepins === undefined || !Number.isFinite(Number(rawMinRepins)))
+              ? Number(wsPgr.min_repins ?? 500)
+              : Math.max(0, Math.round(Number(rawMinRepins)));
+            const rawMaxPages = pgrForm.max_pages;
+            const cleanMaxPages = (rawMaxPages === '' || rawMaxPages === null || rawMaxPages === undefined || !Number.isFinite(Number(rawMaxPages)))
+              ? Number(wsPgr.max_pages ?? 20)
+              : Math.min(200, Math.max(1, Math.round(Number(rawMaxPages))));
+
             const payload = {
               name: (this.folderSettings.name || '').trim() || (this.activeFolder?.name || ''),
               description: (this.folderSettings.description || '').trim(),
               color: this.folderSettings.color || '#6366f1',
-              serp_top_n: Math.min(100, Math.max(5, Number(this.folderSettings.serp_top_n || 20))),
-              pin_graph_rules: {
+              serp_top_n: topNInherited ? null : Math.min(100, Math.max(5, Number(this.folderSettings.serp_top_n || 20))),
+              reset_serp_top_n: topNInherited,
+              pin_graph_rules: pgrInherited ? {} : {
                 auto_trigger_enabled: Boolean(pgrForm.auto_trigger_enabled),
                 linkless_only: Boolean(pgrForm.linkless_only),
-                min_repins: Math.max(0, Math.round(Number(pgrForm.min_repins ?? 500) || 0)),
-                max_pages: Math.min(100, Math.max(1, Math.round(Number(pgrForm.max_pages ?? 20) || 20)))
+                min_repins: cleanMinRepins,
+                max_pages: cleanMaxPages
               },
+              reset_pin_graph_rules: pgrInherited,
               metadata: {
                 ...meta,
+                serp_top_n_inherited: topNInherited,
                 enable_serp_harvest: Boolean(this.folderSettings.enable_serp_harvest),
                 max_pins: maxPinsVal,
                 max_serp_pins: maxPinsVal,
@@ -1441,10 +1544,13 @@ export function getFoldersClientAppScript() {
               const data = await res.json();
               if (data.folder) {
                 this.activeFolder = { ...this.activeFolder, ...data.folder };
-                const fIdx = this.foldersList.findIndex(f => f.id === this.activeFolderId);
+                const fIdx = this.foldersList.findIndex(f => String(f.id) === String(this.activeFolderId));
                 if (fIdx !== -1) {
                   this.foldersList[fIdx] = { ...this.foldersList[fIdx], ...data.folder };
                 }
+                this.syncFolderSettingsFromActive();
+              } else {
+                this._savedSettingsSnapshot = this._computeSettingsSnapshot();
               }
               this.showToast('Folder settings saved successfully', 'success');
               if (andLaunchAudit) {
@@ -2107,7 +2213,7 @@ export function getFoldersClientAppScript() {
           try {
             const res = await (window.safeApiFetch || fetch)('/api/folders/' + id, { method: 'DELETE' });
             if (res.ok) {
-              this.foldersList = this.foldersList.filter(f => f.id !== id);
+              this.foldersList = this.foldersList.filter(f => String(f.id) !== String(id));
               this.deleteModalFolderId = null;
               this.showToast('Campaign folder deleted', 'success');
               if (String(this.activeFolderId) === String(id)) {

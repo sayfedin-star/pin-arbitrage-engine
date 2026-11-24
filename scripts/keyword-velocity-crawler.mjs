@@ -1091,8 +1091,49 @@ export async function fetchCampaignTrackedPinsForWorker(targetSql, { workerIndex
           END AS baseline_day_date,
           '[]'::jsonb AS folder_positions
         FROM campaign_tracked_pins ctp
+        JOIN keyword_folders kf ON kf.id = ctp.folder_id
         LEFT JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
         WHERE ctp.is_active = TRUE
+          AND LOWER(COALESCE(
+            CASE
+              WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'status'
+              WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'status'
+              ELSE NULL
+            END,
+            'active'
+          )) NOT IN ('paused', 'archived')
+          AND LOWER(COALESCE(
+            CASE
+              WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'pause_crawlers'
+              WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'pause_crawlers'
+              ELSE NULL
+            END,
+            'false'
+          )) <> 'true'
+          AND LOWER(COALESCE(
+            CASE
+              WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'is_crawler_paused'
+              WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'is_crawler_paused'
+              ELSE NULL
+            END,
+            'false'
+          )) <> 'true'
+          AND LOWER(COALESCE(
+            CASE
+              WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_fleet'
+              WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_fleet'
+              ELSE NULL
+            END,
+            'false'
+          )) <> 'true'
+          AND LOWER(COALESCE(
+            CASE
+              WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_gha_fleet'
+              WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_gha_fleet'
+              ELSE NULL
+            END,
+            'false'
+          )) <> 'true'
           AND (ABS(hashtext(ctp.pin_id::text)::bigint) % 20) = ${wIdx}
         ORDER BY ctp.pin_id ASC, ctp.added_at DESC;
       `;
@@ -1145,8 +1186,49 @@ export async function fetchCampaignTrackedPinsForWorker(targetSql, { workerIndex
           END AS baseline_day_date,
           '[]'::jsonb AS folder_positions
         FROM campaign_tracked_pins ctp
+        JOIN keyword_folders kf ON kf.id = ctp.folder_id
         LEFT JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
         WHERE ctp.is_active = TRUE
+          AND LOWER(COALESCE(
+            CASE
+              WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'status'
+              WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'status'
+              ELSE NULL
+            END,
+            'active'
+          )) NOT IN ('paused', 'archived')
+          AND LOWER(COALESCE(
+            CASE
+              WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'pause_crawlers'
+              WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'pause_crawlers'
+              ELSE NULL
+            END,
+            'false'
+          )) <> 'true'
+          AND LOWER(COALESCE(
+            CASE
+              WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'is_crawler_paused'
+              WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'is_crawler_paused'
+              ELSE NULL
+            END,
+            'false'
+          )) <> 'true'
+          AND LOWER(COALESCE(
+            CASE
+              WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_fleet'
+              WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_fleet'
+              ELSE NULL
+            END,
+            'false'
+          )) <> 'true'
+          AND LOWER(COALESCE(
+            CASE
+              WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_gha_fleet'
+              WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_gha_fleet'
+              ELSE NULL
+            END,
+            'false'
+          )) <> 'true'
           AND (ABS(hashtext(ctp.pin_id::text)::bigint) % ${wTotal}) = ${wIdx}
         ORDER BY ctp.pin_id ASC, ctp.added_at DESC;
       `;
@@ -1198,8 +1280,49 @@ export async function fetchCampaignTrackedPinsForWorker(targetSql, { workerIndex
         END AS baseline_day_date,
         '[]'::jsonb AS folder_positions
       FROM campaign_tracked_pins ctp
+      JOIN keyword_folders kf ON kf.id = ctp.folder_id
       LEFT JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
       WHERE ctp.is_active = TRUE
+        AND LOWER(COALESCE(
+          CASE
+            WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'status'
+            WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'status'
+            ELSE NULL
+          END,
+          'active'
+        )) NOT IN ('paused', 'archived')
+        AND LOWER(COALESCE(
+          CASE
+            WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'pause_crawlers'
+            WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'pause_crawlers'
+            ELSE NULL
+          END,
+          'false'
+        )) <> 'true'
+        AND LOWER(COALESCE(
+          CASE
+            WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'is_crawler_paused'
+            WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'is_crawler_paused'
+            ELSE NULL
+          END,
+          'false'
+        )) <> 'true'
+        AND LOWER(COALESCE(
+          CASE
+            WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_fleet'
+            WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_fleet'
+            ELSE NULL
+          END,
+          'false'
+        )) <> 'true'
+        AND LOWER(COALESCE(
+          CASE
+            WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_gha_fleet'
+            WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_gha_fleet'
+            ELSE NULL
+          END,
+          'false'
+        )) <> 'true'
       ORDER BY ctp.pin_id ASC, ctp.added_at DESC;
     `;
   } catch (err) {
@@ -1232,9 +1355,46 @@ export async function resolveKeywordMaxSerpTopN(targetSql, keywordId, { min = 10
       FROM keyword_folder_items kfi
       JOIN keyword_folders kf ON kf.id = kfi.folder_id
       WHERE kfi.keyword_id = ${kid}
-        AND LOWER(COALESCE(kf.metadata->>'status', 'active')) NOT IN ('paused', 'archived')
-        AND LOWER(COALESCE(kf.metadata->>'pause_crawlers', 'false')) <> 'true'
-        AND LOWER(COALESCE(kf.metadata->>'is_crawler_paused', 'false')) <> 'true';
+        AND LOWER(COALESCE(
+          CASE
+            WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'status'
+            WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'status'
+            ELSE NULL
+          END,
+          'active'
+        )) NOT IN ('paused', 'archived')
+        AND LOWER(COALESCE(
+          CASE
+            WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'pause_crawlers'
+            WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'pause_crawlers'
+            ELSE NULL
+          END,
+          'false'
+        )) <> 'true'
+        AND LOWER(COALESCE(
+          CASE
+            WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'is_crawler_paused'
+            WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'is_crawler_paused'
+            ELSE NULL
+          END,
+          'false'
+        )) <> 'true'
+        AND LOWER(COALESCE(
+          CASE
+            WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_fleet'
+            WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_fleet'
+            ELSE NULL
+          END,
+          'false'
+        )) <> 'true'
+        AND LOWER(COALESCE(
+          CASE
+            WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_gha_fleet'
+            WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_gha_fleet'
+            ELSE NULL
+          END,
+          'false'
+        )) <> 'true';
     `;
     const raw = rows?.[0]?.max_top_n;
     if (raw === null || raw === undefined || !Number.isFinite(Number(raw))) {
@@ -1269,9 +1429,46 @@ export async function syncKeywordTopNIntoCampaigns(targetSql, keywordId) {
       FROM keyword_folder_items kfi
       JOIN keyword_folders kf ON kf.id = kfi.folder_id
       WHERE kfi.keyword_id = ${kid}
-        AND LOWER(COALESCE(kf.metadata->>'status', 'active')) NOT IN ('paused', 'archived')
-        AND LOWER(COALESCE(kf.metadata->>'pause_crawlers', 'false')) <> 'true'
-        AND LOWER(COALESCE(kf.metadata->>'is_crawler_paused', 'false')) <> 'true'
+        AND LOWER(COALESCE(
+          CASE
+            WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'status'
+            WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'status'
+            ELSE NULL
+          END,
+          'active'
+        )) NOT IN ('paused', 'archived')
+        AND LOWER(COALESCE(
+          CASE
+            WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'pause_crawlers'
+            WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'pause_crawlers'
+            ELSE NULL
+          END,
+          'false'
+        )) <> 'true'
+        AND LOWER(COALESCE(
+          CASE
+            WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'is_crawler_paused'
+            WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'is_crawler_paused'
+            ELSE NULL
+          END,
+          'false'
+        )) <> 'true'
+        AND LOWER(COALESCE(
+          CASE
+            WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_fleet'
+            WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_fleet'
+            ELSE NULL
+          END,
+          'false'
+        )) <> 'true'
+        AND LOWER(COALESCE(
+          CASE
+            WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_gha_fleet'
+            WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_gha_fleet'
+            ELSE NULL
+          END,
+          'false'
+        )) <> 'true'
       ORDER BY kf.id ASC;
     `;
     if (!Array.isArray(campaigns) || campaigns.length === 0) {

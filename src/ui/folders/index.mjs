@@ -18,7 +18,9 @@ export function getCampaignFoldersPageHtml(folderId = '', initialRoom = '') {
 <html lang="en">
 <head>
 ${renderSharedDocumentHead({
-  title: 'Campaign Folders & Crossover Studio | Pinterest Arbitrage',
+  title: activeRoom === 'settings'
+    ? 'Campaign Settings & Pruning | Pinterest Arbitrage'
+    : 'Campaign Folders & Crossover Studio | Pinterest Arbitrage',
   referrerPolicy: 'same-origin',
   tailwindScriptHtml: `  <script>
     tailwind.config = {
@@ -53,7 +55,7 @@ ${renderSharedDocumentHead({
     </template>
   </div>
 
-  ${renderAppSidebar({ activeNav: 'folders', refreshHandler: 'loadFolders()' })}
+  ${renderAppSidebar({ activeNav: 'folders', refreshHandler: 'activeFolderId ? loadActiveFolder(true) : loadFolders()' })}
 
   <!-- Main View (Offset for Unified Desktop Sidebar) -->
   <main class="flex-1 min-h-screen p-4 sm:p-6 lg:p-8 space-y-6 max-w-full overflow-x-hidden transition-all duration-300 ease-in-out" :class="isSidebarCollapsed ? '!ml-20' : 'md:ml-64 lg:ml-72'">

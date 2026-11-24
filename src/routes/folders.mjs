@@ -36,6 +36,7 @@ import {
 } from '../modules/keywords/folders-crossover.mjs';
 import { dispatchGitHubWorkflow } from '../http/github-workflow.mjs';
 import { addKeyword } from '../modules/keywords/service.mjs';
+import { invalidateGlobalPulseCache } from '../modules/pulse/service.mjs';
 import {
   DEFAULT_WORKSPACE_ID,
   assertFolderInWorkspace,
@@ -115,6 +116,20 @@ export async function handleFoldersRoutes({
     const folderRow = await assertFolderInWorkspace(sql, Number(folderId), workspaceId);
     const body = await request.json().catch(() => ({}));
     const folderMeta = normalizeFolderMetadata(folderRow?.metadata);
+    const isCrawlingPaused = Boolean(
+      folderMeta.block_fleet ||
+      folderMeta.block_gha_fleet ||
+      folderMeta.pause_crawlers ||
+      folderMeta.is_crawler_paused ||
+      ['paused', 'archived'].includes(String(folderMeta.status || '').toLowerCase())
+    );
+    if (isCrawlingPaused) {
+      return jsonResponse({
+        success: false,
+        error: 'FOLDER_CRAWLING_PAUSED',
+        message: 'Crawling is paused or fleet ingestion is blocked for this campaign. Update Settings & Pruning to resume.'
+      }, 409);
+    }
     const crawlScopeInput = String(body.crawl_scope || folderMeta.crawl_scope || 'all_pins');
     const rawFolderMaxPins = body.max_pins ?? folderMeta.max_pins ?? '';
     const rawFolderMaxSerpPins = body.max_serp_pins ?? body.max_pins ?? folderMeta.max_serp_pins ?? folderMeta.max_pins ?? '';
@@ -347,7 +362,9 @@ export async function handleFoldersRoutes({
         max_saves,
         maxSaves,
         max_repins,
-        maxRepins
+        maxRepins,
+        skip_rising_velocity,
+        skipRisingVelocity
       } = body;
       const result = await pruneFolderPins(sql, folderId, {
         dry_run,
@@ -362,12 +379,16 @@ export async function handleFoldersRoutes({
         max_saves,
         maxSaves,
         max_repins,
-        maxRepins
-      }, { env, ctx });
-      const isDry = dry_run !== undefined ? Boolean(dry_run) : Boolean(dryRun);
-      if (!isDry && typeof invalidateEdgeCache === 'function') {
-        await invalidateEdgeCache('folders').catch(() => {});
-        await invalidateEdgeCache('keywords').catch(() => {});
+        maxRepins,
+        skip_rising_velocity,
+        skipRisingVelocity
+      }, { env, ctx, workspaceId });
+      if (!result?.dry_run) {
+        if (typeof invalidateEdgeCache === 'function') {
+          await invalidateEdgeCache('folders').catch(() => {});
+          await invalidateEdgeCache('keywords').catch(() => {});
+        }
+        await invalidateGlobalPulseCache(env, ctx).catch(() => {});
       }
       return jsonResponse(result);
     }
@@ -375,7 +396,7 @@ export async function handleFoldersRoutes({
     // A. Sub-route: /api/folders/:id/creators
     if (parts.length >= 2 && parts[1] === 'creators') {
       if (!folderId) return jsonResponse({ success: false, error: 'Valid folder ID is required' }, 400);
-      await assertFolderInWorkspace(sql, folderId, workspaceId);
+      const folderRow = await assertFolderInWorkspace(sql, folderId, workspaceId);
 
       // GET /api/folders/:id/creators -> listFolderCreators(sql, folderId) with auto-discovery
       if (method === 'GET' && parts.length === 2) {
@@ -403,6 +424,19 @@ export async function handleFoldersRoutes({
 
       // POST /api/folders/:id/creators/bulk-pulse-track -> bulkPulseTrackFolderCreators(sql, folderId, body, { env, ctx, workspaceId })
       if (method === 'POST' && parts.length === 3 && parts[2] === 'bulk-pulse-track') {
+        const folderMeta = normalizeFolderMetadata(folderRow?.metadata);
+        if (
+          folderMeta.pause_competitors ||
+          folderMeta.block_fleet ||
+          folderMeta.block_gha_fleet ||
+          ['paused', 'archived'].includes(String(folderMeta.status || '').toLowerCase())
+        ) {
+          return jsonResponse({
+            success: false,
+            error: 'FOLDER_COMPETITORS_PAUSED',
+            message: 'Competitor crawling is paused or fleet ingestion is blocked for this campaign.'
+          }, 409);
+        }
         const body = await request.json().catch(() => ({}));
         if (body && body.cookie !== undefined && String(body.cookie).trim() !== '') {
           return jsonResponse({
@@ -674,11 +708,25 @@ export async function handleFoldersRoutes({
 
       if (folderId && (parts.length === 1 || (parts.length === 0 && hasExplicitIdQuery))) {
         // [INVARIANT: FOLDER-SSOT-LOOKUP] Serve authoritative live data from Central Hub getFolder(sql, folderId) (< 5ms)
+        if (!sql) {
+          return jsonResponse({
+            success: false,
+            error: 'DB_UNAVAILABLE',
+            degraded: true,
+            message: 'Campaign folder temporarily unavailable while database is waking up. Retry in 3 seconds.'
+          }, 503, 0, { 'Retry-After': '3' });
+        }
         let folder = null;
-        if (sql) {
-          try {
-            folder = await getFolder(sql, folderId, { workspaceId });
-          } catch (_) {}
+        try {
+          folder = await getFolder(sql, folderId, { workspaceId });
+        } catch (err) {
+          console.warn('[Folders Fallback] getFolder failed:', err.message);
+          return jsonResponse({
+            success: false,
+            error: 'DB_UNAVAILABLE',
+            degraded: true,
+            message: 'Campaign folder temporarily unavailable while database is waking up. Retry in 3 seconds.'
+          }, 503, 0, { 'Retry-After': '3' });
         }
         const refreshFolder = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
         if (!folder) return jsonResponse({ error: 'Folder not found' }, 404);
@@ -706,8 +754,6 @@ export async function handleFoldersRoutes({
     }
 
     if (method === 'POST' && parts.length === 0) {
-      await invalidateEdgeCache('keywords');
-      await invalidateEdgeCache('folders');
       const body = await request.json().catch(() => ({}));
       if (body.status && !['active', 'archived', 'paused', 'completed'].includes(String(body.status).toLowerCase())) {
         return jsonResponse({ success: false, error: 'Invalid folder status. Allowed values: active, archived, paused, completed' }, 400);
@@ -724,17 +770,46 @@ export async function handleFoldersRoutes({
         ...(effectiveSerpTopN !== undefined ? { serp_top_n: effectiveSerpTopN } : {}),
         workspaceId
       });
+      await invalidateEdgeCache('keywords');
+      await invalidateEdgeCache('folders');
       return jsonResponse({ success: true, folder: created });
     }
 
     if ((method === 'PUT' || method === 'PATCH') && (parts.length === 0 || (parts.length === 1 && firstSegIsNumeric))) {
-      await invalidateEdgeCache('keywords');
-      await invalidateEdgeCache('folders');
       const body = await request.json().catch(() => ({}));
       const targetFolderId = firstSegIsNumeric ? Number(parts[0]) : (body.id || body.folder_id || searchParams.get('id') || searchParams.get('folder_id'));
       if (!targetFolderId) return jsonResponse({ success: false, error: 'Folder id is required' }, 400);
       await assertFolderInWorkspace(sql, targetFolderId, workspaceId);
-      const updated = await updateFolder(sql, targetFolderId, { ...body, workspaceId });
+
+      const updatePatch = { ...body, workspaceId };
+      const wantsResetSerpTopN = body.reset_serp_top_n === true || body.serp_top_n === null;
+      if (wantsResetSerpTopN) {
+        const wsSettings = await getWorkspaceSettings(sql, workspaceId).catch(() => null);
+        const wsTopN = Number.isFinite(Number(wsSettings?.default_serp_top_n))
+          ? Math.min(100, Math.max(5, Math.round(Number(wsSettings.default_serp_top_n))))
+          : 20;
+        updatePatch.serp_top_n = wsTopN;
+        updatePatch.metadata = {
+          ...(normalizeFolderMetadata(body.metadata)),
+          serp_top_n_inherited: true
+        };
+      } else if (body.serp_top_n !== undefined && body.serp_top_n !== '') {
+        const baseMeta = normalizeFolderMetadata(body.metadata);
+        if (baseMeta.serp_top_n_inherited === undefined) {
+          updatePatch.metadata = { ...baseMeta, serp_top_n_inherited: false };
+        }
+      }
+
+      if (body.reset_pin_graph_rules === true) {
+        updatePatch.pin_graph_rules = {};
+      }
+
+      const updated = await updateFolder(sql, targetFolderId, updatePatch);
+      if (!updated) {
+        return jsonResponse({ success: false, error: 'Folder not found' }, 404);
+      }
+      await invalidateEdgeCache('keywords');
+      await invalidateEdgeCache('folders');
       invalidateFolderCache(targetFolderId, workspaceId);
       return jsonResponse({ success: true, folder: updated });
     }
@@ -742,8 +817,6 @@ export async function handleFoldersRoutes({
     // [INVARIANT: GUARD-ACCIDENTAL-FOLDER-DELETION] Strictly guard folder deletion:
     // Allowed only on DELETE /api/folders/:id (numeric) or DELETE /api/folders?id=:id (parts.length === 0). Sub-route unpin/unlink operations MUST NEVER delete the folder!
     if (method === 'DELETE' && ((parts.length === 1 && firstSegIsNumeric) || parts.length === 0)) {
-      await invalidateEdgeCache('keywords');
-      await invalidateEdgeCache('folders');
       let delFolderId = firstSegIsNumeric ? Number(parts[0]) : (searchParams.get('id') || searchParams.get('folder_id'));
       if (!delFolderId && parts.length === 0) {
         try {
@@ -754,6 +827,8 @@ export async function handleFoldersRoutes({
       if (!delFolderId) return jsonResponse({ success: false, error: 'Folder id is required' }, 400);
       await assertFolderInWorkspace(sql, delFolderId, workspaceId);
       const deleted = await deleteFolder(sql, delFolderId, { workspaceId });
+      await invalidateEdgeCache('keywords');
+      await invalidateEdgeCache('folders');
       invalidateFolderCache(delFolderId, workspaceId);
       return jsonResponse({ success: true, deleted });
     }

@@ -195,7 +195,7 @@ export async function ignoreAndRemoveSerpPin(sql, {
   pinId = null,
   reason = 'manual_user_deletion'
 } = {}) {
-  if (!sql) return { deletedCount: 0, pairs: [] };
+  if (!sql) return { deletedCount: 0, deletedPinIds: [], pairs: [] };
 
   const rawList = Array.isArray(pairs)
     ? pairs
@@ -219,7 +219,7 @@ export async function ignoreAndRemoveSerpPin(sql, {
     (a, b) => (a.keyword_id - b.keyword_id) || a.pin_id.localeCompare(b.pin_id)
   );
   if (normalizedPairs.length === 0) {
-    return { deletedCount: 0, pairs: [] };
+    return { deletedCount: 0, deletedPinIds: [], pairs: [] };
   }
 
   const runInTx = async (fn) => (typeof sql?.begin === 'function' ? sql.begin(fn) : fn(sql));
@@ -244,6 +244,11 @@ export async function ignoreAndRemoveSerpPin(sql, {
 
     return {
       deletedCount: Array.isArray(deletedRows) ? deletedRows.length : 0,
+      deletedPinIds: Array.from(new Set(
+        (Array.isArray(deletedRows) ? deletedRows : [])
+          .map((r) => String(r?.pin_id || '').trim())
+          .filter(Boolean)
+      )),
       pairs: normalizedPairs
     };
   }
@@ -278,6 +283,11 @@ export async function ignoreAndRemoveSerpPin(sql, {
 
   return {
     deletedCount: Array.isArray(deletedRows) ? deletedRows.length : 0,
+    deletedPinIds: Array.from(new Set(
+      (Array.isArray(deletedRows) ? deletedRows : [])
+        .map((r) => String(r?.pin_id || '').trim())
+        .filter(Boolean)
+    )),
     pairs: normalizedPairs
   };
 }

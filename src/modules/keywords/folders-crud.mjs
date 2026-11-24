@@ -18,6 +18,134 @@ function isMissingWorkspaceColumnError(err) {
   return /column\s+"?(?:workspace_id|serp_top_n|pin_graph_rules)"?\s+does\s+not\s+exist/i.test(err?.message || '');
 }
 
+function makeHttpError(message, status = 400) {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+}
+
+function sanitizeHexColor(raw, fallback = null) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') {
+    return fallback;
+  }
+  const s = String(raw).trim();
+  if (!/^#[0-9a-fA-F]{6}$/.test(s)) {
+    throw makeHttpError('Invalid hex color. Expected #RRGGBB.', 400);
+  }
+  return s;
+}
+
+function normalizePinGraphRulesObject(raw) {
+  if (!raw) return {};
+  let obj = raw;
+  if (typeof obj === 'string') {
+    const trimmed = obj.trim();
+    if (!trimmed) return {};
+    try {
+      obj = JSON.parse(trimmed);
+      if (typeof obj === 'string') obj = JSON.parse(obj);
+    } catch (_) {
+      return {};
+    }
+  }
+  return (obj && typeof obj === 'object' && !Array.isArray(obj)) ? obj : {};
+}
+
+function sanitizeFolderPinGraphRules(raw) {
+  if (raw === null || raw === undefined) return {};
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw makeHttpError('pin_graph_rules must be a JSON object.', 400);
+  }
+  const keys = Object.keys(raw);
+  if (keys.length === 0) return {};
+
+  const out = {};
+  if (raw.auto_trigger_enabled !== undefined) {
+    if (typeof raw.auto_trigger_enabled !== 'boolean') {
+      throw makeHttpError('pin_graph_rules.auto_trigger_enabled must be a boolean.', 400);
+    }
+    out.auto_trigger_enabled = raw.auto_trigger_enabled;
+  }
+  if (raw.linkless_only !== undefined) {
+    if (typeof raw.linkless_only !== 'boolean') {
+      throw makeHttpError('pin_graph_rules.linkless_only must be a boolean.', 400);
+    }
+    out.linkless_only = raw.linkless_only;
+  }
+  if (raw.min_repins !== undefined && raw.min_repins !== null && raw.min_repins !== '') {
+    const n = Number(raw.min_repins);
+    if (!Number.isFinite(n) || n < 0) {
+      throw makeHttpError('pin_graph_rules.min_repins must be a non-negative finite number.', 400);
+    }
+    out.min_repins = Math.min(10_000_000, Math.max(0, Math.round(n)));
+  }
+  if (raw.max_pages !== undefined && raw.max_pages !== null && raw.max_pages !== '') {
+    const n = Number(raw.max_pages);
+    if (!Number.isFinite(n) || n < 1) {
+      throw makeHttpError('pin_graph_rules.max_pages must be a positive finite number.', 400);
+    }
+    out.max_pages = Math.min(200, Math.max(1, Math.round(n)));
+  }
+  return out;
+}
+
+function parseOptionalNonNegativeInt(raw, fieldName) {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw === 'string' && raw.trim() === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) {
+    throw makeHttpError(`${fieldName} must be a non-negative finite number.`, 400);
+  }
+  return Math.round(n);
+}
+
+function parseOptionalBoolean(raw, defaultValue = false) {
+  if (raw === undefined || raw === null || raw === '') return defaultValue;
+  if (typeof raw === 'boolean') return raw;
+  if (typeof raw === 'string') {
+    const s = raw.trim().toLowerCase();
+    if (s === 'true' || s === '1') return true;
+    if (s === 'false' || s === '0') return false;
+  }
+  return Boolean(raw);
+}
+
+function sanitizeFolderMetadataPatch(rawMeta) {
+  const clean = { ...normalizeFolderMetadata(rawMeta) };
+  if (clean.status !== undefined && clean.status !== null && String(clean.status).trim() !== '') {
+    const normalizedStatus = String(clean.status).trim().toLowerCase();
+    if (!['active', 'archived', 'paused', 'completed'].includes(normalizedStatus)) {
+      throw makeHttpError('Invalid folder status. Allowed values: active, archived, paused, completed', 400);
+    }
+    clean.status = normalizedStatus;
+  }
+  for (const key of ['max_serp_pins', 'max_pins']) {
+    if (clean[key] !== undefined && clean[key] !== null && String(clean[key]).trim() !== '') {
+      const n = Number(clean[key]);
+      if (!Number.isFinite(n)) {
+        throw makeHttpError(`metadata.${key} must be a finite number.`, 400);
+      }
+      clean[key] = Math.min(500, Math.max(10, Math.round(n)));
+    }
+  }
+  if (clean.max_serp_pins !== undefined && clean.max_serp_pins !== null && String(clean.max_serp_pins).trim() !== '') {
+    clean.max_pins = clean.max_serp_pins;
+  }
+  for (const boolKey of [
+    'pause_competitors',
+    'pause_crawlers',
+    'block_fleet',
+    'auto_discover_creators',
+    'enable_serp_harvest',
+    'serp_top_n_inherited'
+  ]) {
+    if (clean[boolKey] !== undefined) {
+      clean[boolKey] = parseOptionalBoolean(clean[boolKey], boolKey === 'auto_discover_creators' || boolKey === 'enable_serp_harvest');
+    }
+  }
+  return clean;
+}
+
 /**
  * Lightweight folder listing for fast header dropdown / switcher (< 5ms)
  * Queries only keyword_folders and keyword_folder_items count.
@@ -84,6 +212,7 @@ export async function listFoldersLite(sql, { projectId = 'default', workspaceId 
     ...r,
     workspace_id: Number(r.workspace_id || wid),
     serp_top_n: Number(r.serp_top_n || 20),
+    pin_graph_rules: normalizePinGraphRulesObject(r.pin_graph_rules),
     metadata: normalizeFolderMetadata(r.metadata),
     keyword_count: Number(r.keyword_count || 0),
     item_count: Number(r.item_count || r.keyword_count || 0)
@@ -352,7 +481,7 @@ export async function listFolders(sql, { projectId = 'default', workspaceId = DE
     ...r,
     workspace_id: Number(r.workspace_id || wid),
     serp_top_n: Number(r.serp_top_n || 20),
-    pin_graph_rules: r.pin_graph_rules && typeof r.pin_graph_rules === 'object' ? r.pin_graph_rules : null,
+    pin_graph_rules: normalizePinGraphRulesObject(r.pin_graph_rules),
     metadata: normalizeFolderMetadata(r.metadata),
     keyword_count: Number(r.keyword_count || 0),
     creator_count: Number(r.creator_count || 0),
@@ -611,19 +740,19 @@ export async function getFolder(sql, folderId, { workspaceId = DEFAULT_WORKSPACE
       tk.top_pin_image,
       tk.last_crawled_at,
       tk.is_active,
-      COALESCE(
-        NULLIF(ksc.cnt, 0),
-        CASE WHEN tk.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (tk.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
-        0
-      )::int as pin_count
+      COALESCE(ksc.cnt, 0)::int as pin_count
     FROM keyword_folder_items i
     JOIN tracked_keywords tk ON tk.id = i.keyword_id
     LEFT JOIN (
-      SELECT keyword_id, COUNT(*)::int as cnt
-      FROM keyword_serp_positions
-      WHERE is_displaced = FALSE AND rank_position >= 1
-        AND keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fid})
-      GROUP BY keyword_id
+      SELECT ksp.keyword_id, COUNT(*)::int as cnt
+      FROM keyword_serp_positions ksp
+      WHERE ksp.is_displaced = FALSE AND ksp.rank_position >= 1
+        AND ksp.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fid})
+        AND NOT EXISTS (
+          SELECT 1 FROM keyword_ignored_pins kip
+          WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
+        )
+      GROUP BY ksp.keyword_id
     ) ksc ON ksc.keyword_id = tk.id
     WHERE i.folder_id = ${fid}
     ORDER BY i.added_at DESC;
@@ -635,6 +764,9 @@ export async function getFolder(sql, folderId, { workspaceId = DEFAULT_WORKSPACE
 
   return {
     ...folder,
+    workspace_id: Number(folder.workspace_id || wid),
+    serp_top_n: Number(folder.serp_top_n || 20),
+    pin_graph_rules: normalizePinGraphRulesObject(folder.pin_graph_rules),
     metadata: normalizeFolderMetadata(folder.metadata),
     keyword_count: resolvedCount,
     creator_count: Number(folder.creator_count || 0),
@@ -668,22 +800,24 @@ export async function createFolder(sql, {
 }) {
   const cleanName = String(name || '').trim();
   if (!cleanName) {
-    throw new Error('Folder name is required.');
+    throw makeHttpError('Folder name is required.', 400);
+  }
+  if (cleanName.length > 255) {
+    throw makeHttpError('Folder name must be 255 characters or fewer.', 400);
   }
 
   const wid = parsePositiveWorkspaceId(workspaceId) || DEFAULT_WORKSPACE_ID;
   const rawTopN = Math.round(Number(serp_top_n));
   const cleanSerpTopN = Number.isFinite(rawTopN) ? Math.min(100, Math.max(5, rawTopN)) : 20;
-  const cleanPinGraphRules = (pin_graph_rules && typeof pin_graph_rules === 'object' && !Array.isArray(pin_graph_rules))
-    ? pin_graph_rules
-    : {};
+  const cleanColor = sanitizeHexColor(color, '#ec4899');
+  const cleanPinGraphRules = sanitizeFolderPinGraphRules(pin_graph_rules);
 
   const validStatuses = ['active', 'archived', 'paused', 'completed'];
   const cleanStatus = validStatuses.includes(String(status).toLowerCase())
     ? String(status).toLowerCase()
     : 'active';
 
-  const cleanMetadata = { ...normalizeFolderMetadata(metadata), status: cleanStatus };
+  const cleanMetadata = { ...sanitizeFolderMetadataPatch(metadata), status: cleanStatus };
   let created;
   try {
     const rows = await sql`
@@ -702,7 +836,7 @@ export async function createFolder(sql, {
       ) VALUES (
         ${cleanName},
         ${String(description || '').trim()},
-        ${String(color || '#ec4899').trim()},
+        ${cleanColor},
         ${String(icon || 'folder').trim()},
         ${String(projectId || 'default').trim()},
         ${wid},
@@ -730,7 +864,7 @@ export async function createFolder(sql, {
       ) VALUES (
         ${cleanName},
         ${String(description || '').trim()},
-        ${String(color || '#ec4899').trim()},
+        ${cleanColor},
         ${String(icon || 'folder').trim()},
         ${String(projectId || 'default').trim()},
         ${JSON.stringify(cleanMetadata)}::jsonb,
@@ -742,7 +876,15 @@ export async function createFolder(sql, {
     created = rows?.[0];
   }
 
-  return created ? { ...created, workspace_id: Number(created.workspace_id || wid), metadata: normalizeFolderMetadata(created.metadata) } : null;
+  return created
+    ? {
+        ...created,
+        workspace_id: Number(created.workspace_id || wid),
+        serp_top_n: Number(created.serp_top_n || cleanSerpTopN),
+        pin_graph_rules: normalizePinGraphRulesObject(created.pin_graph_rules),
+        metadata: normalizeFolderMetadata(created.metadata)
+      }
+    : null;
 }
 
 /**
@@ -760,28 +902,39 @@ export async function updateFolder(sql, folderId, {
   metadata 
 }) {
   const fid = Number(folderId);
-  if (!fid) throw new Error('Invalid folder ID');
+  if (!fid || !Number.isInteger(fid) || fid <= 0) throw makeHttpError('Invalid folder ID', 400);
   const wid = parsePositiveWorkspaceId(workspaceId) || DEFAULT_WORKSPACE_ID;
 
-  const cleanName = name !== undefined ? String(name).trim() : null;
-  if (name !== undefined && !cleanName) throw new Error('Folder name cannot be empty');
+  const cleanName = name !== undefined ? (name === null ? '' : String(name).trim()) : null;
+  if (name !== undefined && !cleanName) throw makeHttpError('Folder name cannot be empty.', 400);
+  if (cleanName !== null && cleanName.length > 255) {
+    throw makeHttpError('Folder name must be 255 characters or fewer.', 400);
+  }
+  const cleanDescription = (description !== undefined && description !== null) ? String(description).trim() : null;
+  const cleanIcon = (icon !== undefined && icon !== null) ? String(icon).trim() : null;
+
+  const cleanColor = color !== undefined ? sanitizeHexColor(color) : null;
 
   let cleanSerpTopN = null;
   if (serp_top_n !== undefined && serp_top_n !== null && serp_top_n !== '') {
-    const n = Math.round(Number(serp_top_n));
-    if (Number.isFinite(n)) cleanSerpTopN = Math.min(100, Math.max(5, n));
+    const n = Number(serp_top_n);
+    if (!Number.isFinite(n)) {
+      throw makeHttpError('serp_top_n must be a finite number.', 400);
+    }
+    cleanSerpTopN = Math.min(100, Math.max(5, Math.round(n)));
   }
-  const cleanPinGraphRules = (pin_graph_rules !== undefined && pin_graph_rules && typeof pin_graph_rules === 'object' && !Array.isArray(pin_graph_rules))
-    ? pin_graph_rules
+  const cleanPinGraphRules = pin_graph_rules !== undefined
+    ? sanitizeFolderPinGraphRules(pin_graph_rules)
     : null;
 
-  let cleanMetadata = metadata !== undefined ? normalizeFolderMetadata(metadata) : null;
+  let cleanMetadata = metadata !== undefined ? sanitizeFolderMetadataPatch(metadata) : null;
   if (status !== undefined) {
     const validStatuses = ['active', 'archived', 'paused', 'completed'];
-    const cleanStatus = validStatuses.includes(String(status).toLowerCase())
-      ? String(status).toLowerCase()
-      : 'active';
-    cleanMetadata = { ...(cleanMetadata || {}), status: cleanStatus };
+    const normalizedStatus = String(status).trim().toLowerCase();
+    if (!validStatuses.includes(normalizedStatus)) {
+      throw makeHttpError('Invalid folder status. Allowed values: active, archived, paused, completed', 400);
+    }
+    cleanMetadata = { ...(cleanMetadata || {}), status: normalizedStatus };
   }
   let updated;
   try {
@@ -789,16 +942,22 @@ export async function updateFolder(sql, folderId, {
       UPDATE keyword_folders
       SET 
         name = COALESCE(${cleanName}, name),
-        description = COALESCE(${description !== undefined ? String(description).trim() : null}, description),
-        color = COALESCE(${color !== undefined ? String(color).trim() : null}, color),
-        icon = COALESCE(${icon !== undefined ? String(icon).trim() : null}, icon),
+        description = COALESCE(${cleanDescription}, description),
+        color = COALESCE(${cleanColor}, color),
+        icon = COALESCE(${cleanIcon}, icon),
         serp_top_n = COALESCE(${cleanSerpTopN}, serp_top_n),
         pin_graph_rules = CASE
-          WHEN ${cleanPinGraphRules !== null} THEN COALESCE(pin_graph_rules, '{}'::jsonb) || ${cleanPinGraphRules !== null ? JSON.stringify(cleanPinGraphRules) : null}::jsonb
+          WHEN ${cleanPinGraphRules !== null} THEN ${cleanPinGraphRules !== null ? JSON.stringify(cleanPinGraphRules) : null}::jsonb
           ELSE pin_graph_rules
         END,
         metadata = CASE
-          WHEN ${cleanMetadata !== null} THEN COALESCE(metadata, '{}'::jsonb) || ${cleanMetadata !== null ? JSON.stringify(cleanMetadata) : null}::jsonb
+          WHEN ${cleanMetadata !== null} THEN (
+            CASE
+              WHEN jsonb_typeof(metadata) = 'object' THEN metadata
+              WHEN jsonb_typeof(metadata) = 'string' AND LEFT(BTRIM(metadata #>> '{}'), 1) = '{' THEN (metadata #>> '{}')::jsonb
+              ELSE '{}'::jsonb
+            END
+          ) || ${cleanMetadata !== null ? JSON.stringify(cleanMetadata) : null}::jsonb
           ELSE metadata
         END,
         updated_at = NOW()
@@ -813,11 +972,17 @@ export async function updateFolder(sql, folderId, {
       UPDATE keyword_folders
       SET 
         name = COALESCE(${cleanName}, name),
-        description = COALESCE(${description !== undefined ? String(description).trim() : null}, description),
-        color = COALESCE(${color !== undefined ? String(color).trim() : null}, color),
-        icon = COALESCE(${icon !== undefined ? String(icon).trim() : null}, icon),
+        description = COALESCE(${cleanDescription}, description),
+        color = COALESCE(${cleanColor}, color),
+        icon = COALESCE(${cleanIcon}, icon),
         metadata = CASE
-          WHEN ${cleanMetadata !== null} THEN COALESCE(metadata, '{}'::jsonb) || ${cleanMetadata !== null ? JSON.stringify(cleanMetadata) : null}::jsonb
+          WHEN ${cleanMetadata !== null} THEN (
+            CASE
+              WHEN jsonb_typeof(metadata) = 'object' THEN metadata
+              WHEN jsonb_typeof(metadata) = 'string' AND LEFT(BTRIM(metadata #>> '{}'), 1) = '{' THEN (metadata #>> '{}')::jsonb
+              ELSE '{}'::jsonb
+            END
+          ) || ${cleanMetadata !== null ? JSON.stringify(cleanMetadata) : null}::jsonb
           ELSE metadata
         END,
         updated_at = NOW()
@@ -830,7 +995,13 @@ export async function updateFolder(sql, folderId, {
   invalidateFolderCache(fid, wid);
   if (!updated) return null;
   const fullFolder = await getFolder(sql, fid, { workspaceId: wid }).catch(() => null);
-  return fullFolder || { ...updated, metadata: normalizeFolderMetadata(updated.metadata) };
+  return fullFolder || {
+    ...updated,
+    workspace_id: Number(updated.workspace_id || wid),
+    serp_top_n: Number(updated.serp_top_n || 20),
+    pin_graph_rules: normalizePinGraphRulesObject(updated.pin_graph_rules),
+    metadata: normalizeFolderMetadata(updated.metadata)
+  };
 }
 
 /**
@@ -1432,12 +1603,18 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
   const totalDeltaImpressions24h = allRows.reduce((sum, r) => sum + Number(r.delta_views_24h || 0), 0);
   const totalDeltaPins24h = allRows.reduce((sum, r) => sum + Number(r.delta_pins_24h || 0), 0);
 
+  const [folderMetaRow] = await sql`
+    SELECT metadata FROM keyword_folders WHERE id = ${fid} LIMIT 1;
+  `.catch(() => []);
+  const folderMeta = normalizeFolderMetadata(folderMetaRow?.metadata);
+  const autoDiscoverCreatorsEnabled = folderMeta.auto_discover_creators !== false;
+
   return {
     linked_creators: linked,
     discovered_creators: discovered,
     all_creators: allRows,
     auto_discovered: discovered,
-    auto_discover_creators: true,
+    auto_discover_creators: autoDiscoverCreatorsEnabled,
     vault_scope: vaultScope,
     totals: {
       total_linked: linked.length,
@@ -1730,7 +1907,13 @@ export async function autoDiscoverFolderCreatorsForKeyword(sql, keywordId) {
   let totalDiscovered = 0;
   for (const folder of folders) {
     const meta = normalizeFolderMetadata(folder.metadata);
-    if (meta.auto_discover_creators === false) {
+    if (
+      meta.auto_discover_creators === false ||
+      meta.pause_competitors === true ||
+      meta.block_fleet === true ||
+      meta.block_gha_fleet === true ||
+      ['paused', 'archived'].includes(String(meta.status || '').toLowerCase())
+    ) {
       continue;
     }
 
@@ -1810,7 +1993,9 @@ export async function autoDiscoverFolderCreatorsForKeyword(sql, keywordId) {
  */
 export async function getPruningCandidates(sql, folderId, options = {}) {
   const fid = Number(folderId);
-  if (!fid) throw new Error('Invalid folder ID');
+  if (!fid || !Number.isInteger(fid) || fid <= 0) {
+    throw makeHttpError('Invalid folder ID', 400);
+  }
 
   const {
     keywordIds = [],
@@ -1818,15 +2003,24 @@ export async function getPruningCandidates(sql, folderId, options = {}) {
     minFolderAgeDays = null,
     minPinAgeDays = null,
     maxSaves = null,
-    maxRepins = null
+    maxRepins = null,
+    skipRisingVelocity = true,
+    skip_rising_velocity
   } = options;
 
-  const validKids = (Array.isArray(keywordIds) ? keywordIds : String(keywordIds).split(',')).map(Number).filter(Boolean);
-  const targetScope = String(scope || 'displaced').toLowerCase();
-  const resolvedMinFolderAge = minFolderAgeDays !== null && minFolderAgeDays !== undefined ? Number(minFolderAgeDays) : null;
-  const resolvedMinPinAge = minPinAgeDays !== null && minPinAgeDays !== undefined ? Number(minPinAgeDays) : null;
-  const resolvedMaxSaves = maxSaves !== null && maxSaves !== undefined ? Number(maxSaves) : null;
-  const resolvedMaxRepins = maxRepins !== null && maxRepins !== undefined ? Number(maxRepins) : null;
+  const validKids = (Array.isArray(keywordIds) ? keywordIds : String(keywordIds).split(',')).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  const targetScope = String(scope || 'displaced').trim().toLowerCase();
+  if (!['displaced', 'all', 'active'].includes(targetScope)) {
+    throw makeHttpError('Invalid pruning scope. Allowed values: displaced, active, all', 400);
+  }
+  const resolvedMinFolderAge = parseOptionalNonNegativeInt(minFolderAgeDays, 'min_folder_age_days');
+  const resolvedMinPinAge = parseOptionalNonNegativeInt(minPinAgeDays, 'min_pin_age_days');
+  const resolvedMaxSaves = parseOptionalNonNegativeInt(maxSaves, 'max_saves');
+  const resolvedMaxRepins = parseOptionalNonNegativeInt(maxRepins, 'max_repins');
+  const resolvedSkipRising = parseOptionalBoolean(
+    skip_rising_velocity !== undefined ? skip_rising_velocity : skipRisingVelocity,
+    true
+  );
 
   const runCandidates = (withFirstSeen) => {
     if (withFirstSeen) {
@@ -1835,6 +2029,8 @@ export async function getPruningCandidates(sql, folderId, options = {}) {
           ksp.keyword_id,
           ksp.pin_id,
           ump.title,
+          ump.image_url,
+          ump.clean_domain AS domain,
           ump.save_count,
           ump.repin_count,
           ump.daily_save_velocity,
@@ -1848,22 +2044,26 @@ export async function getPruningCandidates(sql, folderId, options = {}) {
         JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
         WHERE i.folder_id = ${fid}
           AND (${validKids.length === 0} OR i.keyword_id = ANY(${validKids}::int[]))
+          AND NOT EXISTS (
+            SELECT 1 FROM keyword_ignored_pins kip
+            WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
+          )
           AND (
             (${targetScope} = 'all') OR
             (${targetScope} = 'displaced' AND ksp.is_displaced = TRUE) OR
             (${targetScope} = 'active' AND ksp.is_displaced = FALSE)
           )
-          AND (${resolvedMaxSaves === null} OR COALESCE(ump.save_count, 0) <= ${resolvedMaxSaves})
-          AND (${resolvedMaxRepins === null} OR COALESCE(ump.repin_count, 0) <= ${resolvedMaxRepins})
+          AND (${resolvedMaxSaves === null} OR (ump.save_count IS NOT NULL AND ump.save_count <= ${resolvedMaxSaves}))
+          AND (${resolvedMaxRepins === null} OR (ump.repin_count IS NOT NULL AND ump.repin_count <= ${resolvedMaxRepins}))
           AND (
             ${resolvedMinPinAge === null} OR ${resolvedMinPinAge <= 0} OR
-            ump.created_at_pinterest IS NULL OR
-            ump.created_at_pinterest <= NOW() - (${resolvedMinPinAge} || ' days')::interval
+            (ump.created_at_pinterest IS NOT NULL AND ump.created_at_pinterest <= NOW() - (${resolvedMinPinAge} || ' days')::interval)
           )
           AND (
-            ${resolvedMinFolderAge === null} OR
+            ${resolvedMinFolderAge === null} OR ${resolvedMinFolderAge <= 0} OR
             (COALESCE(ksp.first_seen_at, i.added_at) <= NOW() - (${resolvedMinFolderAge} || ' days')::interval)
-          );
+          )
+          AND (${!resolvedSkipRising} OR COALESCE(ump.daily_save_velocity, 0) <= 0);
       `;
     }
     return sql`
@@ -1871,6 +2071,8 @@ export async function getPruningCandidates(sql, folderId, options = {}) {
         ksp.keyword_id,
         ksp.pin_id,
         ump.title,
+        ump.image_url,
+        ump.clean_domain AS domain,
         ump.save_count,
         ump.repin_count,
         ump.daily_save_velocity,
@@ -1884,22 +2086,26 @@ export async function getPruningCandidates(sql, folderId, options = {}) {
       JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
       WHERE i.folder_id = ${fid}
         AND (${validKids.length === 0} OR i.keyword_id = ANY(${validKids}::int[]))
+        AND NOT EXISTS (
+          SELECT 1 FROM keyword_ignored_pins kip
+          WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
+        )
         AND (
           (${targetScope} = 'all') OR
           (${targetScope} = 'displaced' AND ksp.is_displaced = TRUE) OR
           (${targetScope} = 'active' AND ksp.is_displaced = FALSE)
         )
-        AND (${resolvedMaxSaves === null} OR COALESCE(ump.save_count, 0) <= ${resolvedMaxSaves})
-        AND (${resolvedMaxRepins === null} OR COALESCE(ump.repin_count, 0) <= ${resolvedMaxRepins})
+        AND (${resolvedMaxSaves === null} OR (ump.save_count IS NOT NULL AND ump.save_count <= ${resolvedMaxSaves}))
+        AND (${resolvedMaxRepins === null} OR (ump.repin_count IS NOT NULL AND ump.repin_count <= ${resolvedMaxRepins}))
         AND (
           ${resolvedMinPinAge === null} OR ${resolvedMinPinAge <= 0} OR
-          ump.created_at_pinterest IS NULL OR
-          ump.created_at_pinterest <= NOW() - (${resolvedMinPinAge} || ' days')::interval
+          (ump.created_at_pinterest IS NOT NULL AND ump.created_at_pinterest <= NOW() - (${resolvedMinPinAge} || ' days')::interval)
         )
         AND (
-          ${resolvedMinFolderAge === null} OR
+          ${resolvedMinFolderAge === null} OR ${resolvedMinFolderAge <= 0} OR
           (i.added_at <= NOW() - (${resolvedMinFolderAge} || ' days')::interval)
-        );
+        )
+        AND (${!resolvedSkipRising} OR COALESCE(ump.daily_save_velocity, 0) <= 0);
     `;
   };
 
@@ -1919,11 +2125,13 @@ export async function getPruningCandidates(sql, folderId, options = {}) {
  * Smart Pin Pruning Service (R4)
  * Supports dry-run preview and atomic deletion with keyword_ignored_pins tombstoning and edge cache evictions
  */
-export async function pruneFolderPins(sql, folderId, options = {}, _context = {}) {
+export async function pruneFolderPins(sql, folderId, options = {}, context = {}) {
   // [INVARIANT: PRUNE-TOMBSTONE-AND-EVICT]
   // Pruning execution tombstones candidate pins to keyword_ignored_pins
   const fid = Number(folderId);
-  if (!fid) throw new Error('Invalid folder ID');
+  if (!fid || !Number.isInteger(fid) || fid <= 0) {
+    throw makeHttpError('Invalid folder ID', 400);
+  }
 
   const {
     dryRun = true,
@@ -1932,23 +2140,44 @@ export async function pruneFolderPins(sql, folderId, options = {}, _context = {}
     keyword_ids,
     scope = 'displaced',
     minFolderAgeDays = null,
-    min_folder_age_days = null,
+    min_folder_age_days,
     minPinAgeDays = null,
-    min_pin_age_days = null,
+    min_pin_age_days,
     maxSaves = null,
-    max_saves = null,
+    max_saves,
     maxRepins = null,
-    max_repins = null
+    max_repins,
+    skipRisingVelocity = true,
+    skip_rising_velocity
   } = options;
 
-  const isDryRun = dry_run !== undefined ? Boolean(dry_run) : Boolean(dryRun);
+  const isDryRun = parseOptionalBoolean(dry_run !== undefined ? dry_run : dryRun, true);
   const rawKids = (keyword_ids !== undefined ? keyword_ids : keywordIds) || [];
-  const validKids = (Array.isArray(rawKids) ? rawKids : String(rawKids).split(',')).map(Number).filter(Boolean);
-  const targetScope = String(scope || 'displaced').toLowerCase();
-  const resolvedMinFolderAge = min_folder_age_days !== null && min_folder_age_days !== undefined ? Number(min_folder_age_days) : (minFolderAgeDays !== null ? Number(minFolderAgeDays) : null);
-  const resolvedMinPinAge = min_pin_age_days !== null && min_pin_age_days !== undefined ? Number(min_pin_age_days) : (minPinAgeDays !== null ? Number(minPinAgeDays) : null);
-  const resolvedMaxSaves = max_saves !== null && max_saves !== undefined ? Number(max_saves) : (maxSaves !== null ? Number(maxSaves) : null);
-  const resolvedMaxRepins = max_repins !== null && max_repins !== undefined ? Number(max_repins) : (maxRepins !== null ? Number(maxRepins) : null);
+  const validKids = (Array.isArray(rawKids) ? rawKids : String(rawKids).split(',')).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  const targetScope = String(scope || 'displaced').trim().toLowerCase();
+  if (!['displaced', 'all', 'active'].includes(targetScope)) {
+    throw makeHttpError('Invalid pruning scope. Allowed values: displaced, active, all', 400);
+  }
+  const resolvedMinFolderAge = parseOptionalNonNegativeInt(
+    min_folder_age_days ?? minFolderAgeDays,
+    'min_folder_age_days'
+  );
+  const resolvedMinPinAge = parseOptionalNonNegativeInt(
+    min_pin_age_days ?? minPinAgeDays,
+    'min_pin_age_days'
+  );
+  const resolvedMaxSaves = parseOptionalNonNegativeInt(
+    max_saves ?? maxSaves,
+    'max_saves'
+  );
+  const resolvedMaxRepins = parseOptionalNonNegativeInt(
+    max_repins ?? maxRepins,
+    'max_repins'
+  );
+  const resolvedSkipRising = parseOptionalBoolean(
+    skip_rising_velocity !== undefined ? skip_rising_velocity : skipRisingVelocity,
+    true
+  );
 
   // 1. Identify Candidate Pins from keyword_serp_positions
   const candidates = await getPruningCandidates(sql, fid, {
@@ -1957,7 +2186,8 @@ export async function pruneFolderPins(sql, folderId, options = {}, _context = {}
     minFolderAgeDays: resolvedMinFolderAge,
     minPinAgeDays: resolvedMinPinAge,
     maxSaves: resolvedMaxSaves,
-    maxRepins: resolvedMaxRepins
+    maxRepins: resolvedMaxRepins,
+    skipRisingVelocity: resolvedSkipRising
   });
 
   if (isDryRun) {
@@ -1979,7 +2209,8 @@ export async function pruneFolderPins(sql, folderId, options = {}, _context = {}
         max_saves: resolvedMaxSaves,
         maxSaves: resolvedMaxSaves,
         max_repins: resolvedMaxRepins,
-        maxRepins: resolvedMaxRepins
+        maxRepins: resolvedMaxRepins,
+        skip_rising_velocity: resolvedSkipRising
       }
     };
   }
@@ -1992,7 +2223,8 @@ export async function pruneFolderPins(sql, folderId, options = {}, _context = {}
       matched_count: 0,
       candidates_count: 0,
       pruned_count: 0,
-      pruned_pins: 0
+      pruned_pins: 0,
+      untracked_campaign_pins: 0
     };
   }
 
@@ -2017,26 +2249,57 @@ export async function pruneFolderPins(sql, folderId, options = {}, _context = {}
 
   // A & B. Tombstone in keyword_ignored_pins and delete from keyword_serp_positions using atomic paired UNNEST tuple deletion
   // [INVARIANT: ATOMIC-UNNEST-TUPLE-DELETION]
+  let deletedCount = 0;
+  let deletedUniquePinsCount = 0;
   if (pruneKeywordIds.length > 0) {
-    await ignoreAndRemoveSerpPin(sql, {
+    const removeResult = await ignoreAndRemoveSerpPin(sql, {
       pairs: uniquePairs,
       reason: 'folder_smart_pruning'
     });
+    deletedCount = Number(removeResult?.deletedCount ?? 0);
+    deletedUniquePinsCount = Array.isArray(removeResult?.deletedPinIds)
+      ? removeResult.deletedPinIds.length
+      : (deletedCount > 0 ? Math.min(uniquePinIds.length, deletedCount) : 0);
   }
 
-  // C. Unified PostgreSQL SSOT (no separate secondary cache sync required)
+  // C. Remove orphaned search-tracked rows from campaign_tracked_pins when no active folder SERP link remains
+  let untrackedCampaignPins = 0;
+  if (uniquePinIds.length > 0) {
+    try {
+      const untrackedRows = await sql`
+        DELETE FROM campaign_tracked_pins ctp
+        WHERE ctp.folder_id = ${fid}
+          AND ctp.source_type = 'search'
+          AND ctp.pin_id = ANY(${uniquePinIds}::text[])
+          AND NOT EXISTS (
+            SELECT 1
+            FROM keyword_folder_items kfi
+            JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
+            WHERE kfi.folder_id = ${fid}
+              AND ksp.pin_id = ctp.pin_id
+              AND ksp.is_displaced = FALSE
+          )
+        RETURNING ctp.pin_id;
+      `;
+      untrackedCampaignPins = Array.isArray(untrackedRows) ? untrackedRows.length : 0;
+    } catch (err) {
+      const code = String(err?.code || err?.cause?.code || '');
+      if (code !== '42P01') throw err;
+    }
+  }
 
-  // D. Invalidate in-memory crossover cache
-  invalidateFolderCache(fid);
+  // D. Invalidate in-memory crossover cache (workspace-scoped when provided)
+  invalidateFolderCache(fid, context?.workspaceId ?? null);
 
   return {
     success: true,
     dry_run: false,
     dryRun: false,
-    matched_count: candidates.length,
-    candidates_count: candidates.length,
-    pruned_count: candidates.length,
-    pruned_pins: uniquePinIds.length
+    matched_count: uniquePairs.length,
+    candidates_count: uniquePairs.length,
+    pruned_count: deletedCount,
+    pruned_pins: deletedUniquePinsCount,
+    untracked_campaign_pins: untrackedCampaignPins
   };
 }
 

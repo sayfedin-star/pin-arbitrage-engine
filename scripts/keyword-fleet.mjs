@@ -150,8 +150,7 @@ export async function runKeywordFleetDispatch({ sql, env = process.env }) {
       folderMeta.is_crawler_paused ||
       folderMeta.crawler_paused ||
       folderMeta.block_gha_fleet ||
-      folderMeta.status === 'paused' ||
-      (folderRow.status && String(folderRow.status).toLowerCase() === 'paused')
+      ['paused', 'archived'].includes(String(folderRow.status || folderMeta.status || '').toLowerCase())
     );
 
     if (isCrawlerPaused) {
@@ -275,10 +274,59 @@ export async function runKeywordFleetDispatch({ sql, env = process.env }) {
     } else {
       console.log('[*] Querying all active tracked keywords from Central Metadata Hub...');
       targetRows = await sql`
-        SELECT id, keyword, category, target_pin_count
-        FROM tracked_keywords
-        WHERE is_active = TRUE
-        ORDER BY last_crawled_at ASC NULLS FIRST, id ASC;
+        SELECT tk.id, tk.keyword, tk.category, tk.target_pin_count
+        FROM tracked_keywords tk
+        WHERE tk.is_active = TRUE
+          AND (
+            NOT EXISTS (SELECT 1 FROM keyword_folder_items kfi WHERE kfi.keyword_id = tk.id)
+            OR EXISTS (
+              SELECT 1
+              FROM keyword_folder_items kfi
+              JOIN keyword_folders kf ON kf.id = kfi.folder_id
+              WHERE kfi.keyword_id = tk.id
+                AND LOWER(COALESCE(
+                  CASE
+                    WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'status'
+                    WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'status'
+                    ELSE NULL
+                  END,
+                  'active'
+                )) NOT IN ('paused', 'archived')
+                AND LOWER(COALESCE(
+                  CASE
+                    WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'pause_crawlers'
+                    WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'pause_crawlers'
+                    ELSE NULL
+                  END,
+                  'false'
+                )) <> 'true'
+                AND LOWER(COALESCE(
+                  CASE
+                    WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'is_crawler_paused'
+                    WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'is_crawler_paused'
+                    ELSE NULL
+                  END,
+                  'false'
+                )) <> 'true'
+                AND LOWER(COALESCE(
+                  CASE
+                    WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_fleet'
+                    WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_fleet'
+                    ELSE NULL
+                  END,
+                  'false'
+                )) <> 'true'
+                AND LOWER(COALESCE(
+                  CASE
+                    WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_gha_fleet'
+                    WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_gha_fleet'
+                    ELSE NULL
+                  END,
+                  'false'
+                )) <> 'true'
+            )
+          )
+        ORDER BY tk.last_crawled_at ASC NULLS FIRST, tk.id ASC;
       `;
     }
 
@@ -293,9 +341,50 @@ export async function runKeywordFleetDispatch({ sql, env = process.env }) {
           WHERE is_active = TRUE;
         `.catch(() => [{ total: 0 }]),
         sql`
-          SELECT COUNT(DISTINCT pin_id)::int AS total
-          FROM campaign_tracked_pins
-          WHERE is_active = TRUE;
+          SELECT COUNT(DISTINCT ctp.pin_id)::int AS total
+          FROM campaign_tracked_pins ctp
+          JOIN keyword_folders kf ON kf.id = ctp.folder_id
+          WHERE ctp.is_active = TRUE
+            AND LOWER(COALESCE(
+              CASE
+                WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'status'
+                WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'status'
+                ELSE NULL
+              END,
+              'active'
+            )) NOT IN ('paused', 'archived')
+            AND LOWER(COALESCE(
+              CASE
+                WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'pause_crawlers'
+                WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'pause_crawlers'
+                ELSE NULL
+              END,
+              'false'
+            )) <> 'true'
+            AND LOWER(COALESCE(
+              CASE
+                WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'is_crawler_paused'
+                WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'is_crawler_paused'
+                ELSE NULL
+              END,
+              'false'
+            )) <> 'true'
+            AND LOWER(COALESCE(
+              CASE
+                WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_fleet'
+                WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_fleet'
+                ELSE NULL
+              END,
+              'false'
+            )) <> 'true'
+            AND LOWER(COALESCE(
+              CASE
+                WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_gha_fleet'
+                WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_gha_fleet'
+                ELSE NULL
+              END,
+              'false'
+            )) <> 'true';
         `.catch(() => [{ total: 0 }]),
         sql`
           SELECT COUNT(DISTINCT entity_key)::int AS total

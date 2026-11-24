@@ -496,13 +496,15 @@ export function getDashboardBoardsAndPinMethods() {
                   usernames: bulkUsernames,
                   crawl_mode: this.ghaCrawlMode,
                   max_pages: resolvedMaxPages,
-                  target_boards: targetBoards
+                  target_boards: targetBoards,
+                  ...(this.scopedFolderId ? { folder_id: this.scopedFolderId } : {})
                 }
               : {
                   username: handle,
                   crawl_mode: this.ghaCrawlMode,
                   max_pages: resolvedMaxPages,
-                  target_boards: targetBoards
+                  target_boards: targetBoards,
+                  ...(this.scopedFolderId ? { folder_id: this.scopedFolderId } : {})
                 };
 
             const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/creators/dispatch-crawl'), {
@@ -741,7 +743,8 @@ export function getDashboardBoardsAndPinMethods() {
                   username: handle,
                   crawl_mode: crawlMode,
                   max_pages: maxPages,
-                  auto_archive_winning: Boolean(this.newCompetitorAutoArchiveWinning)
+                  auto_archive_winning: Boolean(this.newCompetitorAutoArchiveWinning),
+                  ...(this.scopedFolderId ? { folder_id: this.scopedFolderId } : {})
                 })
               });
               if (resPins.ok) {

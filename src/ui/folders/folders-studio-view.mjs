@@ -918,14 +918,18 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
         <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-6 shadow-sm">
           <div class="flex items-center justify-between flex-wrap gap-4 pb-6 border-b border-slate-100 dark:border-[#27272A]">
             <div>
-              <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <i data-lucide="settings" class="w-4 h-4 text-slate-500 shrink-0"></i>
-                <span>Room 5: Campaign Folder Settings &amp; Smart Bulk Pin Pruning</span>
-              </h3>
+              <div class="flex items-center gap-2 flex-wrap">
+                <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <i data-lucide="settings" class="w-4 h-4 text-slate-500 shrink-0"></i>
+                  <span>Campaign Settings &amp; Smart Bulk Pin Pruning</span>
+                </h3>
+                <span x-show="isCampaignPausedOrBlocked()" x-cloak class="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold uppercase bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-300/60 dark:border-amber-700/60" x-text="getCampaignPausedBadgeLabel()"></span>
+              </div>
               <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Configure automated fleet crawling controls, harvest quotas, and clean out low-performing pins.</p>
             </div>
-            <div class="flex items-center gap-2">
-              <button type="button" @click="saveFolderSettings(false)" :disabled="settingsLoading" class="px-4 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white transition flex items-center gap-1.5 shadow-sm cursor-pointer">
+            <div class="flex items-center gap-2.5">
+              <span x-show="hasUnsavedSettingsChanges()" x-cloak class="px-2 py-1 rounded-lg text-[11px] font-mono font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60">Unsaved changes</span>
+              <button type="button" @click="saveFolderSettings(false)" :disabled="settingsLoading || !activeFolder" class="px-4 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 disabled:opacity-50 disabled:cursor-not-allowed text-white transition flex items-center gap-1.5 shadow-sm cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
                 <span x-text="settingsLoading ? 'Saving Settings...' : 'Save Settings'"></span>
               </button>
             </div>
@@ -935,7 +939,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
           <div class="pt-5 pb-2 border-b border-slate-100 dark:border-[#27272A] grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label for="room5-folder-name" class="text-[10px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">Campaign Name</label>
-              <input id="room5-folder-name" type="text" x-model="folderSettings.name" placeholder="e.g. High Protein Meals" class="w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/70 dark:bg-[#18181B] text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500">
+              <input id="room5-folder-name" type="text" maxlength="255" x-model="folderSettings.name" placeholder="e.g. High Protein Meals" class="w-full mt-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/70 dark:bg-[#18181B] text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500">
             </div>
             <div>
               <label for="room5-folder-desc" class="text-[10px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">Description</label>
@@ -945,7 +949,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
               <span class="text-[10px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400 block">Theme Color</span>
               <div class="flex items-center gap-2 mt-2">
                 <template x-for="c in colorOptions" :key="c">
-                  <button type="button" @click="folderSettings.color = c" :aria-label="'Select folder color ' + c" class="w-6 h-6 rounded-lg border-2 transition-transform cursor-pointer" :class="folderSettings.color === c ? 'scale-110 border-slate-900 dark:border-white shadow' : 'border-transparent'" :style="'background-color: ' + c"></button>
+                  <button type="button" @click="folderSettings.color = c" :aria-label="'Select folder color ' + c" :aria-pressed="folderSettings.color === c ? 'true' : 'false'" class="w-6 h-6 rounded-lg border-2 transition-transform cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-1" :class="folderSettings.color === c ? 'scale-110 border-slate-900 dark:border-white shadow' : 'border-transparent'" :style="'background-color: ' + c"></button>
                 </template>
               </div>
             </div>
@@ -954,53 +958,53 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-6">
             <!-- Left: Fleet Execution & Crawler Controls -->
             <div class="space-y-4">
-              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Crawler &amp; Fleet Execution Controls</h4>
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 font-mono">Crawler &amp; Fleet Execution Controls</h4>
               
               <!-- Pause Competitor Crawlers Toggle -->
-              <div class="p-4 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/60 dark:bg-[#18181B]/60 flex items-center justify-between">
+              <div class="p-4 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/60 dark:bg-[#18181B]/60 flex items-center justify-between gap-3">
                 <div>
-                  <div class="text-xs font-semibold text-slate-900 dark:text-white">Pause Competitor Crawlers</div>
+                  <label for="room5-toggle-pause-competitors" class="text-xs font-semibold text-slate-900 dark:text-white cursor-pointer">Pause Competitor Crawlers</label>
                   <div class="text-[11px] text-slate-500 dark:text-slate-400">Temporarily prevent competitor profile and board scraping for this folder.</div>
                 </div>
-                <label class="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" x-model="folderSettings.pause_competitors" class="sr-only peer">
-                  <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-600"></div>
+                <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input id="room5-toggle-pause-competitors" type="checkbox" aria-label="Pause Competitor Crawlers" x-model="folderSettings.pause_competitors" class="sr-only peer">
+                  <div class="w-9 h-5 bg-slate-300 peer-focus-visible:ring-2 peer-focus-visible:ring-rose-500 peer-focus-visible:ring-offset-1 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-600"></div>
                 </label>
               </div>
 
               <!-- Pause SERP Crawlers Toggle -->
-              <div class="p-4 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/60 dark:bg-[#18181B]/60 flex items-center justify-between">
+              <div class="p-4 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/60 dark:bg-[#18181B]/60 flex items-center justify-between gap-3">
                 <div>
-                  <div class="text-xs font-semibold text-slate-900 dark:text-white">Pause SERP Crawlers</div>
+                  <label for="room5-toggle-pause-crawlers" class="text-xs font-semibold text-slate-900 dark:text-white cursor-pointer">Pause SERP Crawlers</label>
                   <div class="text-[11px] text-slate-500 dark:text-slate-400">Suspend automated daily SERP ranking snapshots for folder keywords.</div>
                 </div>
-                <label class="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" x-model="folderSettings.pause_crawlers" class="sr-only peer">
-                  <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-600"></div>
+                <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input id="room5-toggle-pause-crawlers" type="checkbox" aria-label="Pause SERP Crawlers" x-model="folderSettings.pause_crawlers" class="sr-only peer">
+                  <div class="w-9 h-5 bg-slate-300 peer-focus-visible:ring-2 peer-focus-visible:ring-rose-500 peer-focus-visible:ring-offset-1 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-600"></div>
                 </label>
               </div>
 
               <!-- Emergency Block Fleet Toggle -->
-              <div class="p-4 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/60 dark:bg-[#18181B]/60 flex items-center justify-between">
+              <div class="p-4 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/60 dark:bg-[#18181B]/60 flex items-center justify-between gap-3">
                 <div>
-                  <div class="text-xs font-semibold text-slate-900 dark:text-white">Block Fleet Ingestion</div>
+                  <label for="room5-toggle-block-fleet" class="text-xs font-semibold text-slate-900 dark:text-white cursor-pointer">Block Fleet Ingestion</label>
                   <div class="text-[11px] text-slate-500 dark:text-slate-400">Hard stop: refuse all incoming GitHub Actions fleet crawler batches.</div>
                 </div>
-                <label class="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" x-model="folderSettings.block_fleet" class="sr-only peer">
-                  <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-600"></div>
+                <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input id="room5-toggle-block-fleet" type="checkbox" aria-label="Block Fleet Ingestion" x-model="folderSettings.block_fleet" class="sr-only peer">
+                  <div class="w-9 h-5 bg-slate-300 peer-focus-visible:ring-2 peer-focus-visible:ring-rose-500 peer-focus-visible:ring-offset-1 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-600"></div>
                 </label>
               </div>
 
               <!-- Auto-Discover Creators Toggle -->
-              <div class="p-4 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/60 dark:bg-[#18181B]/60 flex items-center justify-between">
+              <div class="p-4 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/60 dark:bg-[#18181B]/60 flex items-center justify-between gap-3">
                 <div>
-                  <div class="text-xs font-semibold text-slate-900 dark:text-white">Auto-Discover Creators</div>
+                  <label for="room5-toggle-auto-discover" class="text-xs font-semibold text-slate-900 dark:text-white cursor-pointer">Auto-Discover Creators</label>
                   <div class="text-[11px] text-slate-500 dark:text-slate-400">Automatically register active ranking creators from SERP crawls into Creator Hub.</div>
                 </div>
-                <label class="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" x-model="folderSettings.auto_discover_creators" class="sr-only peer">
-                  <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-600"></div>
+                <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input id="room5-toggle-auto-discover" type="checkbox" aria-label="Auto-Discover Creators" x-model="folderSettings.auto_discover_creators" class="sr-only peer">
+                  <div class="w-9 h-5 bg-slate-300 peer-focus-visible:ring-2 peer-focus-visible:ring-rose-500 peer-focus-visible:ring-offset-1 rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-600"></div>
                 </label>
               </div>
 
@@ -1014,26 +1018,26 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                     <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold"
                           :class="isPinGraphInherited() ? 'bg-slate-200/80 dark:bg-[#27272A] text-slate-600 dark:text-slate-300' : 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'"
                           x-text="isPinGraphInherited() ? 'Inherited from Workspace' : 'Custom Override'"></span>
-                    <button type="button" x-show="!isPinGraphInherited()" @click="resetPinGraphToWorkspace()" class="text-[10px] font-semibold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer">Reset</button>
+                    <button type="button" x-show="!isPinGraphInherited()" @click="resetPinGraphToWorkspace()" class="text-[10px] font-semibold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 rounded">Reset</button>
                     <a href="/settings" class="text-[10px] font-mono text-indigo-500 hover:underline">Defaults</a>
                   </div>
                 </div>
                 <label class="flex items-center justify-between text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
                   <span>Auto-track qualifying Related Pins</span>
-                  <input type="checkbox" x-model="folderSettings.pin_graph_rules.auto_trigger_enabled" class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                  <input type="checkbox" x-model="folderSettings.pin_graph_rules.auto_trigger_enabled" @change="pinGraphInherited = false" class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
                 </label>
                 <label class="flex items-center justify-between text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
                   <span>Linkless pins only (Arbitrage Vacuum)</span>
-                  <input type="checkbox" x-model="folderSettings.pin_graph_rules.linkless_only" class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+                  <input type="checkbox" x-model="folderSettings.pin_graph_rules.linkless_only" @change="pinGraphInherited = false" class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
                 </label>
                 <div class="grid grid-cols-2 gap-2">
                   <div>
-                    <label class="text-[10px] uppercase font-mono text-slate-500">Min Re-pins</label>
-                    <input type="number" min="0" x-model.number="folderSettings.pin_graph_rules.min_repins" class="w-full mt-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-900 dark:text-white font-mono text-xs">
+                    <label for="room5-pgr-min-repins" class="text-[10px] uppercase font-mono text-slate-500">Min Re-pins</label>
+                    <input id="room5-pgr-min-repins" type="number" min="0" x-model.number="folderSettings.pin_graph_rules.min_repins" @input="pinGraphInherited = false" class="w-full mt-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-900 dark:text-white font-mono tabular-nums text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500">
                   </div>
                   <div>
-                    <label class="text-[10px] uppercase font-mono text-slate-500">Max Pages / Seed</label>
-                    <input type="number" min="1" max="100" x-model.number="folderSettings.pin_graph_rules.max_pages" class="w-full mt-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-900 dark:text-white font-mono text-xs">
+                    <label for="room5-pgr-max-pages" class="text-[10px] uppercase font-mono text-slate-500">Max Pages / Seed</label>
+                    <input id="room5-pgr-max-pages" type="number" min="1" max="200" x-model.number="folderSettings.pin_graph_rules.max_pages" @input="pinGraphInherited = false" class="w-full mt-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-900 dark:text-white font-mono tabular-nums text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500">
                   </div>
                 </div>
               </div>
@@ -1041,15 +1045,15 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
 
             <!-- Right: Quotas & Smart Bulk Pin Pruning -->
             <div class="space-y-4">
-              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Harvest Quotas &amp; Pruning Engine</h4>
+              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 font-mono">Harvest Quotas &amp; Pruning Engine</h4>
 
               <div class="p-4 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/60 dark:bg-[#18181B]/60 space-y-3">
                 <div class="flex items-center justify-between">
-                  <label class="text-xs font-semibold text-slate-900 dark:text-white">Max SERP Pins Harvest Quota</label>
-                  <span class="text-xs font-mono font-bold text-rose-600 dark:text-rose-400" x-text="folderSettings.max_serp_pins + ' pins'"></span>
+                  <label for="room5-max-serp-pins" class="text-xs font-semibold text-slate-900 dark:text-white">Max SERP Pins Harvest Quota</label>
+                  <span class="text-xs font-mono tabular-nums font-bold text-rose-600 dark:text-rose-400" x-text="folderSettings.max_serp_pins + ' pins'"></span>
                 </div>
-                <input type="range" min="10" max="500" step="5" x-model="folderSettings.max_serp_pins" @input="folderSettings.max_pins = folderSettings.max_serp_pins" class="w-full accent-rose-600">
-                <div class="flex justify-between text-[10px] text-slate-400 font-mono">
+                <input id="room5-max-serp-pins" type="range" min="10" max="500" step="5" x-model.number="folderSettings.max_serp_pins" @input="folderSettings.max_pins = folderSettings.max_serp_pins" class="w-full accent-rose-600">
+                <div class="flex justify-between text-[10px] text-slate-500 dark:text-slate-400 font-mono tabular-nums">
                   <span>10 (Min)</span>
                   <span>100 (Standard)</span>
                   <span>500 (Deep)</span>
@@ -1059,16 +1063,16 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
               <div class="p-4 rounded-xl border border-indigo-500/20 bg-indigo-50/30 dark:bg-indigo-950/10 space-y-3">
                 <div class="flex items-center justify-between flex-wrap gap-2">
                   <div class="flex items-center gap-2">
-                    <label class="text-xs font-semibold text-slate-900 dark:text-white">Daily Tracked SERP Top-N</label>
+                    <label for="room5-serp-top-n" class="text-xs font-semibold text-slate-900 dark:text-white">Daily Tracked SERP Top-N</label>
                     <span class="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold"
                           :class="isSerpTopNInherited() ? 'bg-slate-200/80 dark:bg-[#27272A] text-slate-600 dark:text-slate-300' : 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'"
                           x-text="isSerpTopNInherited() ? 'Inherited from Workspace' : 'Custom Override'"></span>
-                    <button type="button" x-show="!isSerpTopNInherited()" @click="resetSerpTopNToWorkspace()" class="text-[10px] font-semibold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer">Reset</button>
+                    <button type="button" x-show="!isSerpTopNInherited()" @click="resetSerpTopNToWorkspace()" class="text-[10px] font-semibold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 rounded">Reset</button>
                   </div>
-                  <span class="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400" x-text="'Top ' + (folderSettings.serp_top_n || workspaceSettingsDefaults.default_serp_top_n || 20) + ' pins / keyword'"></span>
+                  <span class="text-xs font-mono tabular-nums font-bold text-indigo-600 dark:text-indigo-400" x-text="'Top ' + (folderSettings.serp_top_n || workspaceSettingsDefaults.default_serp_top_n || 20) + ' pins / keyword'"></span>
                 </div>
-                <input type="range" min="5" max="100" step="5" x-model.number="folderSettings.serp_top_n" class="w-full accent-indigo-600">
-                <div class="flex justify-between text-[10px] text-slate-400 font-mono">
+                <input id="room5-serp-top-n" type="range" min="5" max="100" step="5" x-model.number="folderSettings.serp_top_n" @input="serpTopNInherited = false" class="w-full accent-indigo-600">
+                <div class="flex justify-between text-[10px] text-slate-500 dark:text-slate-400 font-mono tabular-nums">
                   <span>Top 5</span>
                   <span x-text="'Top ' + (workspaceSettingsDefaults.default_serp_top_n || 20) + ' (Workspace Default)'">Top 20 (Workspace Default)</span>
                   <span>Top 100</span>
@@ -1077,15 +1081,18 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
 
               <!-- Smart Bulk Pin Pruning Box -->
               <div class="p-4 rounded-xl border border-rose-500/20 bg-rose-50/30 dark:bg-rose-950/10 space-y-3">
-                <div class="flex items-center gap-2">
-                  <i data-lucide="scissors" class="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0"></i>
-                  <div class="text-xs font-bold text-slate-900 dark:text-white">Smart Bulk Pin Pruning</div>
+                <div class="flex items-center justify-between gap-2">
+                  <div class="flex items-center gap-2">
+                    <i data-lucide="scissors" class="w-3.5 h-3.5 text-rose-600 dark:text-rose-400 shrink-0"></i>
+                    <div class="text-xs font-bold text-slate-900 dark:text-white">Smart Bulk Pin Pruning</div>
+                  </div>
+                  <span class="text-[10px] font-mono text-slate-500 dark:text-slate-400">Skips unhydrated pins</span>
                 </div>
-                <p class="text-[11px] text-slate-500 dark:text-slate-400">Prune dead or low-traction pins across selected cluster keywords into the tombstone archive.</p>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400">Preview and remove low-traction pins across campaign keywords while preserving unhydrated and rising pins.</p>
 
                 <div>
-                  <label class="text-[10px] uppercase font-mono text-slate-500">Target Scope</label>
-                  <select x-model="pruneForm.scope" class="w-full mt-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-900 dark:text-white font-mono text-xs cursor-pointer">
+                  <label for="room5-prune-scope" class="text-[10px] uppercase font-mono text-slate-500">Target Scope</label>
+                  <select id="room5-prune-scope" x-model="pruneForm.scope" @change="invalidatePrunePreview()" class="w-full mt-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-900 dark:text-white font-mono text-xs cursor-pointer focus:outline-none focus:ring-2 focus:ring-rose-500">
                     <option value="displaced">Displaced Vault Pins</option>
                     <option value="all">All Cluster Pins (Active + Vault)</option>
                     <option value="active">Active SERP Only</option>
@@ -1094,30 +1101,65 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
 
                 <div class="grid grid-cols-2 gap-2 text-xs">
                   <div>
-                    <label class="text-[10px] uppercase font-mono text-slate-500">Min Age (Days)</label>
-                    <input type="number" x-model.number="pruneForm.min_pin_age_days" min="0" placeholder="30" class="w-full mt-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-900 dark:text-white font-mono text-xs">
+                    <label for="room5-prune-min-age" class="text-[10px] uppercase font-mono text-slate-500">Min Pin Age (Days)</label>
+                    <input id="room5-prune-min-age" type="number" x-model="pruneForm.min_pin_age_days" @input="invalidatePrunePreview()" min="0" placeholder="30" class="w-full mt-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-900 dark:text-white font-mono tabular-nums text-xs focus:outline-none focus:ring-2 focus:ring-rose-500">
                   </div>
                   <div>
-                    <label class="text-[10px] uppercase font-mono text-slate-500">Max Saves Threshold</label>
-                    <input type="number" x-model.number="pruneForm.max_saves" min="0" placeholder="5" class="w-full mt-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-900 dark:text-white font-mono text-xs">
+                    <label for="room5-prune-max-saves" class="text-[10px] uppercase font-mono text-slate-500">Max Saves</label>
+                    <input id="room5-prune-max-saves" type="number" x-model="pruneForm.max_saves" @input="invalidatePrunePreview()" min="0" placeholder="5" class="w-full mt-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-900 dark:text-white font-mono tabular-nums text-xs focus:outline-none focus:ring-2 focus:ring-rose-500">
+                  </div>
+                  <div>
+                    <label for="room5-prune-min-folder-age" class="text-[10px] uppercase font-mono text-slate-500">Min Days in Folder</label>
+                    <input id="room5-prune-min-folder-age" type="number" x-model="pruneForm.min_folder_age_days" @input="invalidatePrunePreview()" min="0" placeholder="Any" class="w-full mt-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-900 dark:text-white font-mono tabular-nums text-xs focus:outline-none focus:ring-2 focus:ring-rose-500">
+                  </div>
+                  <div>
+                    <label for="room5-prune-max-repins" class="text-[10px] uppercase font-mono text-slate-500">Max Repins</label>
+                    <input id="room5-prune-max-repins" type="number" x-model="pruneForm.max_repins" @input="invalidatePrunePreview()" min="0" placeholder="Any" class="w-full mt-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-900 dark:text-white font-mono tabular-nums text-xs focus:outline-none focus:ring-2 focus:ring-rose-500">
                   </div>
                 </div>
 
+                <label for="room5-prune-skip-rising" class="flex items-center justify-between text-xs text-slate-700 dark:text-slate-300 cursor-pointer pt-0.5">
+                  <span>Skip pins with 24h velocity &gt; 0</span>
+                  <input id="room5-prune-skip-rising" type="checkbox" x-model="pruneForm.skip_rising_velocity" @change="invalidatePrunePreview()" class="rounded border-slate-300 text-rose-600 focus:ring-rose-500">
+                </label>
+
+                <template x-if="(activeFolder?.items || []).length > 0">
+                  <div class="space-y-1.5 pt-1">
+                    <div class="flex items-center justify-between text-[10px] font-mono uppercase text-slate-500">
+                      <span x-text="pruneForm.keyword_ids.length ? ('Keywords (' + pruneForm.keyword_ids.length + ' selected)') : ('Keywords (All ' + activeFolder.items.length + ')')"></span>
+                      <button type="button" x-show="pruneForm.keyword_ids.length > 0" @click="pruneForm.keyword_ids = []; invalidatePrunePreview()" class="text-rose-600 dark:text-rose-400 hover:underline cursor-pointer">All</button>
+                    </div>
+                    <div class="flex flex-wrap gap-1 max-h-20 overflow-y-auto p-1.5 rounded-lg bg-white/80 dark:bg-[#121215]/80 border border-slate-200 dark:border-[#27272A]">
+                      <template x-for="kw in activeFolder.items" :key="kw.keyword_id || kw.id">
+                        <button type="button" @click="togglePruneKeywordId(kw.keyword_id || kw.id)" :aria-pressed="pruneForm.keyword_ids.includes(Number(kw.keyword_id || kw.id)) ? 'true' : 'false'" class="px-2 py-0.5 rounded text-[10px] font-mono transition cursor-pointer border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" :class="pruneForm.keyword_ids.includes(Number(kw.keyword_id || kw.id)) ? 'bg-rose-600 text-white border-rose-600 font-semibold' : 'bg-slate-50 dark:bg-[#18181B] text-slate-600 dark:text-slate-300 border-slate-200 dark:border-[#27272A]'" x-text="kw.keyword"></button>
+                      </template>
+                    </div>
+                  </div>
+                </template>
+
                 <!-- Preview Candidate Feedback -->
-                <div x-show="prunePreviewResult" class="p-2.5 rounded-lg bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-xs font-mono">
+                <div x-show="prunePreviewResult" x-cloak class="p-2.5 rounded-lg bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] text-xs font-mono space-y-2">
                   <div class="flex items-center justify-between text-slate-700 dark:text-slate-300">
                     <span>Candidates found:</span>
-                    <span class="font-bold text-amber-500" x-text="prunePreviewResult?.candidates_count ?? prunePreviewResult?.matched_count ?? 0"></span>
+                    <span class="font-bold tabular-nums text-amber-700 dark:text-amber-400" x-text="prunePreviewResult?.candidates_count ?? prunePreviewResult?.matched_count ?? 0"></span>
                   </div>
+                  <template x-if="(prunePreviewResult?.sample_pins || []).length > 0">
+                    <div class="border-t border-slate-100 dark:border-[#27272A] pt-2 max-h-36 overflow-y-auto space-y-1 text-[11px]">
+                      <template x-for="sp in (prunePreviewResult?.sample_pins || []).slice(0, 15)" :key="sp.keyword_id + ':' + sp.pin_id">
+                        <div class="flex items-center justify-between gap-2 py-0.5">
+                          <a :href="'/pin/' + sp.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '')" class="truncate text-indigo-600 dark:text-indigo-400 hover:underline font-sans" x-text="sp.title || ('Pin #' + sp.pin_id)"></a>
+                          <span class="shrink-0 tabular-nums text-[10px] text-slate-500" x-text="(sp.save_count ?? '—') + 's · ' + (sp.repin_count ?? '—') + 'r'"></span>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
                 </div>
 
                 <div class="flex items-center gap-2 pt-1">
-                  <button type="button" @click="runPrunePreview()" :disabled="pruningLoading" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold bg-slate-200 hover:bg-slate-300 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-800 dark:text-slate-200 transition cursor-pointer">
+                  <button type="button" @click="runPrunePreview()" :disabled="pruningLoading" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold bg-slate-200 hover:bg-slate-300 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-800 dark:text-slate-200 transition cursor-pointer disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
                     <span x-text="pruningLoading ? 'Inspecting...' : 'Preview Candidates (Dry-Run)'"></span>
                   </button>
-                  <button type="button" @click="executePrune()" :disabled="pruningLoading || !(prunePreviewResult?.candidates_count || prunePreviewResult?.matched_count)" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-white transition cursor-pointer">
-                    Execute Atomic Prune
-                  </button>
+                  <button type="button" @click="executePrune()" :disabled="pruningLoading || !(prunePreviewResult?.candidates_count || prunePreviewResult?.matched_count)" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:cursor-not-allowed text-white transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500" x-text="pruningLoading ? 'Pruning...' : ('Prune ' + (prunePreviewResult?.candidates_count ?? prunePreviewResult?.matched_count ?? 0) + ' Pins')"></button>
                 </div>
               </div>
             </div>

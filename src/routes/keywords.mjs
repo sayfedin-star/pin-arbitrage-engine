@@ -36,7 +36,8 @@ import {
 import { batchAddKeywordsToFolder } from '../modules/keywords/folders-crud.mjs';
 import {
   cacheFolderTrends,
-  invalidateFolderCache
+  invalidateFolderCache,
+  normalizeFolderMetadata
 } from '../modules/keywords/folders-crossover.mjs';
 import {
   DEFAULT_WORKSPACE_ID,
@@ -1001,8 +1002,9 @@ export async function handleKeywordsRoutes({
           message: 'Valid positive integer folder_id is required'
         }, 400);
       }
+      let folderRow = null;
       try {
-        await assertFolderInWorkspace(sql, parsedFolder, workspaceId);
+        folderRow = await assertFolderInWorkspace(sql, parsedFolder, workspaceId);
       } catch (err) {
         if (err?.status === 404 || err?.statusCode === 404) {
           return jsonResponse({
@@ -1012,6 +1014,21 @@ export async function handleKeywordsRoutes({
           }, 404);
         }
         throw err;
+      }
+      const folderMeta = normalizeFolderMetadata(folderRow?.metadata);
+      const isCrawlingPaused = Boolean(
+        folderMeta.block_fleet ||
+        folderMeta.block_gha_fleet ||
+        folderMeta.pause_crawlers ||
+        folderMeta.is_crawler_paused ||
+        ['paused', 'archived'].includes(String(folderMeta.status || '').toLowerCase())
+      );
+      if (isCrawlingPaused) {
+        return jsonResponse({
+          success: false,
+          error: 'FOLDER_CRAWLING_PAUSED',
+          message: 'Crawling is paused or fleet ingestion is blocked for this campaign. Update Settings & Pruning to resume.'
+        }, 409);
       }
     }
     const maxPinsInput = (body.max_pins !== undefined && body.max_pins !== null) ? String(body.max_pins).trim() : '';

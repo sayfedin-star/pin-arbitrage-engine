@@ -14,6 +14,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { normalizePinterestUsername } from '../src/modules/creators/competitors-crud.mjs';
+import { normalizeFolderMetadata } from '../src/modules/keywords/folders-crossover.mjs';
 import { PINTEREST_CEILING_VALUE } from '../src/core/pinterest/index.mjs';
 import {
   runFleetLifecycle,
@@ -239,14 +240,12 @@ export async function runCreatorFleetDispatch({ sql, env = process.env }) {
       SELECT id, name, metadata FROM keyword_folders WHERE id = ${fid} LIMIT 1;
     `;
     if (folderRow) {
-      const folderMeta = typeof folderRow.metadata === 'object' && folderRow.metadata !== null
-        ? folderRow.metadata
-        : {};
+      const folderMeta = normalizeFolderMetadata(folderRow.metadata);
       const isCompetitorPaused = Boolean(
         folderMeta.pause_competitors ||
         folderMeta.block_fleet ||
         folderMeta.block_gha_fleet ||
-        folderMeta.status === 'paused'
+        ['paused', 'archived'].includes(String(folderMeta.status || '').toLowerCase())
       );
       if (isCompetitorPaused) {
         console.log(`\n  [!] GUARD: Folder "${folderRow.name}" competitor tracking is paused (pause_competitors=${Boolean(folderMeta.pause_competitors)}, block_fleet=${Boolean(folderMeta.block_fleet)}).`);
@@ -285,6 +284,52 @@ export async function runCreatorFleetDispatch({ sql, env = process.env }) {
         FROM competitor_profiles cp
         WHERE cp.is_active = TRUE
           AND COALESCE(cp.account_type, 'competitor') <> 'system'
+          AND (
+            EXISTS (
+              SELECT 1 FROM workspace_watchlist ww
+              WHERE ww.entity_type = 'creator'
+                AND LOWER(LTRIM(BTRIM(ww.entity_key), '@')) = LOWER(LTRIM(BTRIM(cp.username), '@'))
+            )
+            OR NOT EXISTS (SELECT 1 FROM folder_competitor_items fci WHERE fci.competitor_id = cp.id)
+            OR EXISTS (
+              SELECT 1
+              FROM folder_competitor_items fci
+              JOIN keyword_folders kf ON kf.id = fci.folder_id
+              WHERE fci.competitor_id = cp.id
+                AND LOWER(COALESCE(
+                  CASE
+                    WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'status'
+                    WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'status'
+                    ELSE NULL
+                  END,
+                  'active'
+                )) NOT IN ('paused', 'archived')
+                AND LOWER(COALESCE(
+                  CASE
+                    WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'pause_competitors'
+                    WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'pause_competitors'
+                    ELSE NULL
+                  END,
+                  'false'
+                )) <> 'true'
+                AND LOWER(COALESCE(
+                  CASE
+                    WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_fleet'
+                    WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_fleet'
+                    ELSE NULL
+                  END,
+                  'false'
+                )) <> 'true'
+                AND LOWER(COALESCE(
+                  CASE
+                    WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_gha_fleet'
+                    WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_gha_fleet'
+                    ELSE NULL
+                  END,
+                  'false'
+                )) <> 'true'
+            )
+          )
         ORDER BY
           (CASE
             WHEN cp.tracking_mode = 'full' OR EXISTS (
@@ -300,10 +345,51 @@ export async function runCreatorFleetDispatch({ sql, env = process.env }) {
       if (String(err?.code || '') !== '42P01') throw err;
       activeProfiles = await sql`
         SELECT id, username, tracking_mode, last_synced_at
-        FROM competitor_profiles
-        WHERE is_active = TRUE
-          AND COALESCE(account_type, 'competitor') <> 'system'
-        ORDER BY (CASE WHEN tracking_mode = 'full' THEN 0 ELSE 1 END) ASC, last_synced_at ASC NULLS FIRST, id ASC;
+        FROM competitor_profiles cp
+        WHERE cp.is_active = TRUE
+          AND COALESCE(cp.account_type, 'competitor') <> 'system'
+          AND (
+            NOT EXISTS (SELECT 1 FROM folder_competitor_items fci WHERE fci.competitor_id = cp.id)
+            OR EXISTS (
+              SELECT 1
+              FROM folder_competitor_items fci
+              JOIN keyword_folders kf ON kf.id = fci.folder_id
+              WHERE fci.competitor_id = cp.id
+                AND LOWER(COALESCE(
+                  CASE
+                    WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'status'
+                    WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'status'
+                    ELSE NULL
+                  END,
+                  'active'
+                )) NOT IN ('paused', 'archived')
+                AND LOWER(COALESCE(
+                  CASE
+                    WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'pause_competitors'
+                    WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'pause_competitors'
+                    ELSE NULL
+                  END,
+                  'false'
+                )) <> 'true'
+                AND LOWER(COALESCE(
+                  CASE
+                    WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_fleet'
+                    WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_fleet'
+                    ELSE NULL
+                  END,
+                  'false'
+                )) <> 'true'
+                AND LOWER(COALESCE(
+                  CASE
+                    WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_gha_fleet'
+                    WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_gha_fleet'
+                    ELSE NULL
+                  END,
+                  'false'
+                )) <> 'true'
+            )
+          )
+        ORDER BY (CASE WHEN cp.tracking_mode = 'full' THEN 0 ELSE 1 END) ASC, cp.last_synced_at ASC NULLS FIRST, cp.id ASC;
       `;
     }
 

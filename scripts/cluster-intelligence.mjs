@@ -1066,11 +1066,7 @@ async function crawlSeed(seed) {
   const seedClusterType = isBakery ? 'BAKERY_DESSERT' : 'GENERAL';
 
   let bookmark = null;
-  const rawMaxPages = parseInt(process.env.MAX_PAGES, 10);
-  const seedRuleMaxPages = Number(seed?.pin_graph_rules?.max_pages);
-  const maxPages = Number.isFinite(seedRuleMaxPages) && seedRuleMaxPages > 0
-    ? Math.min(Math.round(seedRuleMaxPages), 100)
-    : ((!isNaN(rawMaxPages) && rawMaxPages > 0) ? Math.min(rawMaxPages, 100) : 60);
+  const maxPages = resolveSeedCrawlMaxPages(seed, process.env.MAX_PAGES);
 
   const seedWorkspaceId = Number(seed?.workspace_id) > 0 ? Number(seed.workspace_id) : 1;
   const resolvedCookieInfo = await resolveNewbornRawCookie(sql, process.env, { workspaceId: seedWorkspaceId }).catch(() => ({ rawCookie: '' }));
@@ -1469,6 +1465,14 @@ async function crawlSeed(seed) {
   return { totalCandidates, candidates: allCandidates };
 }
 
+export function resolveSeedCrawlMaxPages(seed, rawEnvMaxPages = process.env.MAX_PAGES) {
+  const rawMaxPages = parseInt(rawEnvMaxPages, 10);
+  const seedRuleMaxPages = Number(seed?.pin_graph_rules?.max_pages);
+  return Number.isFinite(seedRuleMaxPages) && seedRuleMaxPages > 0
+    ? Math.min(Math.max(1, Math.round(seedRuleMaxPages)), 200)
+    : ((!isNaN(rawMaxPages) && rawMaxPages > 0) ? Math.min(Math.max(1, rawMaxPages), 200) : 60);
+}
+
 /**
  * V4 Wave 4: Merges workspace default `pin_graph_rules` with optional per-campaign
  * overrides (`keyword_folders.pin_graph_rules`), preserving `auto_trigger_enabled = false`
@@ -1490,7 +1494,7 @@ export function mergeCampaignPinGraphRules(workspaceRules = {}, folderRules = {}
       ? fl.linkless_only
       : (typeof ws.linkless_only === 'boolean' ? ws.linkless_only : false),
     min_repins: clamp(fl.min_repins ?? ws.min_repins, 500, 0, 1000000),
-    max_pages: clamp(fl.max_pages ?? ws.max_pages, 20, 1, 100)
+    max_pages: clamp(fl.max_pages ?? ws.max_pages, 20, 1, 200)
   };
 }
 
@@ -1538,9 +1542,46 @@ export async function fetchQueuedCampaignPinGraphSeeds(dbSql, { shardIdx = null,
       JOIN keyword_folders kf ON kf.id = cpgs.folder_id
       LEFT JOIN workspace_settings ws ON ws.workspace_id = COALESCE(cpgs.workspace_id, kf.workspace_id, 1)
       WHERE cpgs.status = 'queued'
-        AND LOWER(COALESCE(kf.metadata->>'status', 'active')) NOT IN ('paused', 'archived')
-        AND LOWER(COALESCE(kf.metadata->>'pause_crawlers', 'false')) <> 'true'
-        AND LOWER(COALESCE(kf.metadata->>'is_crawler_paused', 'false')) <> 'true'
+        AND LOWER(COALESCE(
+          CASE
+            WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'status'
+            WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'status'
+            ELSE NULL
+          END,
+          'active'
+        )) NOT IN ('paused', 'archived')
+        AND LOWER(COALESCE(
+          CASE
+            WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'pause_crawlers'
+            WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'pause_crawlers'
+            ELSE NULL
+          END,
+          'false'
+        )) <> 'true'
+        AND LOWER(COALESCE(
+          CASE
+            WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'is_crawler_paused'
+            WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'is_crawler_paused'
+            ELSE NULL
+          END,
+          'false'
+        )) <> 'true'
+        AND LOWER(COALESCE(
+          CASE
+            WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_fleet'
+            WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_fleet'
+            ELSE NULL
+          END,
+          'false'
+        )) <> 'true'
+        AND LOWER(COALESCE(
+          CASE
+            WHEN jsonb_typeof(kf.metadata) = 'object' THEN kf.metadata->>'block_gha_fleet'
+            WHEN jsonb_typeof(kf.metadata) = 'string' AND LEFT(BTRIM(kf.metadata #>> '{}'), 1) = '{' THEN ((kf.metadata #>> '{}')::jsonb)->>'block_gha_fleet'
+            ELSE NULL
+          END,
+          'false'
+        )) <> 'true'
         AND (${cleanPinIds}::text[] IS NULL OR cpgs.seed_pin_id = ANY(${cleanPinIds}::text[]))
         AND (${shardIdx}::int IS NULL OR (ABS(hashtext(cpgs.seed_pin_id::text)::bigint) % ${effectiveShardTot}::int) = ${shardIdx}::int)
       ORDER BY cpgs.created_at ASC, cpgs.seed_pin_id ASC

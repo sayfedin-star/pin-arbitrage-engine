@@ -791,7 +791,8 @@ export function getDashboardCreatorsFleetMethods() {
               body: JSON.stringify({
                 usernames,
                 crawl_mode: 'refresh',
-                max_pages: 10
+                max_pages: 10,
+                ...(this.scopedFolderId ? { folder_id: this.scopedFolderId } : {})
               })
             });
             const data = await res.json().catch(() => ({}));
@@ -832,7 +833,8 @@ export function getDashboardCreatorsFleetMethods() {
               body: JSON.stringify({
                 username: handle,
                 crawl_mode: 'refresh',
-                max_pages: 10
+                max_pages: 10,
+                ...(this.scopedFolderId ? { folder_id: this.scopedFolderId } : {})
               })
             });
             const data = await res.json().catch(() => ({}));
