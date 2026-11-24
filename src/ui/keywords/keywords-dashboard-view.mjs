@@ -71,10 +71,48 @@ export function getKeywordsDashboardViewHtml() {
             </button>
 
             <!-- Trigger Fleet Crawl -->
-            <button @click="openFleetDispatchModal()" :disabled="isWorkflowDispatching"
+            <button @click="openFleetDispatchModal('')" :disabled="isWorkflowDispatching"
                     class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white transition inline-flex items-center space-x-1.5 shadow-xs disabled:opacity-50 cursor-pointer">
               <i data-lucide="play" class="w-3.5 h-3.5 text-emerald-400" :class="isWorkflowDispatching ? 'animate-spin' : ''"></i>
               <span>Trigger Fleet</span>
+            </button>
+          </div>
+        </section>
+      </template>
+
+      <!-- Room 2 Scoped Workspace Action Bar (visible only inside /folders/:id/keywords) -->
+      <template x-if="activeFolderId">
+        <section class="p-3.5 sm:px-5 sm:py-3.5 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A]/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="flex items-center gap-3 min-w-0">
+            <div class="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center shrink-0">
+              <i data-lucide="layers" class="w-4 h-4"></i>
+            </div>
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <h2 class="text-sm sm:text-base font-bold tracking-tight text-slate-900 dark:text-white">Room 2: Keywords Fleet</h2>
+                <span class="px-2 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                      x-text="keywords.length + ' Queries in Folder'"></span>
+              </div>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400 truncate">Scoped SERP monitoring, crawl depth controls, and folder-safe keyword management</p>
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 shrink-0">
+            <button @click="openQuickTrackModal()"
+                    class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition inline-flex items-center space-x-1.5 shadow-xs active:scale-95 cursor-pointer">
+              <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i>
+              <span>+ Add Keyword to Folder</span>
+            </button>
+            <button @click="openFleetDispatchModal('')" :disabled="isWorkflowDispatching"
+                    class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white transition inline-flex items-center space-x-1.5 shadow-xs disabled:opacity-50 cursor-pointer"
+                    title="Launch 20-Runner Swarm for all keywords in this folder">
+              <i data-lucide="play" class="w-3.5 h-3.5 text-emerald-400" :class="isWorkflowDispatching ? 'animate-spin' : ''"></i>
+              <span>Crawl Folder Fleet</span>
+            </button>
+            <button @click="openSettingsModal()"
+                    class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] transition inline-flex items-center space-x-1.5 shadow-2xs cursor-pointer"
+                    title="Configure Default Crawl Depth & Inspection Mode">
+              <i data-lucide="sliders" class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400"></i>
+              <span>Settings</span>
             </button>
           </div>
         </section>
@@ -100,7 +138,7 @@ export function getKeywordsDashboardViewHtml() {
           <template x-if="!isKeywordsLoading">
             <div>
               <div class="flex items-baseline gap-2">
-                <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tabular-nums tracking-tight" x-text="activeFolderId ? filteredDashboardKeywords.length : keywords.length"></span>
+                <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tabular-nums tracking-tight" x-text="keywords.length"></span>
                 <span class="text-xs text-slate-400 font-mono tabular-nums">monitored</span>
               </div>
               <div class="flex items-center gap-2 mt-1.5 text-[11px] font-mono tabular-nums">
@@ -112,10 +150,10 @@ export function getKeywordsDashboardViewHtml() {
           </template>
         </div>
 
-        <!-- Metric 2: Monitored Organic Pins -->
+        <!-- Metric 2: Monitored Organic Pins / Active SERP Slots -->
         <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2">
           <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span class="font-medium text-[11px] uppercase tracking-wider font-mono tabular-nums" x-text="activeFolderId ? 'Active Crawled Pins' : 'Monitored Organic Pins'" :data-count="activeFolderId ? totalActivePinsCount : totalMonitoredPins"></span>
+            <span class="font-medium text-[11px] uppercase tracking-wider font-mono tabular-nums" x-text="activeFolderId ? 'Active SERP Slots' : 'Monitored Organic Pins'" :data-count="activeFolderId ? totalActivePinsCount : totalMonitoredPins"></span>
             <span class="p-1 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400">
               <i data-lucide="database" class="w-3.5 h-3.5"></i>
             </span>
@@ -130,20 +168,20 @@ export function getKeywordsDashboardViewHtml() {
             <div>
               <div class="flex items-baseline gap-2">
                 <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tabular-nums tracking-tight" x-text="formatNumber(activeFolderId ? totalActivePinsCount : totalMonitoredPins)"></span>
-                <span class="text-xs text-slate-400 font-mono tabular-nums">pins</span>
+                <span class="text-xs text-slate-400 font-mono tabular-nums" x-text="activeFolderId ? 'slots' : 'pins'"></span>
               </div>
               <div class="mt-1.5 text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
-                <span>Quota: </span>
-                <span class="text-blue-600 dark:text-blue-400 font-medium" x-text="'~' + (appSettings.max_serp_pins || appSettings.default_max_pins || 50) + ' pins / query'"></span>
+                <span x-show="!activeFolderId">Quota: <span class="text-blue-600 dark:text-blue-400 font-medium" x-text="'~' + (appSettings.max_serp_pins || appSettings.default_max_pins || 50) + ' pins / query'"></span></span>
+                <span x-show="activeFolderId" class="text-blue-600 dark:text-blue-400 font-medium" x-text="'Ranked slots across ' + keywords.length + ' queries'"></span>
               </div>
             </div>
           </template>
         </div>
 
-        <!-- Metric 3: Campaign Folders (Global) / Displaced Pins (Folder Scoped) -->
+        <!-- Metric 3: Campaign Folders (Global) / Displaced Vault Slots (Folder Scoped) -->
         <div class="p-4 sm:p-5 flex flex-col justify-between space-y-2">
           <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-            <span class="font-medium text-[11px] uppercase tracking-wider font-mono tabular-nums" x-text="activeFolderId ? 'Displaced Pins' : 'Campaign Folders'"></span>
+            <span class="font-medium text-[11px] uppercase tracking-wider font-mono tabular-nums" x-text="activeFolderId ? 'Displaced Vault Slots' : 'Campaign Folders'"></span>
             <span class="p-1 rounded-md" :class="activeFolderId ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'">
               <span x-show="activeFolderId" class="inline-flex items-center justify-center"><i data-lucide="archive" class="w-3.5 h-3.5"></i></span>
               <span x-show="!activeFolderId" class="inline-flex items-center justify-center"><i data-lucide="folder" class="w-3.5 h-3.5"></i></span>
@@ -159,7 +197,7 @@ export function getKeywordsDashboardViewHtml() {
             <div>
               <div class="flex items-baseline gap-2">
                 <span class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white font-mono tabular-nums tracking-tight" x-text="formatNumber(activeFolderId ? totalDisplacedPinsCount : folders.length)"></span>
-                <span class="text-xs text-slate-400 font-mono tabular-nums" x-text="activeFolderId ? 'in vault' : 'organized'"></span>
+                <span class="text-xs text-slate-400 font-mono tabular-nums" x-text="activeFolderId ? 'slots' : 'organized'"></span>
               </div>
               <div class="mt-1.5 text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
                 <template x-if="!activeFolderId">
@@ -169,7 +207,7 @@ export function getKeywordsDashboardViewHtml() {
                   </a>
                 </template>
                 <template x-if="activeFolderId">
-                  <span class="text-indigo-600 dark:text-indigo-400 font-medium">Displaced organic pins</span>
+                  <span class="text-indigo-600 dark:text-indigo-400 font-medium">Historical displaced slots</span>
                 </template>
               </div>
             </div>
@@ -270,7 +308,7 @@ export function getKeywordsDashboardViewHtml() {
           <!-- Right: Counter, Columns Visibility & Table/Grid View Switcher -->
           <div class="flex items-center space-x-2 shrink-0">
             <span class="text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400 font-medium hidden md:inline"
-                  x-text="filteredDashboardKeywords.length + ' of ' + (activeFolderId ? filteredDashboardKeywords.length : keywords.length) + ' Queries'"></span>
+                  x-text="filteredDashboardKeywords.length + ' of ' + keywords.length + ' Queries'"></span>
 
             <!-- Column Visibility Dropdown -->
             <div x-show="dashboardViewMode === 'table'" class="relative" x-data="{ isColumnsOpen: false }" @click.outside="isColumnsOpen = false" @keydown.escape.window="isColumnsOpen = false">
@@ -470,10 +508,10 @@ export function getKeywordsDashboardViewHtml() {
 
                     <!-- SERP Topology & Total Pins (Two-Tone Topology Bar) -->
                     <td x-show="visibleColumns.total_pins" class="py-3 px-3 font-mono tabular-nums">
-                      <div class="space-y-1.5 min-w-[120px]" :title="(kw.active_pins_count ?? getKeywordTotalPins(kw)) + ' Active SERP + ' + (kw.displaced_pins_count || 0) + ' Displaced Vault'">
+                      <div class="space-y-1.5 min-w-[120px]" :title="(kw.active_pins_count ?? 0) + ' Active SERP + ' + (kw.displaced_pins_count || 0) + ' Displaced Vault'">
                         <div class="flex items-center justify-between text-xs">
                           <div class="flex items-center gap-1 text-[11px]">
-                            <span class="font-bold text-emerald-600 dark:text-emerald-400 tabular-nums" x-text="(kw.active_pins_count || getKeywordTotalPins(kw)) + ' Act'"></span>
+                            <span class="font-bold text-emerald-600 dark:text-emerald-400 tabular-nums" x-text="(kw.active_pins_count ?? 0) + ' Act'"></span>
                             <span class="text-slate-300 dark:text-slate-700">·</span>
                             <span class="font-medium text-indigo-600 dark:text-indigo-400 tabular-nums" x-text="(kw.displaced_pins_count || 0) + ' Vault'"></span>
                           </div>
@@ -485,8 +523,8 @@ export function getKeywordsDashboardViewHtml() {
                                 :style="'width: ' + getActiveSerpPercentage(kw) + '%'"
                                 :title="'Active SERP: ' + getActiveSerpPercentage(kw) + '%'"></div>
                           <div class="bg-indigo-500 h-full transition-all duration-300"
-                                :style="'width: ' + (100 - getActiveSerpPercentage(kw)) + '%'"
-                                :title="'Displaced Vault: ' + (100 - getActiveSerpPercentage(kw)) + '%'"></div>
+                                :style="'width: ' + (getKeywordTotalPins(kw) > 0 ? (100 - getActiveSerpPercentage(kw)) : 0) + '%'"
+                                :title="'Displaced Vault: ' + (getKeywordTotalPins(kw) > 0 ? (100 - getActiveSerpPercentage(kw)) : 0) + '%'"></div>
                         </div>
                       </div>
                     </td>
@@ -532,10 +570,11 @@ export function getKeywordsDashboardViewHtml() {
                                 :title="'Re-Crawl ' + (kw.target_pin_count || 50) + ' pins'">
                           <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="syncingKeywordId === kw.id ? 'animate-spin text-emerald-500' : ''"></i>
                         </button>
-                        <button @click="deleteKeyword(kw.id)"
+                        <button @click="activeFolderId ? removeKeywordFromActiveFolder(kw) : deleteKeyword(kw.id)"
                                 class="p-1 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
-                                title="Delete Keyword">
-                          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                                :title="activeFolderId ? 'Remove from folder (keeps global history)' : 'Delete Keyword Globally'">
+                          <span x-show="activeFolderId" class="inline-flex items-center justify-center"><i data-lucide="folder-minus" class="w-3.5 h-3.5"></i></span>
+                          <span x-show="!activeFolderId" class="inline-flex items-center justify-center"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></span>
                         </button>
                       </div>
                     </td>
@@ -711,11 +750,11 @@ export function getKeywordsDashboardViewHtml() {
                             x-text="kw.is_active !== false ? '● Active' : '● Paused'"></span>
 
                       <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-medium bg-slate-950/80 text-slate-200 backdrop-blur-md border border-slate-700/60 inline-flex items-center space-x-1"
-                            :title="(kw.active_pins_count ?? getKeywordTotalPins(kw)) + ' Active + ' + (kw.displaced_pins_count || 0) + ' Vault'">
+                            :title="(kw.active_pins_count ?? 0) + ' Active + ' + (kw.displaced_pins_count || 0) + ' Vault'">
                         <i data-lucide="pin" class="w-3 h-3 text-emerald-400"></i>
                         <span x-text="getKeywordTotalPins(kw) + ' Pins'"></span>
                         <template x-if="Number(kw.displaced_pins_count || 0) > 0">
-                          <span class="text-[9px] text-indigo-300 font-semibold ml-0.5" x-text="'(' + (kw.active_pins_count || 0) + ' Active + ' + kw.displaced_pins_count + ' Vault)'"></span>
+                          <span class="text-[9px] text-indigo-300 font-semibold ml-0.5" x-text="'(' + (kw.active_pins_count ?? 0) + ' Active + ' + kw.displaced_pins_count + ' Vault)'"></span>
                         </template>
                       </span>
                     </div>
@@ -749,7 +788,7 @@ export function getKeywordsDashboardViewHtml() {
                       <div class="flex items-center justify-between text-[11px]">
                         <span class="text-slate-400 font-sans">SERP Topology:</span>
                         <div>
-                          <span class="text-emerald-600 dark:text-emerald-400 font-bold" x-text="(kw.active_pins_count || getKeywordTotalPins(kw)) + ' Act'"></span>
+                          <span class="text-emerald-600 dark:text-emerald-400 font-bold" x-text="(kw.active_pins_count ?? 0) + ' Act'"></span>
                           <span class="text-slate-300 dark:text-slate-700">·</span>
                           <span class="text-indigo-600 dark:text-indigo-400 font-medium" x-text="(kw.displaced_pins_count || 0) + ' Vault'"></span>
                         </div>
@@ -758,7 +797,7 @@ export function getKeywordsDashboardViewHtml() {
                         <div class="bg-emerald-500 h-full transition-all duration-300"
                              :style="'width: ' + getActiveSerpPercentage(kw) + '%'"></div>
                         <div class="bg-indigo-500 h-full transition-all duration-300"
-                             :style="'width: ' + (100 - getActiveSerpPercentage(kw)) + '%'"></div>
+                             :style="'width: ' + (getKeywordTotalPins(kw) > 0 ? (100 - getActiveSerpPercentage(kw)) : 0) + '%'"></div>
                       </div>
                     </div>
                   </div>
@@ -775,9 +814,11 @@ export function getKeywordsDashboardViewHtml() {
                         <span>Studio</span>
                         <i data-lucide="arrow-right" class="w-3 h-3"></i>
                       </button>
-                      <button @click.stop="deleteKeyword(kw.id)"
-                              class="p-1 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-slate-800 transition">
-                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                      <button @click.stop="activeFolderId ? removeKeywordFromActiveFolder(kw) : deleteKeyword(kw.id)"
+                              class="p-1 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-slate-800 transition cursor-pointer"
+                              :title="activeFolderId ? 'Remove from folder (keeps global history)' : 'Delete Keyword Globally'">
+                        <span x-show="activeFolderId" class="inline-flex items-center justify-center"><i data-lucide="folder-minus" class="w-3.5 h-3.5"></i></span>
+                        <span x-show="!activeFolderId" class="inline-flex items-center justify-center"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></span>
                       </button>
                     </div>
                   </div>
@@ -875,7 +916,7 @@ export function getKeywordsDashboardViewHtml() {
                 <div class="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
                   <i data-lucide="plus-circle" class="w-4 h-4"></i>
                 </div>
-                <h3 class="text-sm font-black text-slate-900 dark:text-white">Track New Keyword</h3>
+                <h3 class="text-sm font-black text-slate-900 dark:text-white" x-text="activeFolderId ? ('Add Keyword to ' + (activeFolder?.name || ('Folder #' + activeFolderId))) : 'Track New Keyword'">Track New Keyword</h3>
               </div>
               <button @click="isQuickTrackModalOpen = false" class="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400">
                 <i data-lucide="x" class="w-4 h-4"></i>
@@ -901,7 +942,7 @@ export function getKeywordsDashboardViewHtml() {
               </button>
               <button @click="submitQuickKeyword()" class="px-5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center space-x-1.5 shadow-md shadow-emerald-950/20 cursor-pointer">
                 <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
-                <span x-text="'Track & Index ' + (appSettings.max_serp_pins || appSettings.default_max_pins || 50) + ' Pins'">Track & Index Pins</span>
+                <span x-text="activeFolderId ? ('Add & Index ' + (appSettings.max_serp_pins || appSettings.default_max_pins || 50) + ' Pins') : ('Track & Index ' + (appSettings.max_serp_pins || appSettings.default_max_pins || 50) + ' Pins')">Track & Index Pins</span>
               </button>
             </div>
           </div>

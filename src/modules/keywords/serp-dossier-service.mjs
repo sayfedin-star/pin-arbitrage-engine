@@ -24,7 +24,7 @@ import {
   extractPinTitle,
   calculateKeywordIntelligenceSummary
 } from './analytics.mjs';
-import { getKeywordDisplacedPins, computeVacuumOpportunityScore } from './displaced-and-tombstones.mjs';
+import { getKeywordDisplacedPins, computeVacuumOpportunityScore, slimSerpPinMetadata } from './displaced-and-tombstones.mjs';
 export { computeVacuumOpportunityScore };
 
 // Bounded True LRU + Singleflight Cache for Visual Similarity Lens (max 500 entries, 15m TTL)
@@ -38,78 +38,200 @@ const visualSearchCache = new TtlSingleflightCache({
 /**
  * List all tracked keywords with velocity summaries
  */
-export async function listKeywords(sql, { search = '', limit = 1000, offset = 0, folderId = null } = {}) {
+export async function listKeywords(sql, { search = '', limit = 1000, offset = 0, folderId = null, workspaceId = null } = {}) {
   const lim = Math.max(1, Math.min(isNaN(Number(limit)) ? 1000 : Number(limit), 1000));
   const off = Math.max(0, isNaN(Number(offset)) ? 0 : Number(offset));
   const fId = (folderId !== null && folderId !== undefined && !isNaN(Number(folderId))) ? Number(folderId) : null;
-  if (search) {
-    const pattern = `%${escapeSqlWildcards(search.toLowerCase().trim())}%`;
-    return await sql`
-      WITH paged_keywords AS (
+  const parsedWs = (workspaceId !== null && workspaceId !== undefined && workspaceId !== '') ? Number(workspaceId) : null;
+  const wid = (parsedWs !== null && Number.isSafeInteger(parsedWs) && parsedWs > 0) ? parsedWs : null;
+
+  const runListQuery = async (useWorkspaceFilter) => {
+    if (search) {
+      const pattern = `%${escapeSqlWildcards(search.toLowerCase().trim())}%`;
+      if (useWorkspaceFilter && wid !== null) {
+        return await sql`
+          WITH paged_keywords AS (
+            SELECT 
+              id, keyword, category, target_pin_count, refresh_interval_hours,
+              last_crawled_at, top_pin_id, top_pin_title, top_pin_image,
+              avg_daily_velocity, is_active, tags,
+              (COALESCE(metadata, '{}'::jsonb) - 'last_dropped_pins' - 'popular_pins') AS metadata,
+              created_at, updated_at, crawl_pages_limit, inspection_mode, canonical_keyword
+            FROM tracked_keywords
+            WHERE LOWER(keyword) LIKE ${pattern} ESCAPE '\\'
+              AND (${fId}::int IS NULL OR id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
+            ORDER BY created_at DESC
+            LIMIT ${lim} OFFSET ${off}
+          ),
+          pin_counts AS (
+            SELECT ksp.keyword_id, COUNT(*)::int AS cnt
+            FROM keyword_serp_positions ksp
+            WHERE ksp.keyword_id IN (SELECT id FROM paged_keywords)
+              AND ksp.is_displaced = FALSE
+              AND ksp.rank_position IS NOT NULL
+              AND ksp.rank_position >= 1
+              AND NOT EXISTS (
+                SELECT 1 FROM keyword_ignored_pins kip
+                WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
+              )
+            GROUP BY ksp.keyword_id
+          ),
+          displaced_pin_counts AS (
+            SELECT ksp.keyword_id, COUNT(*)::int AS cnt
+            FROM keyword_serp_positions ksp
+            WHERE ksp.keyword_id IN (SELECT id FROM paged_keywords)
+              AND ksp.is_displaced = TRUE
+              AND NOT EXISTS (
+                SELECT 1 FROM keyword_ignored_pins kip
+                WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
+              )
+            GROUP BY ksp.keyword_id
+          ),
+          folder_map AS (
+            SELECT 
+              kfi.keyword_id, 
+              json_agg(json_build_object('id', f.id, 'name', f.name, 'color', f.color)) AS folders
+            FROM keyword_folder_items kfi
+            JOIN keyword_folders f ON f.id = kfi.folder_id AND f.workspace_id = ${wid}
+            WHERE kfi.keyword_id IN (SELECT id FROM paged_keywords)
+            GROUP BY kfi.keyword_id
+          )
+          SELECT 
+            pk.*,
+            COALESCE(pc.cnt, 0)::int AS active_pins_count,
+            COALESCE(dpc.cnt, 0)::int AS displaced_pins_count,
+            COALESCE(pc.cnt, 0)::int AS snapshots_count,
+            (COALESCE(pc.cnt, 0) + COALESCE(dpc.cnt, 0))::int AS total_pins_count,
+            COALESCE(fm.folders, '[]'::json) AS folders
+          FROM paged_keywords pk
+          LEFT JOIN pin_counts pc ON pc.keyword_id = pk.id
+          LEFT JOIN displaced_pin_counts dpc ON dpc.keyword_id = pk.id
+          LEFT JOIN folder_map fm ON fm.keyword_id = pk.id
+          ORDER BY pk.created_at DESC;
+        `;
+      }
+      return await sql`
+        WITH paged_keywords AS (
+          SELECT 
+            id, keyword, category, target_pin_count, refresh_interval_hours,
+            last_crawled_at, top_pin_id, top_pin_title, top_pin_image,
+            avg_daily_velocity, is_active, tags,
+            (COALESCE(metadata, '{}'::jsonb) - 'last_dropped_pins' - 'popular_pins') AS metadata,
+            created_at, updated_at, crawl_pages_limit, inspection_mode, canonical_keyword
+          FROM tracked_keywords
+          WHERE LOWER(keyword) LIKE ${pattern} ESCAPE '\\'
+            AND (${fId}::int IS NULL OR id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
+          ORDER BY created_at DESC
+          LIMIT ${lim} OFFSET ${off}
+        ),
+        pin_counts AS (
+          SELECT ksp.keyword_id, COUNT(*)::int AS cnt
+          FROM keyword_serp_positions ksp
+          WHERE ksp.keyword_id IN (SELECT id FROM paged_keywords)
+            AND ksp.is_displaced = FALSE
+            AND ksp.rank_position IS NOT NULL
+            AND ksp.rank_position >= 1
+            AND NOT EXISTS (
+              SELECT 1 FROM keyword_ignored_pins kip
+              WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
+            )
+          GROUP BY ksp.keyword_id
+        ),
+        displaced_pin_counts AS (
+          SELECT ksp.keyword_id, COUNT(*)::int AS cnt
+          FROM keyword_serp_positions ksp
+          WHERE ksp.keyword_id IN (SELECT id FROM paged_keywords)
+            AND ksp.is_displaced = TRUE
+            AND NOT EXISTS (
+              SELECT 1 FROM keyword_ignored_pins kip
+              WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
+            )
+          GROUP BY ksp.keyword_id
+        ),
+        folder_map AS (
+          SELECT 
+            kfi.keyword_id, 
+            json_agg(json_build_object('id', f.id, 'name', f.name, 'color', f.color)) AS folders
+          FROM keyword_folder_items kfi
+          JOIN keyword_folders f ON f.id = kfi.folder_id
+          WHERE kfi.keyword_id IN (SELECT id FROM paged_keywords)
+          GROUP BY kfi.keyword_id
+        )
         SELECT 
-          id, keyword, category, target_pin_count, refresh_interval_hours,
-          last_crawled_at, top_pin_id, top_pin_title, top_pin_image,
-          avg_daily_velocity, is_active, tags,
-          (COALESCE(metadata, '{}'::jsonb) - 'last_dropped_pins' - 'popular_pins') AS metadata,
-          created_at, updated_at, crawl_pages_limit, inspection_mode, canonical_keyword
-        FROM tracked_keywords
-        WHERE LOWER(keyword) LIKE ${pattern} ESCAPE '\\'
-          AND (${fId}::int IS NULL OR id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
-        ORDER BY created_at DESC
-        LIMIT ${lim} OFFSET ${off}
-      ),
-      pin_counts AS (
-        SELECT keyword_id, COUNT(*)::int AS cnt
-        FROM keyword_serp_positions
-        WHERE keyword_id IN (SELECT id FROM paged_keywords)
-          AND is_displaced = FALSE
-          AND rank_position IS NOT NULL
-        GROUP BY keyword_id
-      ),
-      displaced_pin_counts AS (
-        SELECT keyword_id, COUNT(*)::int AS cnt
-        FROM keyword_serp_positions
-        WHERE keyword_id IN (SELECT id FROM paged_keywords)
-          AND is_displaced = TRUE
-        GROUP BY keyword_id
-      ),
-      folder_map AS (
+          pk.*,
+          COALESCE(pc.cnt, 0)::int AS active_pins_count,
+          COALESCE(dpc.cnt, 0)::int AS displaced_pins_count,
+          COALESCE(pc.cnt, 0)::int AS snapshots_count,
+          (COALESCE(pc.cnt, 0) + COALESCE(dpc.cnt, 0))::int AS total_pins_count,
+          COALESCE(fm.folders, '[]'::json) AS folders
+        FROM paged_keywords pk
+        LEFT JOIN pin_counts pc ON pc.keyword_id = pk.id
+        LEFT JOIN displaced_pin_counts dpc ON dpc.keyword_id = pk.id
+        LEFT JOIN folder_map fm ON fm.keyword_id = pk.id
+        ORDER BY pk.created_at DESC;
+      `;
+    }
+    if (useWorkspaceFilter && wid !== null) {
+      return await sql`
+        WITH paged_keywords AS (
+          SELECT 
+            id, keyword, category, target_pin_count, refresh_interval_hours,
+            last_crawled_at, top_pin_id, top_pin_title, top_pin_image,
+            avg_daily_velocity, is_active, tags,
+            (COALESCE(metadata, '{}'::jsonb) - 'last_dropped_pins' - 'popular_pins') AS metadata,
+            created_at, updated_at, crawl_pages_limit, inspection_mode, canonical_keyword
+          FROM tracked_keywords
+          WHERE (${fId}::int IS NULL OR id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
+          ORDER BY created_at DESC
+          LIMIT ${lim} OFFSET ${off}
+        ),
+        pin_counts AS (
+          SELECT ksp.keyword_id, COUNT(*)::int AS cnt
+          FROM keyword_serp_positions ksp
+          WHERE ksp.keyword_id IN (SELECT id FROM paged_keywords)
+            AND ksp.is_displaced = FALSE
+            AND ksp.rank_position IS NOT NULL
+            AND ksp.rank_position >= 1
+            AND NOT EXISTS (
+              SELECT 1 FROM keyword_ignored_pins kip
+              WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
+            )
+          GROUP BY ksp.keyword_id
+        ),
+        displaced_pin_counts AS (
+          SELECT ksp.keyword_id, COUNT(*)::int AS cnt
+          FROM keyword_serp_positions ksp
+          WHERE ksp.keyword_id IN (SELECT id FROM paged_keywords)
+            AND ksp.is_displaced = TRUE
+            AND NOT EXISTS (
+              SELECT 1 FROM keyword_ignored_pins kip
+              WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
+            )
+          GROUP BY ksp.keyword_id
+        ),
+        folder_map AS (
+          SELECT 
+            kfi.keyword_id, 
+            json_agg(json_build_object('id', f.id, 'name', f.name, 'color', f.color)) AS folders
+          FROM keyword_folder_items kfi
+          JOIN keyword_folders f ON f.id = kfi.folder_id AND f.workspace_id = ${wid}
+          WHERE kfi.keyword_id IN (SELECT id FROM paged_keywords)
+          GROUP BY kfi.keyword_id
+        )
         SELECT 
-          kfi.keyword_id, 
-          json_agg(json_build_object('id', f.id, 'name', f.name, 'color', f.color)) AS folders
-        FROM keyword_folder_items kfi
-        JOIN keyword_folders f ON f.id = kfi.folder_id
-        WHERE kfi.keyword_id IN (SELECT id FROM paged_keywords)
-        GROUP BY kfi.keyword_id
-      )
-      SELECT 
-        pk.*,
-        COALESCE(
-          NULLIF(pc.cnt, 0),
-          CASE WHEN pk.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (pk.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
-          0
-        )::int AS active_pins_count,
-        COALESCE(dpc.cnt, 0)::int AS displaced_pins_count,
-        COALESCE(
-          NULLIF(pc.cnt, 0),
-          CASE WHEN pk.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (pk.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
-          0
-        )::int AS snapshots_count,
-        (
-          COALESCE(
-            NULLIF(pc.cnt, 0),
-            CASE WHEN pk.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (pk.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
-            0
-          ) + COALESCE(dpc.cnt, 0)
-        )::int AS total_pins_count,
-        COALESCE(fm.folders, '[]'::json) AS folders
-      FROM paged_keywords pk
-      LEFT JOIN pin_counts pc ON pc.keyword_id = pk.id
-      LEFT JOIN displaced_pin_counts dpc ON dpc.keyword_id = pk.id
-      LEFT JOIN folder_map fm ON fm.keyword_id = pk.id
-      ORDER BY pk.created_at DESC;
-    `;
-  } else {
+          pk.*,
+          COALESCE(pc.cnt, 0)::int AS active_pins_count,
+          COALESCE(dpc.cnt, 0)::int AS displaced_pins_count,
+          COALESCE(pc.cnt, 0)::int AS snapshots_count,
+          (COALESCE(pc.cnt, 0) + COALESCE(dpc.cnt, 0))::int AS total_pins_count,
+          COALESCE(fm.folders, '[]'::json) AS folders
+        FROM paged_keywords pk
+        LEFT JOIN pin_counts pc ON pc.keyword_id = pk.id
+        LEFT JOIN displaced_pin_counts dpc ON dpc.keyword_id = pk.id
+        LEFT JOIN folder_map fm ON fm.keyword_id = pk.id
+        ORDER BY pk.created_at DESC;
+      `;
+    }
     return await sql`
       WITH paged_keywords AS (
         SELECT 
@@ -124,19 +246,28 @@ export async function listKeywords(sql, { search = '', limit = 1000, offset = 0,
         LIMIT ${lim} OFFSET ${off}
       ),
       pin_counts AS (
-        SELECT keyword_id, COUNT(*)::int AS cnt
-        FROM keyword_serp_positions
-        WHERE keyword_id IN (SELECT id FROM paged_keywords)
-          AND is_displaced = FALSE
-          AND rank_position IS NOT NULL
-        GROUP BY keyword_id
+        SELECT ksp.keyword_id, COUNT(*)::int AS cnt
+        FROM keyword_serp_positions ksp
+        WHERE ksp.keyword_id IN (SELECT id FROM paged_keywords)
+          AND ksp.is_displaced = FALSE
+          AND ksp.rank_position IS NOT NULL
+          AND ksp.rank_position >= 1
+          AND NOT EXISTS (
+            SELECT 1 FROM keyword_ignored_pins kip
+            WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
+          )
+        GROUP BY ksp.keyword_id
       ),
       displaced_pin_counts AS (
-        SELECT keyword_id, COUNT(*)::int AS cnt
-        FROM keyword_serp_positions
-        WHERE keyword_id IN (SELECT id FROM paged_keywords)
-          AND is_displaced = TRUE
-        GROUP BY keyword_id
+        SELECT ksp.keyword_id, COUNT(*)::int AS cnt
+        FROM keyword_serp_positions ksp
+        WHERE ksp.keyword_id IN (SELECT id FROM paged_keywords)
+          AND ksp.is_displaced = TRUE
+          AND NOT EXISTS (
+            SELECT 1 FROM keyword_ignored_pins kip
+            WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
+          )
+        GROUP BY ksp.keyword_id
       ),
       folder_map AS (
         SELECT 
@@ -149,24 +280,10 @@ export async function listKeywords(sql, { search = '', limit = 1000, offset = 0,
       )
       SELECT 
         pk.*,
-        COALESCE(
-          NULLIF(pc.cnt, 0),
-          CASE WHEN pk.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (pk.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
-          0
-        )::int AS active_pins_count,
+        COALESCE(pc.cnt, 0)::int AS active_pins_count,
         COALESCE(dpc.cnt, 0)::int AS displaced_pins_count,
-        COALESCE(
-          NULLIF(pc.cnt, 0),
-          CASE WHEN pk.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (pk.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
-          0
-        )::int AS snapshots_count,
-        (
-          COALESCE(
-            NULLIF(pc.cnt, 0),
-            CASE WHEN pk.metadata->>'last_crawled_pins_count' ~ '^[0-9]+$' THEN (pk.metadata->>'last_crawled_pins_count')::int ELSE 0 END,
-            0
-          ) + COALESCE(dpc.cnt, 0)
-        )::int AS total_pins_count,
+        COALESCE(pc.cnt, 0)::int AS snapshots_count,
+        (COALESCE(pc.cnt, 0) + COALESCE(dpc.cnt, 0))::int AS total_pins_count,
         COALESCE(fm.folders, '[]'::json) AS folders
       FROM paged_keywords pk
       LEFT JOIN pin_counts pc ON pc.keyword_id = pk.id
@@ -174,6 +291,15 @@ export async function listKeywords(sql, { search = '', limit = 1000, offset = 0,
       LEFT JOIN folder_map fm ON fm.keyword_id = pk.id
       ORDER BY pk.created_at DESC;
     `;
+  };
+
+  try {
+    return await runListQuery(wid !== null);
+  } catch (err) {
+    if (wid !== null && (err?.code === '42703' || String(err?.message || '').includes('workspace_id'))) {
+      return await runListQuery(false);
+    }
+    throw err;
   }
 }
 
@@ -416,7 +542,8 @@ export async function getKeywordPins(sql, keywordId) {
     SELECT 
       ksp.pin_id, ksp.keyword_id, ksp.rank_position, ksp.last_known_rank,
       ump.title, COALESCE(ump.clean_domain, '') AS domain, ump.destination_url, ump.image_url,
-      ump.save_count, ump.repin_count, ump.daily_save_velocity, ump.daily_repin_velocity,
+      ump.save_count, ump.repin_count, ump.comment_count, ump.share_count,
+      ump.daily_save_velocity, ump.daily_repin_velocity,
       ump.creator_username,
       ump.board_name,
       ump.dominant_color,
@@ -489,7 +616,8 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
       SELECT 
         ksp.pin_id, ksp.keyword_id, ksp.rank_position, ksp.last_known_rank,
         ump.title, COALESCE(ump.clean_domain, '') AS domain, ump.destination_url, ump.image_url,
-        ump.save_count, ump.repin_count, ump.daily_save_velocity, ump.daily_repin_velocity,
+        ump.save_count, ump.repin_count, ump.comment_count, ump.share_count,
+        ump.daily_save_velocity, ump.daily_repin_velocity,
         ump.creator_username,
         ump.board_name,
         ump.dominant_color,
@@ -623,6 +751,13 @@ export async function getKeywordSERPComparison(sql, keywordId, knownKeyword = nu
 
   // Algorithmic StaticRank & Semantic Vacuum SERP Intelligence
   const intelligence = calculateKeywordIntelligenceSummary(currentPins);
+
+  // Slim pin metadata AFTER title derivation, visual tag frequency extraction, and intelligence scoring
+  for (const p of currentPins) {
+    p.comment_count = Number(p.comment_count || 0);
+    p.share_count = Number(p.share_count || 0);
+    p.metadata = slimSerpPinMetadata(p.metadata);
+  }
 
   const totalVelocity = sparklinePoints.reduce((acc, v) => acc + (Number(v) || 0), 0);
   const avgVelocity = sparklinePoints.length > 0 ? Number((totalVelocity / sparklinePoints.length).toFixed(2)) : 0;

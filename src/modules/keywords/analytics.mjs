@@ -100,8 +100,9 @@ export function calculateKeywordIntelligenceSummary(pins = []) {
       repeated_domains: [],
       opportunity: {
         verdict: 'UNKNOWN',
-        badge: '⚪ No Data',
+        badge: 'No Data',
         score: 0,
+        opportunity_score: 0,
         summary: 'No snapshot pins indexed yet. Run a SERP crawl to analyze.',
         criteria: []
       },
@@ -124,8 +125,12 @@ export function calculateKeywordIntelligenceSummary(pins = []) {
     };
   }
 
-  // Sort strictly by rank_position ascending
-  const sortedPins = [...pins].sort((a, b) => Number(a.rank_position || 0) - Number(b.rank_position || 0));
+  // Sort strictly by rank_position ascending (null/0 ranks sort last, never ahead of #1)
+  const sortedPins = [...pins].sort((a, b) => {
+    const rA = Number(a.rank_position);
+    const rB = Number(b.rank_position);
+    return (Number.isFinite(rA) && rA > 0 ? rA : 999999) - (Number.isFinite(rB) && rB > 0 ? rB : 999999);
+  });
   const top12 = sortedPins.slice(0, 12);
   const top10 = sortedPins.slice(0, 10);
   const total = sortedPins.length;
@@ -171,17 +176,18 @@ export function calculateKeywordIntelligenceSummary(pins = []) {
   if (lowSavesPass) criteriaScore++;
 
   let verdict = 'LOCKED';
-  let badge = '🔴 Locked / Difficult';
+  let badge = 'Locked / Difficult';
   let summary = 'Dominated by legacy authority accounts and high-save pins. High barrier for fresh pins.';
   if (criteriaScore === 3) {
     verdict = 'WIDE_OPEN';
-    badge = '🟢 Wide Open';
+    badge = 'Wide Open';
     summary = 'Prime Arbitrage Target! Fresh pins and low-follower creators rank easily in the top 12.';
   } else if (criteriaScore === 2) {
     verdict = 'COMPETITIVE';
-    badge = '🟡 Moderate / Competitive';
+    badge = 'Moderate / Competitive';
     summary = 'Healthy opportunity: balanced mix of authority content and fresh ranking breakthroughs.';
   }
+  const opportunityScorePct = Math.round((criteriaScore / 3) * 100);
 
   const criteriaList = [
     {
@@ -262,7 +268,11 @@ export function calculateKeywordIntelligenceSummary(pins = []) {
     totalWords += words;
     totalChars += title.length;
     if (/\d+/.test(title)) withNumbers++;
-    if (p.destination_url || p.domain) withDest++;
+    const normalizedDestDomain = normalizeCleanDomain(p.domain || p.destination_url || '', { strictFqdn: true });
+    const hasRealDestUrl = Boolean(p.destination_url && /^https?:\/\//i.test(String(p.destination_url).trim()));
+    if (hasRealDestUrl || (normalizedDestDomain && normalizedDestDomain !== 'uploaded by user' && normalizedDestDomain !== 'uploaded-by-user' && normalizedDestDomain !== 'organic')) {
+      withDest++;
+    }
   }
 
   // Semantic Computer Vision Annotations (pin_join tags) via canonical SSOT extractor
@@ -336,6 +346,7 @@ export function calculateKeywordIntelligenceSummary(pins = []) {
       verdict,
       badge,
       score: criteriaScore,
+      opportunity_score: opportunityScorePct,
       summary,
       criteria: criteriaList
     },

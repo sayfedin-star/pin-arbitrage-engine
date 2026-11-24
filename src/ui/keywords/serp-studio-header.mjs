@@ -7,7 +7,7 @@ export function renderSerpStudioHeader() {
         <button @click="switchToDashboard()"
                 class="px-4 py-2 rounded-2xl text-xs font-bold bg-white dark:bg-[#121215] hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-[#27272A] text-slate-700 dark:text-slate-300 transition flex items-center space-x-2 shadow-xs cursor-pointer">
           <i data-lucide="arrow-left" class="w-4 h-4 text-emerald-500"></i>
-          <span>← Back to Keywords Dashboard</span>
+          <span x-text="activeFolderId ? ('Back to ' + (activeFolder?.name || ('Folder #' + activeFolderId)) + ' Fleet') : 'Back to Keywords Dashboard'">Back to Keywords Dashboard</span>
         </button>
         <span class="text-xs font-mono tabular-nums text-slate-400">Level 2: SERP Radar Studio</span>
       </div>
@@ -26,12 +26,12 @@ export function renderSerpStudioHeader() {
               <h2 class="text-xl sm:text-2xl font-black text-slate-900 dark:text-white capitalize truncate"
                   x-text="selectedKeyword?.keyword || activeKeywordQuery || 'Enter Keyword'"></h2>
               
-              <!-- Official Pinterest Monthly Search Volume Badge (PinClicks & Pinterest Parity) -->
+              <!-- Official Pinterest Monthly Search Volume Badge (Truthful Live Data Only) -->
               <div class="flex items-center space-x-1.5 px-3 py-0.5 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30 text-xs font-mono tabular-nums font-black"
-                   :title="trendsData?.exact_volume ? 'Official Pinterest Annotation Search Count (Live)' : 'Estimated Pinterest Monthly Search Volume'">
+                   :title="trendsData?.exact_volume ? 'Official Pinterest Annotation Search Count (Live)' : (trendsData?.estimated_volume ? 'Pinterest Monthly Search Volume' : 'Search volume unavailable for this query')">
                 <i data-lucide="bar-chart-2" class="w-3.5 h-3.5"></i>
                 <span>Volume:</span>
-                <span x-text="formatNumber(trendsData?.exact_volume || trendsData?.estimated_volume || 380878)"></span>
+                <span x-text="isTrendsLoading ? 'Loading...' : ((trendsData?.exact_volume || trendsData?.estimated_volume) ? formatNumber(trendsData.exact_volume || trendsData.estimated_volume) : 'N/A')"></span>
               </div>
 
               <!-- Official Pinterest Category Tree Tag -->
@@ -64,7 +64,7 @@ export function renderSerpStudioHeader() {
               </template>
             </div>
             <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
-              Live SERP Radar • Direct deep-link URL: <code class="text-emerald-500 font-mono tabular-nums text-[11px]" x-text="'/keywords/' + encodeURIComponent(activeSlug)"></code>
+              Live SERP Radar • Direct deep-link URL: <code class="text-emerald-500 font-mono tabular-nums text-[11px]" x-text="activeFolderId ? ('/folders/' + activeFolderId + '/keywords?q=' + encodeURIComponent(activeSlug)) : ('/keywords/' + encodeURIComponent(activeSlug))"></code>
             </p>
           </div>
         </div>
@@ -248,7 +248,7 @@ export function renderSerpStudioHeader() {
         </div>
         <div class="flex items-center space-x-2">
           <span class="text-xl font-black text-slate-900 dark:text-white font-mono tabular-nums" x-text="selectedKeywordDetails?.current_pins?.length || 0"></span>
-          <span class="text-xs text-slate-400 font-mono tabular-nums" x-text="'/ ' + (selectedKeyword?.target_pin_count || 50) + ' Organic Pins'"></span>
+          <span class="text-xs text-slate-400 font-mono tabular-nums" x-text="'/ ' + (selectedKeyword?.target_pin_count || appSettings.max_serp_pins || appSettings.default_max_pins || 50) + ' Organic Pins'"></span>
         </div>
         <div class="grid grid-cols-4 gap-1 pt-1 border-t border-slate-100 dark:border-[#27272A]/80 text-center">
           <div class="p-1 rounded-lg bg-emerald-500/10 text-[10px] font-mono tabular-nums font-bold text-emerald-600 dark:text-emerald-400" title="Climbed">
@@ -306,7 +306,7 @@ export function renderSerpStudioHeader() {
         </div>
         <div class="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100 dark:border-[#27272A]/80">
           <span class="text-slate-400 font-mono tabular-nums">Opportunity Score:</span>
-          <span class="font-bold text-purple-600 dark:text-purple-400 font-mono tabular-nums" x-text="(selectedKeywordDetails?.intelligence?.opportunity?.opportunity_score ?? 85) + ' / 100'"></span>
+          <span class="font-bold text-purple-600 dark:text-purple-400 font-mono tabular-nums" x-text="selectedKeywordDetails?.intelligence?.opportunity ? ((selectedKeywordDetails.intelligence.opportunity.opportunity_score ?? Math.round(((selectedKeywordDetails.intelligence.opportunity.score || 0) / 3) * 100)) + ' / 100 (' + (selectedKeywordDetails.intelligence.opportunity.score ?? 0) + '/3)') : '—'"></span>
         </div>
       </div>
 

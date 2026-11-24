@@ -105,12 +105,12 @@ export function getKeywordsModalsHtml() {
         <div>
           <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Target Keyword</label>
           <select x-model="fleetDispatchTargetKeyword" @change="onFleetTargetKeywordChange()" class="w-full px-3 py-2.5 rounded-xl text-xs bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-[#27272A] text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/40 font-medium">
-            <option value="">All Tracked Keywords (Global Sweep)</option>
+            <option value="" x-text="activeFolderId ? ('All Folder Keywords (' + (activeFolder?.name || ('Folder #' + activeFolderId)) + ' — ' + keywords.length + ' KW)') : 'All Tracked Keywords (Global Sweep)'"></option>
             <template x-for="kw in keywords" :key="kw.id">
               <option :value="kw.keyword" x-text="kw.keyword + ' (' + (getKeywordTotalPins(kw) || kw.total_pins || 0) + ' pins)'"></option>
             </template>
           </select>
-          <p class="mt-1 text-[10px] text-slate-400">Select an individual keyword to partition its pins across 20 runners, or audit all keywords globally.</p>
+          <p class="mt-1 text-[10px] text-slate-400" x-text="activeFolderId ? 'Select an individual keyword or audit all keywords inside this campaign folder.' : 'Select an individual keyword to partition its pins across 20 runners, or audit all keywords globally.'"></p>
         </div>
 
         <!-- 2. Fresh Live SERP First (Toggle / Checkbox) -->

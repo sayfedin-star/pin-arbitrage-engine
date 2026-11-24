@@ -19,6 +19,39 @@ export function computeVacuumOpportunityScore({ lastKnownRank = 30, domainlessTo
 }
 
 /**
+ * Slims heavy universal_master_pins.metadata JSONB (~2.4 KiB/pin) down to the exact
+ * allowlist consumed by SERP Matrix, Cards, Intelligence, and Pin Row UIs.
+ */
+export function slimSerpPinMetadata(rawMeta) {
+  if (!rawMeta || typeof rawMeta !== 'object' || Array.isArray(rawMeta)) return {};
+  const slim = {};
+  const scalarKeys = [
+    'pin_age_days', 'format', 'aspect_ratio', 'aspect_ratio_tier',
+    'is_new', 'rank_delta', 'prev_rank', 'baseline_date',
+    'is_deleted', 'status', 'raw_saves', 'repin_count',
+    'board_name', 'creation_method', 'method', 'created_at', 'created_at_pinterest'
+  ];
+  for (const k of scalarKeys) {
+    if (rawMeta[k] !== undefined && rawMeta[k] !== null && rawMeta[k] !== '') {
+      slim[k] = rawMeta[k];
+    }
+  }
+  if (rawMeta.deltas && typeof rawMeta.deltas === 'object' && !Array.isArray(rawMeta.deltas)) {
+    slim.deltas = rawMeta.deltas;
+  }
+  if (rawMeta.pinner && typeof rawMeta.pinner === 'object') {
+    const p = rawMeta.pinner;
+    const slimPinner = {};
+    if (p.username) slimPinner.username = p.username;
+    if (p.full_name) slimPinner.full_name = p.full_name;
+    if (p.follower_count !== undefined && p.follower_count !== null) slimPinner.follower_count = p.follower_count;
+    if (p.image_small_url) slimPinner.image_small_url = p.image_small_url;
+    if (Object.keys(slimPinner).length > 0) slim.pinner = slimPinner;
+  }
+  return slim;
+}
+
+/**
  * Retrieve persistent displaced pins for a keyword from keyword_serp_positions (is_displaced = TRUE)
  * with calculated live deltas and arbitrage vacuum opportunity score.
  */
@@ -26,7 +59,17 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
   const kid = Number(keywordId);
   if (!kid) throw new Error('Valid keyword ID is required');
 
-  const { limit = 500, offset = 0 } = options;
+  const { limit = 500, offset = 0, status = 'ALL' } = options;
+  const cleanStatus = String(status || 'ALL').trim();
+  // Currently all non-ignored displaced pins have status 'displaced_active'
+  if (cleanStatus && cleanStatus !== 'ALL' && cleanStatus !== 'displaced_active') {
+    return {
+      success: true,
+      keyword_id: kid,
+      total: 0,
+      pins: []
+    };
+  }
   // Bound page size to <= 500 displaced pins per query
   const lim = Math.min(500, Math.max(1, Number(limit) || 500));
   const off = Math.max(0, Number(offset) || 0);
@@ -121,6 +164,7 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
     pin.board_name = pin.board_name || pin.metadata?.board_name || null;
     pin.creation_method = pin.creation_method || pin.metadata?.creation_method || pin.metadata?.method || null;
     pin.created_at_pinterest = pin.created_at_pinterest || pin.metadata?.created_at_pinterest || pin.metadata?.created_at || null;
+    pin.metadata = slimSerpPinMetadata(pin.metadata);
 
     if (!pin.vacuum_opportunity_score || pin.vacuum_opportunity_score === 0) {
       pin.vacuum_opportunity_score = computeVacuumOpportunityScore({
@@ -132,15 +176,12 @@ export async function getKeywordDisplacedPins(sql, keywordId, options = {}) {
     }
   }
 
-  const displacedResult = {
+  return {
     success: true,
     keyword_id: kid,
     total: cntRow?.total || rows.length,
-    pins: rows,
-    displaced_pins: rows
+    pins: rows
   };
-
-  return displacedResult;
 }
 
 /**

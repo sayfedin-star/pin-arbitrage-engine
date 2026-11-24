@@ -70,11 +70,29 @@ ${renderSerpStudioIntelligenceTab()}
       <span>Resume Tracking</span>
     </button>
 
-    <button @click="bulkDeleteKeywords()" :disabled="isBulkLoading"
-            class="px-3.5 py-1.5 rounded-xl font-bold bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/40 transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
-      <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-      <span>Delete Selected</span>
-    </button>
+    <template x-if="activeFolderId">
+      <div class="flex items-center gap-2">
+        <button @click="bulkRemoveFromActiveFolder()" :disabled="isBulkLoading"
+                class="px-3.5 py-1.5 rounded-xl font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                title="Remove selected keywords from this folder (keeps global SERP history)">
+          <i data-lucide="folder-minus" class="w-3.5 h-3.5"></i>
+          <span>Remove from Folder</span>
+        </button>
+        <button @click="bulkDeleteKeywords()" :disabled="isBulkLoading"
+                class="px-3 py-1.5 rounded-xl font-bold bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                title="Permanently delete selected keywords globally across all folders">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          <span>Delete Globally</span>
+        </button>
+      </div>
+    </template>
+    <template x-if="!activeFolderId">
+      <button @click="bulkDeleteKeywords()" :disabled="isBulkLoading"
+              class="px-3.5 py-1.5 rounded-xl font-bold bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/40 transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50">
+        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+        <span>Delete Selected</span>
+      </button>
+    </template>
 
     <button @click="clearSelectedKeywords()" class="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer" title="Clear Selection">
       <i data-lucide="x" class="w-4 h-4"></i>

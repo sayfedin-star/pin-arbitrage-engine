@@ -25,7 +25,7 @@ export function renderSerpStudioMatrixTab() {
             <i data-lucide="trending-up" class="w-4 h-4 text-blue-500"></i>
             <span>Pinterest Trends (52w & Popular)</span>
             <span class="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums font-bold bg-blue-500/20 text-blue-600"
-                  x-text="trendsData?.current_index ? trendsData.current_index + '/100' : '52w'"></span>
+                  x-text="trendsData?.current_index != null ? trendsData.current_index + '/100' : '52w'"></span>
           </button>
 
           <!-- PinClicks Intelligence Tab -->
@@ -46,23 +46,9 @@ export function renderSerpStudioMatrixTab() {
             <button @click="growthPaceFilter = '24h'"
                     class="px-2 py-1 rounded-lg text-xs font-bold transition cursor-pointer flex items-center space-x-1"
                     :class="growthPaceFilter === '24h' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'"
-                    title="Velocity over Last 24 Hours">
+                    title="Real 24h Velocity Delta">
               <i data-lucide="flame" class="w-3 h-3 shrink-0"></i>
               <span class="font-mono tabular-nums">24h</span>
-            </button>
-            <button @click="growthPaceFilter = '3d'"
-                    class="px-2 py-1 rounded-lg text-xs font-bold transition cursor-pointer flex items-center space-x-1"
-                    :class="growthPaceFilter === '3d' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'"
-                    title="Velocity over Last 3 Days">
-              <i data-lucide="timer" class="w-3 h-3 shrink-0"></i>
-              <span class="font-mono tabular-nums">3d</span>
-            </button>
-            <button @click="growthPaceFilter = '7d'"
-                    class="px-2 py-1 rounded-lg text-xs font-bold transition cursor-pointer flex items-center space-x-1"
-                    :class="growthPaceFilter === '7d' ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/40 shadow-xs' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'"
-                    title="Velocity over Last 7 Days">
-              <i data-lucide="calendar" class="w-3 h-3 shrink-0"></i>
-              <span class="font-mono tabular-nums">7d</span>
             </button>
             <button @click="growthPaceFilter = 'all'"
                     class="px-2 py-1 rounded-lg text-xs font-bold transition cursor-pointer flex items-center space-x-1"
@@ -630,9 +616,9 @@ export function renderSerpStudioMatrixTab() {
               <template x-if="(serpScope === 'displaced' || serpScope === 'all') && totalDisplacedCount > displacedVaultPins.length">
                 <button type="button" @click="loadMoreDisplacedPins()" :disabled="isLoadingMoreDisplaced"
                         class="px-2.5 py-1 rounded-lg font-mono tabular-nums font-bold text-[11px] bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50 ml-2"
-                        title="Load next 24 displaced pins from Vault">
+                        title="Load next batch of up to 500 displaced pins from Vault">
                   <i data-lucide="download" class="w-3 h-3" :class="isLoadingMoreDisplaced ? 'animate-bounce' : ''"></i>
-                  <span x-text="isLoadingMoreDisplaced ? 'Loading Vault...' : ('Load More Displaced (' + Math.min(24, totalDisplacedCount - displacedVaultPins.length) + ' more)')"></span>
+                  <span x-text="isLoadingMoreDisplaced ? 'Loading Vault...' : ('Load More Displaced (' + Math.min(500, totalDisplacedCount - displacedVaultPins.length) + ' more)')"></span>
                 </button>
               </template>
             </div>
@@ -656,7 +642,7 @@ export function renderSerpStudioMatrixTab() {
 
                 <!-- Numbered Page Pills -->
                 <div class="flex items-center space-x-1 px-1">
-                  <template x-for="p in pinPageNumbers" :key="p">
+                  <template x-for="(p, pIdx) in pinPageNumbers" :key="'pp-' + pIdx + '-' + p">
                     <div>
                       <template x-if="p === '...'">
                         <span class="px-2 py-1 text-slate-400 font-mono tabular-nums text-xs">...</span>

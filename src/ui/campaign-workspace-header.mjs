@@ -85,7 +85,7 @@ export function renderCampaignWorkspaceHeader({
   const refreshClickExpr = isNewborn
     ? "typeof refreshWorkspace === 'function' ? refreshWorkspace(true) : window.location.reload()"
     : isKeywords
-      ? "typeof fetchKeywords === 'function' ? fetchKeywords(true) : window.location.reload()"
+      ? "typeof refreshWorkspace === 'function' ? refreshWorkspace(true) : (typeof fetchKeywords === 'function' ? fetchKeywords(true) : window.location.reload())"
       : isCreators
         ? "typeof refreshAll === 'function' ? refreshAll() : window.location.reload()"
         : isDomains

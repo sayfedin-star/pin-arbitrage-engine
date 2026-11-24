@@ -38,7 +38,11 @@ import {
   cacheFolderTrends,
   invalidateFolderCache
 } from '../modules/keywords/folders-crossover.mjs';
-import { verifyApiAuthentication } from '../http/security-and-response.mjs';
+import {
+  DEFAULT_WORKSPACE_ID,
+  assertFolderInWorkspace,
+  resolveWorkspaceRawCookie
+} from '../modules/workspaces/service.mjs';
 import { dispatchGitHubWorkflow, resolveGitHubAuth } from '../http/github-workflow.mjs';
 import { invalidateGlobalPulseCache } from '../modules/pulse/service.mjs';
 import {
@@ -129,9 +133,35 @@ export async function handleKeywordsRoutes({
     const limit = clampLimit(searchParams.get('limit'), 1000, 1000);
     const offset = Math.max(0, parseInt(searchParams.get('offset'), 10) || 0);
     const forceRefresh = searchParams.get('refresh') === 'true';
-    const folderId = searchParams.get('folder_id') ? Number(searchParams.get('folder_id')) : (searchParams.get('folder') ? Number(searchParams.get('folder')) : null);
+    const rawFolderId = searchParams.get('folder_id') ?? searchParams.get('folder');
+    let folderId = null;
+    if (rawFolderId !== null && String(rawFolderId).trim() !== '') {
+      const trimmedFolder = String(rawFolderId).trim();
+      const parsedFolder = Number(trimmedFolder);
+      if (!/^\d+$/.test(trimmedFolder) || !Number.isSafeInteger(parsedFolder) || parsedFolder <= 0) {
+        return jsonResponse({
+          success: false,
+          error: 'BAD_REQUEST',
+          message: 'Valid positive integer folder_id is required'
+        }, 400);
+      }
+      folderId = parsedFolder;
+      try {
+        await assertFolderInWorkspace(sql, folderId, workspaceId);
+      } catch (err) {
+        if (err?.status === 404 || err?.statusCode === 404) {
+          return jsonResponse({
+            success: false,
+            error: 'NOT_FOUND',
+            message: err.message || 'Folder not found in current workspace'
+          }, 404);
+        }
+        throw err;
+      }
+    }
 
     const cacheKey = buildCanonicalCacheKey('keywords:hub', {
+      workspace_id: workspaceId,
       search,
       limit,
       offset,
@@ -154,7 +184,8 @@ export async function handleKeywordsRoutes({
           search,
           limit,
           offset,
-          folderId
+          folderId,
+          workspaceId
         });
       }, SIX_HOURS_MS, ONE_HOUR_MS, { forceRefresh });
 
@@ -176,9 +207,13 @@ export async function handleKeywordsRoutes({
 
   // 2. POST /api/keywords
   if (method === 'POST' && pathname === '/api/keywords') {
-    invalidateEdgeCache('keywords');
     const body = await request.json().catch(() => ({}));
     const row = await addKeyword(sql, body);
+    await Promise.all([
+      invalidateEdgeCache('keywords'),
+      invalidateEdgeCache('folders')
+    ].map(p => Promise.resolve(p).catch(() => {})));
+    invalidateFolderCache(null, workspaceId);
     return jsonResponse({ success: true, keyword: row });
   }
 
@@ -195,7 +230,6 @@ export async function handleKeywordsRoutes({
 
   // 4. POST /api/keywords/sync
   if (method === 'POST' && pathname === '/api/keywords/sync') {
-    invalidateEdgeCache('keywords');
     const body = await request.json().catch(() => ({}));
     let keywordId = Number(body.keyword_id || body.id);
     const slug = body.slug || body.keyword;
@@ -206,7 +240,13 @@ export async function handleKeywordsRoutes({
     }
     if (!keywordId) return jsonResponse({ error: 'keyword_id or slug is required' }, 400);
     const force = Boolean(body.force);
-    const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
+    // [INVARIANT: WORKSPACE-COOKIE-ISOLATION]
+    // Resolve Zone A cookie strictly for the active workspace; fallback to global env cookie only for default workspace #1.
+    const wsCookie = await resolveWorkspaceRawCookie(sql, workspaceId).catch(() => '');
+    const envFallbackCookie = Number(workspaceId) === DEFAULT_WORKSPACE_ID
+      ? (env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null))
+      : null;
+    const cookie = (wsCookie && String(wsCookie).trim()) ? String(wsCookie).trim() : envFallbackCookie;
     const hasExplicitPages = body.crawl_pages !== undefined || body.max_pages !== undefined;
     const crawlPages = hasExplicitPages ? Math.max(1, Math.min(40, Number(body.crawl_pages || body.max_pages) || 2)) : undefined;
     const maxPins = body.max_pins ?? body.max_serp_pins;
@@ -221,8 +261,12 @@ export async function handleKeywordsRoutes({
 
     if (res?.success) {
       invalidateGlobalPulseCache(env, ctx).catch(() => {});
+      invalidateFolderCache(null, workspaceId);
       if (typeof invalidateEdgeCache === 'function') {
-        await invalidateEdgeCache('keywords').catch(() => {});
+        await Promise.all([
+          invalidateEdgeCache('keywords'),
+          invalidateEdgeCache('folders')
+        ].map(p => Promise.resolve(p).catch(() => {})));
       }
     }
 
@@ -259,16 +303,17 @@ export async function handleKeywordsRoutes({
       }
     }
 
+    const syncSucceeded = Boolean(res?.success);
     return jsonResponse({
-      success: true,
-      status: res?.success ? 'success' : 'accepted',
+      success: syncSucceeded,
+      status: syncSucceeded ? 'success' : 'failed',
       keyword_id: keywordId,
       result: {
-        success: res?.success ?? true,
-        status: res?.success ? 'completed' : 'accepted',
-        crawled_pins: res?.crawled_pins ?? res?.pins_collected ?? (res?.success ? 1 : 0),
-        message: res?.message || (res?.success ? 'Dispatched and synchronized successfully' : 'Dispatched asynchronously'),
-        ...res
+        ...res,
+        success: syncSucceeded,
+        status: syncSucceeded ? 'completed' : 'failed',
+        crawled_pins: Number(res?.crawled_pins ?? res?.pins_collected ?? 0),
+        message: res?.message || (syncSucceeded ? 'Synchronized successfully' : (res?.error || 'SERP synchronization failed'))
       }
     });
   }
@@ -287,16 +332,17 @@ export async function handleKeywordsRoutes({
 
   // 6. POST /api/settings
   if (method === 'POST' && pathname === '/api/settings') {
+    const body = await request.json().catch(() => ({}));
+    const updated = await updateAppSettings(sql, body);
     await Promise.all([
       invalidateEdgeCache('keywords'),
       invalidateEdgeCache('keywords:hub'),
       invalidateEdgeCache('keywords:pins'),
       invalidateEdgeCache('keywords:serp-compare'),
+      invalidateEdgeCache('folders'),
       invalidateEdgeCache('settings')
     ].map(p => Promise.resolve(p).catch(() => {})));
-    invalidateFolderCache();
-    const body = await request.json().catch(() => ({}));
-    const updated = await updateAppSettings(sql, body);
+    invalidateFolderCache(null, workspaceId);
     const hasCookie = Boolean(updated?.has_pinterest_cookie || (updated?.pinterest_cookie && String(updated.pinterest_cookie).trim().length > 10));
     const safeSettings = {
       ...updated,
@@ -308,23 +354,23 @@ export async function handleKeywordsRoutes({
 
   // 7. POST /api/keywords/settings
   if (method === 'POST' && pathname === '/api/keywords/settings') {
-    await Promise.all([
-      invalidateEdgeCache('keywords'),
-      invalidateEdgeCache('keywords:hub'),
-      invalidateEdgeCache('keywords:pins'),
-      invalidateEdgeCache('keywords:serp-compare')
-    ].map(p => Promise.resolve(p).catch(() => {})));
-    invalidateFolderCache();
     const body = await request.json().catch(() => ({}));
     const keywordId = Number(body.keyword_id);
     if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
     const updated = await updateKeywordSettings(sql, keywordId, body);
+    await Promise.all([
+      invalidateEdgeCache('keywords'),
+      invalidateEdgeCache('keywords:hub'),
+      invalidateEdgeCache('keywords:pins'),
+      invalidateEdgeCache('keywords:serp-compare'),
+      invalidateEdgeCache('folders')
+    ].map(p => Promise.resolve(p).catch(() => {})));
+    invalidateFolderCache(null, workspaceId);
     return jsonResponse({ success: true, keyword: updated });
   }
 
   // 8. POST /api/keywords/status || /api/keywords/toggle
   if (method === 'POST' && (pathname === '/api/keywords/status' || pathname === '/api/keywords/toggle')) {
-    invalidateEdgeCache('keywords');
     const body = await request.json().catch(() => ({}));
     const id = Number(body.id || body.keyword_id);
     const ids = Array.isArray(body.ids) ? body.ids.map(Number).filter(Boolean) : [];
@@ -344,6 +390,11 @@ export async function handleKeywordsRoutes({
           WHERE id = ANY(${ids});
         `;
       }
+      await Promise.all([
+        invalidateEdgeCache('keywords'),
+        invalidateEdgeCache('folders')
+      ].map(p => Promise.resolve(p).catch(() => {})));
+      invalidateFolderCache(null, workspaceId);
       return jsonResponse({ success: true, updated_ids: ids, is_active: isActive });
     }
 
@@ -365,12 +416,16 @@ export async function handleKeywordsRoutes({
         RETURNING *;
       `;
     }
+    await Promise.all([
+      invalidateEdgeCache('keywords'),
+      invalidateEdgeCache('folders')
+    ].map(p => Promise.resolve(p).catch(() => {})));
+    invalidateFolderCache(null, workspaceId);
     return jsonResponse({ success: true, keyword: row });
   }
 
   // 9. DELETE /api/keywords
   if (method === 'DELETE' && pathname === '/api/keywords') {
-    invalidateEdgeCache('keywords');
     let id = searchParams.get('id');
     let keyword = searchParams.get('keyword');
     let body = {};
@@ -419,6 +474,7 @@ export async function handleKeywordsRoutes({
     invalidateEdgeCache('folders');
     invalidateEdgeCache('domains:leaderboard');
     invalidateEdgeCache('keywords:pin-dossier');
+    invalidateFolderCache(null, workspaceId);
 
     return jsonResponse({ success: true, deleted_ids: targetIds });
   }
@@ -440,17 +496,20 @@ export async function handleKeywordsRoutes({
         return jsonResponse({ success: false, error: 'INVALID_PIN_ID', message: 'Valid pinId is required (numeric Snowflake, 10-30 digits)' }, 400);
       }
 
-      invalidateEdgeCache('keywords');
-      invalidateEdgeCache('folders');
-      invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
-      invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
-      invalidateEdgeCache('keywords:pin-dossier');
-
       const { deletedCount } = await ignoreAndRemoveSerpPin(sql, {
         keywordId,
         pinId,
         reason: 'manual_user_deletion'
       });
+
+      await Promise.all([
+        invalidateEdgeCache('keywords'),
+        invalidateEdgeCache('folders'),
+        invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`),
+        invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId })),
+        invalidateEdgeCache('keywords:pin-dossier')
+      ].map(p => Promise.resolve(p).catch(() => {})));
+      invalidateFolderCache(null, workspaceId);
 
       return jsonResponse({
         success: true,
@@ -536,7 +595,13 @@ export async function handleKeywordsRoutes({
   if (method === 'GET' && pathname === '/api/keywords/visual-search') {
     const pinId = searchParams.get('pin_id');
     if (!pinId) return jsonResponse({ error: 'pin_id is required' }, 400);
-    const cookie = env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null);
+    // [INVARIANT: WORKSPACE-COOKIE-ISOLATION]
+    // Resolve Zone A cookie strictly for the active workspace; fallback to global env cookie only for default workspace #1.
+    const wsCookie = await resolveWorkspaceRawCookie(sql, workspaceId).catch(() => '');
+    const envFallbackCookie = Number(workspaceId) === DEFAULT_WORKSPACE_ID
+      ? (env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null))
+      : null;
+    const cookie = (wsCookie && String(wsCookie).trim()) ? String(wsCookie).trim() : envFallbackCookie;
     const result = await fetchVisualSearchLens(sql, pinId, cookie, env);
     return jsonResponse(result, result.success ? 200 : 500);
   }
@@ -639,8 +704,8 @@ export async function handleKeywordsRoutes({
         if (!force && kw && Array.isArray(kw.popular_pins) && kw.popular_pins.length > 0) {
           result.popular_pins = kw.popular_pins;
         } else if (force || !kw?.popular_pins || kw.popular_pins.length === 0) {
-          const canMutateTrendsDb = Boolean(verifyApiAuthentication(request, env)?.authorized);
-          const popResult = await fetchPinterestTrendsPopularPins(canMutateTrendsDb ? sql : null, term, country, force);
+          // [INVARIANT: READ-ONLY-GET-SAFE] Never persist DB mutations inside GET /api/keywords/trends
+          const popResult = await fetchPinterestTrendsPopularPins(null, term, country, force);
           if (popResult?.success && popResult?.popular_pins) {
             result.popular_pins = popResult.popular_pins;
           }
@@ -803,8 +868,32 @@ export async function handleKeywordsRoutes({
       }, 400);
     }
 
-    invalidateEdgeCache('keywords');
-    const folderId = body.folder_id ? Number(body.folder_id) : null;
+    let folderId = null;
+    if (body.folder_id !== undefined && body.folder_id !== null && String(body.folder_id).trim() !== '') {
+      const trimmedFolder = String(body.folder_id).trim();
+      const parsedFolder = Number(trimmedFolder);
+      if (!/^\d+$/.test(trimmedFolder) || !Number.isSafeInteger(parsedFolder) || parsedFolder <= 0) {
+        return jsonResponse({
+          success: false,
+          error: 'BAD_REQUEST',
+          message: 'Valid positive integer folder_id is required'
+        }, 400);
+      }
+      folderId = parsedFolder;
+      try {
+        await assertFolderInWorkspace(sql, folderId, workspaceId);
+      } catch (err) {
+        if (err?.status === 404 || err?.statusCode === 404) {
+          return jsonResponse({
+            success: false,
+            error: 'NOT_FOUND',
+            message: err.message || 'Folder not found in current workspace'
+          }, 404);
+        }
+        throw err;
+      }
+    }
+
     const category = body.category || 'General';
     const uniqueValidKeywords = [...new Set(validKeywords)];
     const appSettings = await getAppSettings(sql).catch(() => null);
@@ -816,34 +905,47 @@ export async function handleKeywordsRoutes({
     const defaultMode = body.inspection_mode
       ? String(body.inspection_mode).trim()
       : (appSettings?.default_inspection_mode || 'full_catalog');
-    const imported = await sql`
-      INSERT INTO tracked_keywords (
-        keyword, canonical_keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, is_active, updated_at
-      )
-      SELECT
-        u.kw,
-        NULL,
-        ${category}, ${defaultPins}, ${defaultPages}, ${defaultMode}, TRUE, NOW()
-      FROM UNNEST(${uniqueValidKeywords}::text[]) AS u(kw)
-      ON CONFLICT (keyword) DO UPDATE SET
-        canonical_keyword = COALESCE(NULLIF(tracked_keywords.canonical_keyword, ''), NULL),
-        target_pin_count = COALESCE(tracked_keywords.target_pin_count, ${defaultPins}),
-        crawl_pages_limit = COALESCE(tracked_keywords.crawl_pages_limit, ${defaultPages}),
-        inspection_mode = COALESCE(NULLIF(tracked_keywords.inspection_mode, ''), ${defaultMode}),
-        updated_at = NOW(),
-        is_active = TRUE
-      RETURNING id, keyword, category;
-    `.catch(err => {
-      console.warn('[bulk-import] Database insert error:', redactSecrets ? redactSecrets(err?.message || 'DB error') : err?.message);
-      return [];
-    });
+    let imported;
+    try {
+      imported = await sql`
+        INSERT INTO tracked_keywords (
+          keyword, canonical_keyword, category, target_pin_count, crawl_pages_limit, inspection_mode, is_active, updated_at
+        )
+        SELECT
+          u.kw,
+          NULL,
+          ${category}, ${defaultPins}, ${defaultPages}, ${defaultMode}, TRUE, NOW()
+        FROM UNNEST(${uniqueValidKeywords}::text[]) AS u(kw)
+        ON CONFLICT (keyword) DO UPDATE SET
+          canonical_keyword = COALESCE(NULLIF(tracked_keywords.canonical_keyword, ''), NULL),
+          target_pin_count = COALESCE(tracked_keywords.target_pin_count, ${defaultPins}),
+          crawl_pages_limit = COALESCE(tracked_keywords.crawl_pages_limit, ${defaultPages}),
+          inspection_mode = COALESCE(NULLIF(tracked_keywords.inspection_mode, ''), ${defaultMode}),
+          updated_at = NOW(),
+          is_active = TRUE
+        RETURNING id, keyword, category;
+      `;
+    } catch (err) {
+      const safeMsg = redactSecrets ? redactSecrets(err?.message || 'Database insert error') : (err?.message || 'Database insert error');
+      console.warn('[bulk-import] Database insert error:', safeMsg);
+      return jsonResponse({
+        success: false,
+        error: 'BULK_IMPORT_FAILED',
+        message: safeMsg
+      }, 500);
+    }
 
     if (folderId && Array.isArray(imported) && imported.length > 0) {
       const importedIds = imported.map(r => Number(r.id)).filter(Boolean);
       if (importedIds.length > 0) {
-        await batchAddKeywordsToFolder(sql, folderId, importedIds).catch(() => {});
+        await batchAddKeywordsToFolder(sql, folderId, importedIds);
       }
     }
+    await Promise.all([
+      invalidateEdgeCache('keywords'),
+      invalidateEdgeCache('folders')
+    ].map(p => Promise.resolve(p).catch(() => {})));
+    invalidateFolderCache(folderId, workspaceId);
 
     const safeImported = Array.isArray(imported) ? imported : [];
     return jsonResponse({
@@ -880,7 +982,8 @@ export async function handleKeywordsRoutes({
     const country = searchParams.get('country') || 'US';
     const force = searchParams.get('force') === 'true' || searchParams.get('refresh') === 'true';
     if (!term) return jsonResponse({ error: 'term is required' }, 400);
-    const result = await fetchPinterestTrendsPopularPins(sql, term, country, force);
+    // [INVARIANT: READ-ONLY-GET-SAFE] Never persist DB mutations inside GET /api/keywords/trends/popular-pins
+    const result = await fetchPinterestTrendsPopularPins(null, term, country, force);
     return jsonResponse(result, result.success ? 200 : 400);
   }
 
@@ -889,6 +992,28 @@ export async function handleKeywordsRoutes({
     const body = await request.json().catch(() => ({}));
     const targetKw = body.target_keyword || body.keyword || '';
     const folderIdInput = body.folder_id ? String(body.folder_id).trim() : '';
+    if (folderIdInput) {
+      const parsedFolder = Number(folderIdInput);
+      if (!/^\d+$/.test(folderIdInput) || !Number.isSafeInteger(parsedFolder) || parsedFolder <= 0) {
+        return jsonResponse({
+          success: false,
+          error: 'BAD_REQUEST',
+          message: 'Valid positive integer folder_id is required'
+        }, 400);
+      }
+      try {
+        await assertFolderInWorkspace(sql, parsedFolder, workspaceId);
+      } catch (err) {
+        if (err?.status === 404 || err?.statusCode === 404) {
+          return jsonResponse({
+            success: false,
+            error: 'NOT_FOUND',
+            message: err.message || 'Folder not found in current workspace'
+          }, 404);
+        }
+        throw err;
+      }
+    }
     const maxPinsInput = (body.max_pins !== undefined && body.max_pins !== null) ? String(body.max_pins).trim() : '';
     const maxSerpPinsInput = (body.max_serp_pins !== undefined && body.max_serp_pins !== null)
       ? String(body.max_serp_pins).trim()

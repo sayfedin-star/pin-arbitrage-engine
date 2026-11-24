@@ -16,10 +16,10 @@ export function renderSerpStudioTrendsTab() {
 
           <div class="flex items-center space-x-3 text-xs font-mono tabular-nums">
             <div class="px-3 py-1 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-              Peak: <strong x-text="trendsData?.peak_value || 100"></strong>/100
+              Peak: <strong x-text="trendsData?.peak_value ?? '—'"></strong>/100
             </div>
             <div class="px-3 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-              Latest: <strong x-text="trendsData?.current_index || 56"></strong>/100
+              Latest: <strong x-text="trendsData?.current_index ?? '—'"></strong>/100
             </div>
           </div>
         </div>
@@ -93,37 +93,42 @@ export function renderSerpStudioTrendsTab() {
           <!-- Gender Distribution -->
           <div class="p-5 rounded-3xl bg-slate-50/70 dark:bg-slate-900/50 border border-slate-200/80 dark:border-[#27272A] space-y-3">
             <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono tabular-nums">Audience Gender Distribution</h4>
-            <div class="space-y-4 pt-2">
-              <div class="space-y-1">
-                <div class="flex items-center justify-between text-xs font-mono tabular-nums">
-                  <span class="text-slate-500">Female</span>
-                  <span class="font-bold text-rose-500" x-text="trendsData?.demographics?.gender?.female_display || ((trendsData?.demographics?.gender?.female_pct || 86) + '%')"></span>
+            <template x-if="trendsData?.demographics?.gender">
+              <div class="space-y-4 pt-2">
+                <div class="space-y-1">
+                  <div class="flex items-center justify-between text-xs font-mono tabular-nums">
+                    <span class="text-slate-500">Female</span>
+                    <span class="font-bold text-rose-500" x-text="trendsData?.demographics?.gender?.female_display || ((trendsData?.demographics?.gender?.female_pct ?? 0) + '%')"></span>
+                  </div>
+                  <div class="w-full h-3 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                    <div class="h-full bg-rose-500 rounded-full" :style="'width: ' + (trendsData?.demographics?.gender?.female_pct ?? 0) + '%'"></div>
+                  </div>
                 </div>
-                <div class="w-full h-3 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
-                  <div class="h-full bg-rose-500 rounded-full" :style="'width: ' + (trendsData?.demographics?.gender?.female_pct || 86) + '%'"></div>
-                </div>
-              </div>
 
-              <div class="space-y-1">
-                <div class="flex items-center justify-between text-xs font-mono tabular-nums">
-                  <span class="text-slate-500">Male</span>
-                  <span class="font-bold text-cyan-500" x-text="trendsData?.demographics?.gender?.male_display || ((trendsData?.demographics?.gender?.male_pct || 4) + '%')"></span>
+                <div class="space-y-1">
+                  <div class="flex items-center justify-between text-xs font-mono tabular-nums">
+                    <span class="text-slate-500">Male</span>
+                    <span class="font-bold text-cyan-500" x-text="trendsData?.demographics?.gender?.male_display || ((trendsData?.demographics?.gender?.male_pct ?? 0) + '%')"></span>
+                  </div>
+                  <div class="w-full h-3 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                    <div class="h-full bg-cyan-500 rounded-full" :style="'width: ' + ((trendsData?.demographics?.gender?.male_pct ?? 0) > 0 ? Math.max(trendsData.demographics.gender.male_pct, 3) : 0) + '%'"></div>
+                  </div>
                 </div>
-                <div class="w-full h-3 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
-                  <div class="h-full bg-cyan-500 rounded-full" :style="'width: ' + Math.max(trendsData?.demographics?.gender?.male_pct || 4, 3) + '%'"></div>
-                </div>
-              </div>
 
-              <div class="space-y-1">
-                <div class="flex items-center justify-between text-xs font-mono tabular-nums">
-                  <span class="text-slate-500">Unspecified / Custom</span>
-                  <span class="font-bold text-slate-400" x-text="trendsData?.demographics?.gender?.unspecified_display || ((trendsData?.demographics?.gender?.unspecified_pct || 10) + '%')"></span>
-                </div>
-                <div class="w-full h-3 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
-                  <div class="h-full bg-slate-500 rounded-full" :style="'width: ' + (trendsData?.demographics?.gender?.unspecified_pct || 10) + '%'"></div>
+                <div class="space-y-1">
+                  <div class="flex items-center justify-between text-xs font-mono tabular-nums">
+                    <span class="text-slate-500">Unspecified / Custom</span>
+                    <span class="font-bold text-slate-400" x-text="trendsData?.demographics?.gender?.unspecified_display || ((trendsData?.demographics?.gender?.unspecified_pct ?? 0) + '%')"></span>
+                  </div>
+                  <div class="w-full h-3 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                    <div class="h-full bg-slate-500 rounded-full" :style="'width: ' + (trendsData?.demographics?.gender?.unspecified_pct ?? 0) + '%'"></div>
+                  </div>
                 </div>
               </div>
-            </div>
+            </template>
+            <template x-if="!trendsData?.demographics?.gender">
+              <p class="text-xs text-slate-400 italic py-4">No demographic breakdown available for this query yet.</p>
+            </template>
           </div>
         </div>
 
@@ -176,21 +181,21 @@ export function renderSerpStudioTrendsTab() {
                 <button @click="popularPinsView = 'full'; $nextTick(() => { if (window.lucide) window.lucide.createIcons(); })"
                         :class="popularPinsView === 'full' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-medium'"
                         class="px-2.5 py-1 rounded-lg transition flex items-center space-x-1 cursor-pointer"
-                        title="عرض كافة الدبابيس كاملة بدقة 736x">
+                        title="View all popular pins at 736x HD">
                   <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
-                  <span>Full Pins (الصور كاملة)</span>
+                  <span>Full Pins (736x)</span>
                 </button>
                 <button @click="popularPinsView = 'collage'; $nextTick(() => { if (window.lucide) window.lucide.createIcons(); })"
                         :class="popularPinsView === 'collage' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-medium'"
                         class="px-2.5 py-1 rounded-lg transition flex items-center space-x-1 cursor-pointer"
-                        title="بانر الكولاج الرسمي">
+                        title="Official Pinterest Trends collage">
                   <i data-lucide="columns-3" class="w-3.5 h-3.5"></i>
                   <span>Official Collage</span>
                 </button>
                 <button @click="popularPinsView = 'grid'; $nextTick(() => { if (window.lucide) window.lucide.createIcons(); })"
                         :class="popularPinsView === 'grid' ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm font-bold' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-medium'"
                         class="px-2.5 py-1 rounded-lg transition flex items-center space-x-1 cursor-pointer"
-                        title="بطاقات التحليل والتتبع">
+                        title="Interactive analysis cards">
                   <i data-lucide="bar-chart-2" class="w-3.5 h-3.5"></i>
                   <span>Interactive Cards</span>
                 </button>

@@ -70,8 +70,6 @@ export function getKeywordsClientAppScript() {
         dashboardCategoryFilter: 'ALL',
         dashboardStatusFilter: 'ALL',
         dashboardFolderFilter: initialFolderId || 'ALL',
-        dashboardGrowthFilter: 'ALL',
-        dashboardPinsFilter: 'ALL',
         dashboardSort: 'total_pins',
         dashboardViewMode: 'table', // 'table' | 'grid'
         dashboardPage: 1,
@@ -80,6 +78,7 @@ export function getKeywordsClientAppScript() {
         bulkTargetFolderId: '',
         isBulkLoading: false,
         isKeywordsLoading: false,
+        lastRefreshAt: 0,
         isQuickTrackModalOpen: false,
         quickKeywordInput: '',
         quickKeywordCategory: 'General',
@@ -112,8 +111,8 @@ export function getKeywordsClientAppScript() {
         activeInspectorPin: null,
         activeInspectorPinIndex: 0,
 
-        // Growth Pace & View Mode Toggle (Image 1 Parity)
-        growthPaceFilter: '24h', // '24h' | '3d' | '7d' | 'all'
+        // Growth Pace & View Mode Toggle
+        growthPaceFilter: '24h', // '24h' | 'all'
         viewMode: 'table', // 'table' | 'cards'
         selectedPinIds: [],
         pinPage: 1,
@@ -123,11 +122,8 @@ export function getKeywordsClientAppScript() {
         displacedPins: [],
         displacedPinsTotal: 0,
         displacedOffset: 0,
-        displacedStatusFilter: 'ALL',
         isDisplacedLoading: false,
         isLoadingMoreDisplaced: false,
-        displacedPage: 1,
-        displacedPageSize: 25,
 
         // Pin Deep Dossier & Performance Trajectory State (Image 2 Parity)
         dossierData: null,
@@ -277,9 +273,46 @@ export function getKeywordsClientAppScript() {
         async submitQuickKeyword() {
           const term = (this.quickKeywordInput || '').trim();
           if (!term) return;
+          const category = (this.quickKeywordCategory || 'General').trim() || 'General';
           this.isQuickTrackModalOpen = false;
-          this.showToast('Loading "' + term + '" into SERP Studio...', 'info');
-          await this.loadKeywordBySlugOrText(term, true, true);
+          this.showToast(this.activeFolderId ? ('Adding "' + term + '" to folder & opening SERP Studio...') : ('Loading "' + term + '" into SERP Studio...'), 'info');
+          let createdKeyword = null;
+          let linkedActiveFolder = false;
+          try {
+            const createRes = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ keyword: term, category })
+            });
+            if (createRes && createRes.ok) {
+              const created = await createRes.json().catch(() => ({}));
+              createdKeyword = created?.keyword || null;
+              const newKwId = createdKeyword?.id;
+              if (this.activeFolderId && newKwId) {
+                const linkRes = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/folders/items'), {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ folder_id: this.activeFolderId, keyword_id: newKwId })
+                }).catch(() => null);
+                if (linkRes && linkRes.ok) {
+                  linkedActiveFolder = true;
+                  const folderMeta = this.activeFolder
+                    ? { id: this.activeFolder.id || Number(this.activeFolderId), name: this.activeFolder.name || ('Folder #' + this.activeFolderId), color: this.activeFolder.color || '#ec4899' }
+                    : { id: Number(this.activeFolderId), name: 'Folder #' + this.activeFolderId, color: '#ec4899' };
+                  const existingFolders = Array.isArray(createdKeyword.folders) ? createdKeyword.folders : [];
+                  if (!existingFolders.some(f => f && String(f.id) === String(folderMeta.id))) {
+                    createdKeyword = { ...createdKeyword, folders: [...existingFolders, folderMeta] };
+                  }
+                }
+                await this.fetchFolders();
+              }
+              if (createdKeyword && createdKeyword.id && !this.keywords.some(k => k.id === createdKeyword.id)) {
+                this.keywords.unshift(this.normalizeKeyword(createdKeyword));
+              }
+            }
+          } catch (_) {}
+          this.viewModeLevel = 'serp_studio';
+          await this.loadKeywordBySlugOrText(term, true, !linkedActiveFolder && !createdKeyword);
         },
 
         get activeSlug() {
@@ -315,29 +348,6 @@ export function getKeywordsClientAppScript() {
               list = list.filter(k => this.getKeywordFolders(k).some(f => f && String(f.id) === targetFid));
             }
           }
-          if (this.dashboardGrowthFilter && this.dashboardGrowthFilter !== 'ALL') {
-            if (this.dashboardGrowthFilter === 'HIGH') {
-              list = list.filter(k => (k._velocity !== undefined ? k._velocity : this.getKeywordVelocity(k)) >= 50);
-            } else if (this.dashboardGrowthFilter === 'TRENDING') {
-              list = list.filter(k => {
-                const v = k._velocity !== undefined ? k._velocity : this.getKeywordVelocity(k);
-                return v >= 10 && v < 50;
-              });
-            } else if (this.dashboardGrowthFilter === 'POSITIVE') {
-              list = list.filter(k => (k._velocity !== undefined ? k._velocity : this.getKeywordVelocity(k)) > 0);
-            } else if (this.dashboardGrowthFilter === 'FLAT') {
-              list = list.filter(k => (k._velocity !== undefined ? k._velocity : this.getKeywordVelocity(k)) === 0);
-            } else if (this.dashboardGrowthFilter === 'DECLINING') {
-              list = list.filter(k => (k._velocity !== undefined ? k._velocity : this.getKeywordVelocity(k)) < 0);
-            }
-          }
-          if (this.dashboardPinsFilter && this.dashboardPinsFilter !== 'ALL') {
-            if (this.dashboardPinsFilter === '250_PLUS') {
-              list = list.filter(k => (k._totalPins !== undefined ? k._totalPins : this.getKeywordTotalPins(k)) >= 250);
-            } else if (this.dashboardPinsFilter === 'UNDER_250') {
-              list = list.filter(k => (k._totalPins !== undefined ? k._totalPins : this.getKeywordTotalPins(k)) < 250);
-            }
-          }
           if (this.dashboardSearch && this.dashboardSearch.trim()) {
             const q = this.dashboardSearch.toLowerCase().trim();
             list = list.filter(k => k._searchCorpus ? k._searchCorpus.includes(q) : (
@@ -346,13 +356,7 @@ export function getKeywordsClientAppScript() {
               this.getKeywordFolders(k).some(f => (f.name || '').toLowerCase().includes(q))
             ));
           }
-          if (this.dashboardSort === 'velocity') {
-            return [...list].sort((a, b) => (b._velocity ?? this.getKeywordVelocity(b)) - (a._velocity ?? this.getKeywordVelocity(a)));
-          } else if (this.dashboardSort === 'saves_delta') {
-            return [...list].sort((a, b) => (b._saveDelta ?? this.getKeywordSaveDelta(b)) - (a._saveDelta ?? this.getKeywordSaveDelta(a)));
-          } else if (this.dashboardSort === 'repins_delta') {
-            return [...list].sort((a, b) => (b._repinDelta ?? this.getKeywordRepinDelta(b)) - (a._repinDelta ?? this.getKeywordRepinDelta(a)));
-          } else if (this.dashboardSort === 'total_pins') {
+          if (this.dashboardSort === 'total_pins') {
             return [...list].sort((a, b) => (b._totalPins ?? this.getKeywordTotalPins(b)) - (a._totalPins ?? this.getKeywordTotalPins(a)));
           } else if (this.dashboardSort === 'created_desc') {
             return [...list].sort((a, b) => (b._createdAtMs ?? (Date.parse(b.created_at) || 0)) - (a._createdAtMs ?? (Date.parse(a.created_at) || 0)));
@@ -549,22 +553,22 @@ export function getKeywordsClientAppScript() {
         },
 
         get activeKeywordsCount() {
-          const list = this.activeFolderId ? this.filteredDashboardKeywords : (this.keywords || []);
+          const list = this.keywords || [];
           return list.filter(k => k.is_active !== false).length;
         },
 
         get pausedKeywordsCount() {
-          const list = this.activeFolderId ? this.filteredDashboardKeywords : (this.keywords || []);
+          const list = this.keywords || [];
           return list.filter(k => k.is_active === false).length;
         },
 
         get totalMonitoredPins() {
-          const list = this.activeFolderId ? this.filteredDashboardKeywords : (this.keywords || []);
+          const list = this.keywords || [];
           return list.reduce((acc, k) => acc + this.getKeywordTotalPins(k), 0);
         },
 
         get averageFleetVelocity() {
-          const base = this.activeFolderId ? this.filteredDashboardKeywords : (this.keywords || []);
+          const base = this.keywords || [];
           const active = base.filter(k => k.is_active !== false);
           if (active.length === 0) return 0;
           const total = active.reduce((acc, k) => acc + Number(k.avg_daily_velocity || 0), 0);
@@ -572,12 +576,12 @@ export function getKeywordsClientAppScript() {
         },
 
         get totalDisplacedPinsCount() {
-          const list = this.activeFolderId ? this.filteredDashboardKeywords : (this.keywords || []);
+          const list = this.keywords || [];
           return list.reduce((acc, k) => acc + Number(k.displaced_pins_count || 0), 0);
         },
 
         get totalActivePinsCount() {
-          const list = this.activeFolderId ? this.filteredDashboardKeywords : (this.keywords || []);
+          const list = this.keywords || [];
           return list.reduce((acc, k) => acc + Number(k.active_pins_count ?? k.snapshots_count ?? 0), 0);
         },
 
@@ -589,12 +593,12 @@ export function getKeywordsClientAppScript() {
         get nightlySyncCountdown() {
           const now = new Date();
           const next = new Date(now);
-          next.setUTCHours(2, 0, 0, 0);
+          next.setUTCHours(1, 0, 0, 0);
           if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
           const diffMs = next.getTime() - now.getTime();
           const hours = Math.floor(diffMs / 3600000);
           const mins = Math.floor((diffMs % 3600000) / 60000);
-          return 'Next Batch at 02:00 UTC (~' + hours + 'h ' + mins + 'm)';
+          return 'Next Batch at 01:00 UTC (~' + hours + 'h ' + mins + 'm)';
         },
 
         // [INVARIANT: NO-FABRICATED-TELEMETRY] Canonical velocity extraction & momentum tier assignment
@@ -623,10 +627,10 @@ export function getKeywordsClientAppScript() {
         },
 
         getActiveSerpPercentage(kw) {
-          const active = Number(kw?.active_pins_count ?? this.getKeywordTotalPins(kw) ?? 0);
+          const active = Number(kw?.active_pins_count ?? 0);
           const displaced = Number(kw?.displaced_pins_count || 0);
           const total = active + displaced;
-          if (!total) return 100;
+          if (!total) return 0;
           return Math.min(100, Math.max(0, Math.round((active / total) * 100)));
         },
 
@@ -648,41 +652,6 @@ export function getKeywordsClientAppScript() {
           return Number.isFinite(val) ? val : 0;
         },
 
-        get filteredDisplacedPins() {
-          let list = this.displacedPins || [];
-          if (this.displacedStatusFilter && this.displacedStatusFilter !== 'ALL') {
-            list = list.filter(p => p.status === this.displacedStatusFilter);
-          }
-          if (this.pinSearch && this.pinSearch.trim()) {
-            const q = this.pinSearch.toLowerCase().trim();
-            list = list.filter(p => 
-              (p.title || '').toLowerCase().includes(q) ||
-              (p.domain || '').toLowerCase().includes(q)
-            );
-          }
-          if (this.pinSort === 'velocity') {
-            return [...list].sort((a, b) => Number(b.daily_save_velocity || 0) - Number(a.daily_save_velocity || 0));
-          } else if (this.pinSort === 'saves') {
-            return [...list].sort((a, b) => Number(b.save_count || 0) - Number(a.save_count || 0));
-          } else if (this.pinSort === 'age') {
-            return [...list].sort((a, b) => new Date(b.displaced_date || 0) - new Date(a.displaced_date || 0));
-          }
-          return [...list].sort((a, b) => Number(b.vacuum_opportunity_score || 0) - Number(a.vacuum_opportunity_score || 0));
-        },
-
-        get paginatedDisplacedPins() {
-          const list = this.filteredDisplacedPins || [];
-          const sz = Number(this.displacedPageSize) || 25;
-          const start = (this.displacedPage - 1) * sz;
-          return list.slice(start, start + sz);
-        },
-
-        get totalDisplacedPages() {
-          const list = this.filteredDisplacedPins || [];
-          const sz = Number(this.displacedPageSize) || 25;
-          return Math.max(1, Math.ceil(list.length / sz));
-        },
-
         rebuildPinCaches() {
           const currentPins = (this.selectedKeywordDetails?.current_pins || []).map(p => ({
             ...p,
@@ -697,6 +666,7 @@ export function getKeywordsClientAppScript() {
             save_count: p.current_saves ?? p.save_count ?? 0,
             repin_count: p.current_repins ?? p.repin_count ?? 0,
             comment_count: p.current_comments ?? p.comment_count ?? 0,
+            share_count: p.current_shares ?? p.share_count ?? 0,
             board_name: p.board_name || p.metadata?.board_name || null,
             creation_method: p.creation_method || p.method || p.metadata?.creation_method || p.metadata?.method || null,
             created_at_pinterest: p.created_at_pinterest || p.metadata?.created_at_pinterest || p.metadata?.created_at || null
@@ -708,6 +678,7 @@ export function getKeywordsClientAppScript() {
             save_count: p.current_saves ?? p.save_count ?? 0,
             repin_count: p.current_repins ?? p.repin_count ?? 0,
             comment_count: p.current_comments ?? p.comment_count ?? 0,
+            share_count: p.current_shares ?? p.share_count ?? 0,
             board_name: p.board_name || p.metadata?.board_name || null,
             creation_method: p.creation_method || p.method || p.metadata?.creation_method || p.metadata?.method || null,
             created_at_pinterest: p.created_at_pinterest || p.metadata?.created_at_pinterest || p.metadata?.created_at || null
@@ -800,7 +771,13 @@ export function getKeywordsClientAppScript() {
         getPinVisualTags(pin) {
           if (!pin) return [];
           if (pin._cachedVisualTags) return pin._cachedVisualTags;
-          const raw = pin.metadata?.visual_annotations || pin.annotations || pin.visual_annotations || [];
+          const raw = (Array.isArray(pin.visual_annotations) && pin.visual_annotations.length > 0)
+            ? pin.visual_annotations
+            : ((Array.isArray(pin.annotations) && pin.annotations.length > 0)
+                ? pin.annotations
+                : ((Array.isArray(pin.visual_tags) && pin.visual_tags.length > 0)
+                    ? pin.visual_tags
+                    : (pin.metadata?.visual_annotations || [])));
           return (raw || []).map(t => {
             if (typeof t === 'string') return t.trim();
             if (t && typeof t === 'object') return (t.name || t.label || t.term || t.title || '').trim();
@@ -1239,17 +1216,14 @@ export function getKeywordsClientAppScript() {
             }
           } catch (_) {}
 
-          window.addEventListener('popstate', (e) => {
-            const path = window.location.pathname || '';
-            if (path === '/keywords' || path === '/keywords/') {
+          window.addEventListener('popstate', () => {
+            const pathSlug = this.extractSlugFromUrl();
+            if (!pathSlug) {
               this.viewModeLevel = 'dashboard';
               this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
             } else {
-              const pathSlug = this.extractSlugFromUrl();
-              if (pathSlug) {
-                this.viewModeLevel = 'serp_studio';
-                this.loadKeywordBySlugOrText(pathSlug, false);
-              }
+              this.viewModeLevel = 'serp_studio';
+              this.loadKeywordBySlugOrText(pathSlug, false);
             }
           });
 
@@ -1280,8 +1254,6 @@ export function getKeywordsClientAppScript() {
           this.$watch('dashboardCategoryFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); });
           this.$watch('dashboardStatusFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); });
           this.$watch('dashboardFolderFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); });
-          this.$watch('dashboardGrowthFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); });
-          this.$watch('dashboardPinsFilter', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); });
           this.$watch('dashboardSort', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); });
           this.$watch('dashboardPageSize', () => { this.dashboardPage = 1; this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); }); });
           this.$watch('dashboardTotalPages', (total) => { if (this.dashboardPage > total) this.dashboardPage = Math.max(1, total); });
@@ -1416,8 +1388,8 @@ export function getKeywordsClientAppScript() {
 
         async bulkDeleteKeywords() {
           if (this.selectedKeywordIds.length === 0) return;
-          const confirmed = await window.PAE.confirm('Are you sure you want to delete ' + this.selectedKeywordIds.length + ' tracked keywords?', {
-            title: 'Delete Tracked Keywords',
+          const confirmed = await window.PAE.confirm('Are you sure you want to permanently delete ' + this.selectedKeywordIds.length + ' tracked keywords across ALL folders?', {
+            title: 'Delete Tracked Keywords Globally',
             confirmLabel: 'Delete ' + this.selectedKeywordIds.length + ' Keywords',
             danger: true
           });
@@ -1434,9 +1406,79 @@ export function getKeywordsClientAppScript() {
               throw new Error(errPayload.message || errPayload.error || ('HTTP ' + res.status));
             }
             this.showToast('Deleted ' + this.selectedKeywordIds.length + ' keywords.', 'info');
-            await this.fetchKeywords();
+            await Promise.allSettled([this.fetchKeywords(true), this.fetchFolders()]);
           } catch (err) {
             this.showToast('Bulk delete error: ' + err.message, 'error');
+          } finally {
+            this.isBulkLoading = false;
+            this.selectedKeywordIds = [];
+          }
+        },
+
+        async removeKeywordFromActiveFolder(kw) {
+          if (!this.activeFolderId || !kw?.id) return;
+          const folderLabel = this.activeFolder?.name || ('Folder #' + this.activeFolderId);
+          const confirmed = await window.PAE.confirm('Remove "' + kw.keyword + '" from "' + folderLabel + '"? Its global SERP history will remain intact for other folders.', {
+            title: 'Remove Keyword from Folder',
+            confirmLabel: 'Remove from Folder',
+            danger: false
+          });
+          if (!confirmed) return;
+          try {
+            const deleteUrl = this.getApiUrl(
+              '/api/folders/items?folder_id=' + encodeURIComponent(this.activeFolderId) +
+              '&keyword_id=' + encodeURIComponent(kw.id)
+            );
+            const res = await (window.safeApiFetch || fetch)(deleteUrl, {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ folder_id: this.activeFolderId, keyword_id: kw.id })
+            });
+            if (!res.ok) {
+              const errPayload = await res.json().catch(() => ({}));
+              throw new Error(errPayload.message || errPayload.error || ('HTTP ' + res.status));
+            }
+            this.showToast('Removed "' + kw.keyword + '" from folder.', 'info');
+            this.selectedKeywordIds = this.selectedKeywordIds.filter(id => Number(id) !== Number(kw.id));
+            if (this.selectedKeyword?.id === kw.id) {
+              this.selectedKeyword = null;
+              this.selectedKeywordDetails = null;
+            }
+            await Promise.allSettled([this.fetchKeywords(true), this.fetchFolders()]);
+          } catch (err) {
+            this.showToast('Remove error: ' + err.message, 'error');
+          }
+        },
+
+        async bulkRemoveFromActiveFolder() {
+          if (!this.activeFolderId || this.selectedKeywordIds.length === 0) return;
+          const folderLabel = this.activeFolder?.name || ('Folder #' + this.activeFolderId);
+          const count = this.selectedKeywordIds.length;
+          const confirmed = await window.PAE.confirm('Remove ' + count + ' selected keywords from "' + folderLabel + '"? Their global SERP history will remain intact.', {
+            title: 'Remove Keywords from Folder',
+            confirmLabel: 'Remove ' + count + ' Keywords',
+            danger: false
+          });
+          if (!confirmed) return;
+          this.isBulkLoading = true;
+          try {
+            const deleteUrl = this.getApiUrl(
+              '/api/folders/items?folder_id=' + encodeURIComponent(this.activeFolderId) +
+              '&keyword_ids=' + encodeURIComponent(this.selectedKeywordIds.join(','))
+            );
+            const res = await (window.safeApiFetch || fetch)(deleteUrl, {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ folder_id: this.activeFolderId, keyword_ids: this.selectedKeywordIds })
+            });
+            if (!res.ok) {
+              const errPayload = await res.json().catch(() => ({}));
+              throw new Error(errPayload.message || errPayload.error || ('HTTP ' + res.status));
+            }
+            this.showToast('Removed ' + count + ' keywords from folder.', 'info');
+            await Promise.allSettled([this.fetchKeywords(true), this.fetchFolders()]);
+          } catch (err) {
+            this.showToast('Bulk folder removal error: ' + err.message, 'error');
           } finally {
             this.isBulkLoading = false;
             this.selectedKeywordIds = [];
@@ -1467,7 +1509,7 @@ export function getKeywordsClientAppScript() {
             }
             this.showToast('Added ' + this.selectedKeywordIds.length + ' keywords to campaign folder!', 'success');
             this.isBulkFolderModalOpen = false;
-            await this.fetchFolders();
+            await Promise.allSettled([this.fetchKeywords(true), this.fetchFolders()]);
           } catch (err) {
             this.showToast('Bulk folder error: ' + err.message, 'error');
           } finally {
@@ -1495,7 +1537,7 @@ export function getKeywordsClientAppScript() {
         },
 
         computeSerpPowerPairs() {
-          const pins = this.filteredPins || [];
+          const pins = this.analyzedPinsList || [];
           if (pins.length === 0) return [];
           
           const tagCounts = new Map();
@@ -1628,14 +1670,26 @@ export function getKeywordsClientAppScript() {
           }
         },
 
+        async refreshWorkspace(force = true) {
+          const now = Date.now();
+          if (force && this.lastRefreshAt && (now - this.lastRefreshAt) < 15000) {
+            const remaining = Math.ceil((15000 - (now - this.lastRefreshAt)) / 1000);
+            this.showToast('Recently refreshed — wait ' + remaining + 's before refreshing again.', 'info');
+            return;
+          }
+          this.lastRefreshAt = now;
+          const tasks = [this.fetchKeywords(true), this.fetchFolders()];
+          if (this.viewModeLevel === 'serp_studio' && this.selectedKeyword?.id) {
+            tasks.push(this.selectKeyword(this.selectedKeyword, false));
+          }
+          await Promise.allSettled(tasks);
+        },
+
         async loadKeywordBySlugOrText(slugOrText, updateHistory = true, allowCreate = false) {
           if (!slugOrText) return;
           const cleanText = slugOrText.replace(/[-_]+/g, ' ').trim().toLowerCase();
           const cleanSlug = cleanText.replace(/\\s+/g, '-');
           this.activeKeywordQuery = cleanText;
-
-          // Fetch official 52-week trends asynchronously
-          this.fetchTrends(cleanText);
 
           const match = this.keywords.find(k => 
             k.keyword.toLowerCase() === cleanText ||
@@ -1643,21 +1697,36 @@ export function getKeywordsClientAppScript() {
           );
 
           if (match) {
+            this.viewModeLevel = 'serp_studio';
             await this.selectKeyword(match, updateHistory);
           } else {
+            this.trendsData = null;
+            this.fetchTrends(cleanText);
             this.isDetailsLoading = true;
+            if (this.detailAbortController) {
+              try { this.detailAbortController.abort(); } catch (_) {}
+            }
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            this.detailAbortController = controller;
+            const currentReqId = ++this.detailRequestId;
             try {
               const autoParam = allowCreate ? '&auto_create=true' : '';
-              const res = await window.apiFetch(this.getApiUrl('/api/keywords/serp-compare?slug=' + encodeURIComponent(cleanSlug) + autoParam));
+              const res = await window.apiFetch(
+                this.getApiUrl('/api/keywords/serp-compare?slug=' + encodeURIComponent(cleanSlug) + autoParam),
+                controller ? { signal: controller.signal } : {}
+              );
+              if (currentReqId !== this.detailRequestId) return;
               const data = await res.json().catch(() => ({}));
+              if (currentReqId !== this.detailRequestId) return;
               if (!res.ok) {
                 throw new Error(data.error || data.message || ('HTTP ' + res.status));
               }
               if (data.success && data.keyword) {
-                this.selectedKeyword = data.keyword;
+                let resolvedKw = data.keyword;
+                this.selectedKeyword = resolvedKw;
                 this.selectedKeywordDetails = data;
-                this.displacedOffset = 0;
                 this.displacedPins = [];
+                this.displacedOffset = Array.isArray(data.dropped_out_pins) ? data.dropped_out_pins.length : 0;
                 if (data.total_displaced_count !== undefined) {
                   this.displacedPinsTotal = Number(data.total_displaced_count);
                 }
@@ -1666,23 +1735,47 @@ export function getKeywordsClientAppScript() {
                 this.domainPage = 1;
                 this.domainSearch = '';
                 this.rebuildPinCaches();
-                if (data.keyword.id) {
-                  this.fetchDisplacedPins(data.keyword.id);
+                if (allowCreate && this.activeFolderId && resolvedKw.id) {
+                  const linkRes = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/folders/items'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folder_id: this.activeFolderId, keyword_id: resolvedKw.id })
+                  }).catch(() => null);
+                  if (linkRes && linkRes.ok) {
+                    const folderMeta = this.activeFolder
+                      ? { id: this.activeFolder.id || Number(this.activeFolderId), name: this.activeFolder.name || ('Folder #' + this.activeFolderId), color: this.activeFolder.color || '#ec4899' }
+                      : { id: Number(this.activeFolderId), name: 'Folder #' + this.activeFolderId, color: '#ec4899' };
+                    const existingFolders = Array.isArray(resolvedKw.folders) ? resolvedKw.folders : [];
+                    if (!existingFolders.some(f => f && String(f.id) === String(folderMeta.id))) {
+                      resolvedKw = { ...resolvedKw, folders: [...existingFolders, folderMeta] };
+                      this.selectedKeyword = resolvedKw;
+                    }
+                  }
+                  this.fetchFolders();
                 }
-                if (!this.keywords.some(k => k.id === data.keyword.id)) {
-                  this.keywords.unshift(this.normalizeKeyword(data.keyword));
+                this.fetchCurrentKeywordFolders();
+                if (!this.keywords.some(k => k.id === resolvedKw.id)) {
+                  this.keywords.unshift(this.normalizeKeyword(resolvedKw));
                 }
                 if (updateHistory) {
-                  window.history.pushState(null, '', '/keywords/' + encodeURIComponent(cleanSlug));
+                  const targetPath = this.activeFolderId
+                    ? '/folders/' + encodeURIComponent(this.activeFolderId) + '/keywords?q=' + encodeURIComponent(cleanSlug)
+                    : '/keywords/' + encodeURIComponent(cleanSlug);
+                  window.history.pushState(null, '', targetPath);
                 }
               } else {
                 throw new Error(data.error || 'Could not resolve keyword');
               }
             } catch (err) {
-              this.showToast('Error loading keyword: ' + err.message, 'error');
+              if (err && err.name === 'AbortError') return;
+              if (currentReqId === this.detailRequestId) {
+                this.showToast('Error loading keyword: ' + err.message, 'error');
+              }
             } finally {
-              this.isDetailsLoading = false;
-              this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+              if (currentReqId === this.detailRequestId) {
+                this.isDetailsLoading = false;
+                this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+              }
             }
           }
         },
@@ -1691,6 +1784,7 @@ export function getKeywordsClientAppScript() {
           if (!kw) return;
           this.selectedKeyword = kw;
           this.activeKeywordQuery = kw.keyword;
+          this.trendsData = null;
           this.pinPage = 1;
           this.selectedPinIds = [];
           this.anchorsPage = 1;
@@ -1703,10 +1797,9 @@ export function getKeywordsClientAppScript() {
           this.displacedPins = [];
           this.displacedPinsTotal = Number(kw.displaced_pins_count || 0);
 
-          // Fetch 52-week trends
+          // Fetch 52-week trends and folder memberships (initial displaced batch arrives via serp-compare)
           this.fetchTrends(kw.keyword);
           this.fetchCurrentKeywordFolders();
-          this.fetchDisplacedPins(kw.id);
 
           const cleanSlug = kw.keyword.trim().toLowerCase().replace(/\\s+/g, '-');
           if (updateHistory) {
@@ -1732,6 +1825,7 @@ export function getKeywordsClientAppScript() {
             if (currentReqId !== this.detailRequestId) return;
 
             this.selectedKeywordDetails = data;
+            this.displacedOffset = Array.isArray(data.dropped_out_pins) ? data.dropped_out_pins.length : 0;
             if (data.total_displaced_count !== undefined) {
               this.displacedPinsTotal = Number(data.total_displaced_count);
             }
@@ -1751,6 +1845,12 @@ export function getKeywordsClientAppScript() {
 
         async fetchTrends(term, force = false) {
           if (!term) return;
+          const cleanTerm = String(term).trim().toLowerCase();
+          const existingTerm = String(this.trendsData?.term || this.trendsData?.keyword || '').trim().toLowerCase();
+          const sameTerm = Boolean(this.trendsData && existingTerm && existingTerm === cleanTerm);
+          if (!sameTerm) {
+            this.trendsData = null;
+          }
           if (this.trendsAbortController) {
             try { this.trendsAbortController.abort(); } catch (_) {}
           }
@@ -1772,7 +1872,7 @@ export function getKeywordsClientAppScript() {
                 const data = await res.json();
                 if (signal && signal.aborted) return;
                 if (data.success) {
-                  this.trendsData = { ...(this.trendsData || {}), ...data };
+                  this.trendsData = { ...(sameTerm && this.trendsData ? this.trendsData : {}), ...data, term: data.term || term };
                   return;
                 }
               }
@@ -1802,7 +1902,9 @@ export function getKeywordsClientAppScript() {
 
             if (signal && signal.aborted) return;
             if (Object.keys(merged).length > 0) {
-              this.trendsData = { ...(this.trendsData || {}), ...merged };
+              this.trendsData = { ...(sameTerm && this.trendsData ? this.trendsData : {}), ...merged, term: merged.term || term };
+            } else if (!sameTerm) {
+              this.trendsData = null;
             }
           } catch (_) {} finally {
             if (!signal || !signal.aborted) {
@@ -1937,16 +2039,15 @@ export function getKeywordsClientAppScript() {
           try {
             const offset = append ? this.displacedOffset : 0;
             const limit = 500;
-            const statusParam = this.displacedStatusFilter !== 'ALL' ? '&status=' + encodeURIComponent(this.displacedStatusFilter) : '';
             const res = await window.apiFetch(
-              this.getApiUrl('/api/keywords/displaced?keyword_id=' + kid + '&limit=' + limit + '&offset=' + offset + statusParam),
+              this.getApiUrl('/api/keywords/displaced?keyword_id=' + kid + '&limit=' + limit + '&offset=' + offset),
               signal ? { signal } : {}
             );
             if (signal && signal.aborted) return;
             if (res.ok) {
               const data = await res.json();
               if (signal && signal.aborted) return;
-              const incoming = data.displaced_pins || data.pins || [];
+              const incoming = data.pins || [];
               if (append) {
                 const existingIds = new Set([
                   ...this.displacedPins.map(p => String(p.pin_id || p.id)),
@@ -1959,15 +2060,15 @@ export function getKeywordsClientAppScript() {
                 this.displacedPins = incoming;
                 this.displacedOffset = incoming.length;
               }
+              this.rebuildPinCaches();
               if (data.total !== undefined && data.total !== null) {
                 this.displacedPinsTotal = Number(data.total);
               } else {
-                this.displacedPinsTotal = Math.max(this.displacedPinsTotal || 0, this.displacedPins.length);
+                this.displacedPinsTotal = Math.max(this.displacedPinsTotal || 0, this.displacedVaultPins.length);
               }
               if (append && incoming.length < limit) {
-                this.displacedPinsTotal = Math.max(this.displacedPins.length, (this.selectedKeywordDetails?.dropped_out_pins || []).length);
+                this.displacedPinsTotal = this.displacedVaultPins.length;
               }
-              this.rebuildPinCaches();
             }
           } catch (_) {} finally {
             if (!signal || !signal.aborted) {
@@ -2186,18 +2287,26 @@ export function getKeywordsClientAppScript() {
           const filter = this.growthPaceFilter || '24h';
           if (filter === 'all') return '';
 
-          let val = 0;
           const deltas = pin.metadata?.deltas || pin.deltas || {};
+          let rawVal;
           if (filter === '24h') {
-            val = Number(deltas[metric + '_24h'] ?? (metric === 'saves' ? (pin.daily_save_velocity ?? 0) : 0));
-          } else if (filter === '3d') {
-            val = Number(deltas[metric + '_3d'] ?? (metric === 'saves' ? ((pin.daily_save_velocity || 0) * 3) : 0));
-          } else if (filter === '7d') {
-            val = Number(deltas[metric + '_7d'] ?? (metric === 'saves' ? ((pin.daily_save_velocity || 0) * 7) : 0));
+            if (deltas[metric + '_24h'] !== undefined && deltas[metric + '_24h'] !== null) {
+              rawVal = deltas[metric + '_24h'];
+            } else if (metric === 'saves') {
+              rawVal = pin.daily_save_velocity ?? 0;
+            } else if (metric === 'repins') {
+              rawVal = pin.daily_repin_velocity ?? 0;
+            } else {
+              rawVal = 0;
+            }
+          } else {
+            rawVal = deltas[metric + '_' + filter];
+            if (rawVal === undefined || rawVal === null) return '';
           }
+          const val = Number(rawVal);
+          if (!Number.isFinite(val) || val === 0) return '0';
           if (val > 0) return '+' + this.formatNumber(val);
-          if (val < 0) return '-' + this.formatNumber(Math.abs(val));
-          return '0';
+          return '-' + this.formatNumber(Math.abs(val));
         },
 
         getTrajectoryDualSvg(snapshots, width = 640, height = 220) {
@@ -2307,7 +2416,7 @@ export function getKeywordsClientAppScript() {
         getInspectorAnnotations() {
           const raw = (this.dossierData?.annotations && this.dossierData.annotations.length > 0)
             ? this.dossierData.annotations
-            : (this.activeInspectorPin?.metadata?.visual_annotations || []);
+            : this.getPinVisualTags(this.activeInspectorPin);
           return (raw || []).map(t => {
             if (typeof t === 'string') return t;
             if (t && typeof t === 'object') {
@@ -2527,8 +2636,8 @@ export function getKeywordsClientAppScript() {
               this.selectedKeyword = null;
               this.selectedKeywordDetails = null;
             }
-            await this.fetchKeywords(true);
-            if (this.keywords.length > 0 && !this.selectedKeyword) {
+            await Promise.allSettled([this.fetchKeywords(true), this.fetchFolders()]);
+            if (this.viewModeLevel === 'serp_studio' && this.keywords.length > 0 && !this.selectedKeyword) {
               this.selectKeyword(this.keywords[0]);
             }
           } catch (err) {
@@ -2537,11 +2646,16 @@ export function getKeywordsClientAppScript() {
         },
 
         openFleetDispatchModal(target = null) {
-          const kwObj = (typeof target === 'object' && target !== null)
-            ? target
-            : (typeof target === 'string' && target
-                ? (this.keywords.find(k => k.keyword?.toLowerCase() === target.toLowerCase()) || { keyword: target })
-                : this.selectedKeyword);
+          let kwObj = null;
+          if (typeof target === 'object' && target !== null) {
+            kwObj = target;
+          } else if (typeof target === 'string') {
+            kwObj = target
+              ? (this.keywords.find(k => k.keyword?.toLowerCase() === target.toLowerCase()) || { keyword: target })
+              : null;
+          } else if (this.viewModeLevel === 'serp_studio') {
+            kwObj = this.selectedKeyword;
+          }
           this.fleetDispatchTargetKeyword = kwObj?.keyword || '';
           this.fleetDispatchHarvestSerp = true;
           this.fleetDispatchScope = 'all_pins';
@@ -2568,12 +2682,14 @@ export function getKeywordsClientAppScript() {
           try {
             const targetKw = this.fleetDispatchTargetKeyword || '';
             const targetPins = String(this.fleetDispatchMaxPins || this.selectedKeyword?.target_pin_count || this.appSettings?.max_serp_pins || this.appSettings?.default_max_pins || 50);
+            const scopedFolderId = (!targetKw && this.activeFolderId) ? String(this.activeFolderId) : '';
             const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/keywords/dispatch-workflow'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 target_keyword: targetKw,
                 keyword: targetKw,
+                ...(scopedFolderId ? { folder_id: scopedFolderId } : {}),
                 crawl_scope: this.fleetDispatchScope || 'all_pins',
                 max_pins: targetPins,
                 max_serp_pins: targetPins,
@@ -2696,14 +2812,6 @@ export function getKeywordsClientAppScript() {
           } catch (_) {
             return String(d);
           }
-        },
-
-        getQuotaPercentage(kw) {
-          if (!kw) return 0;
-          const fallbackQuota = Number(this.appSettings?.max_serp_pins || this.appSettings?.default_max_pins || 50);
-          const current = Number(kw.snapshots_count) || Number(kw.target_pin_count) || fallbackQuota;
-          const target = Number(kw.target_pin_count) || fallbackQuota;
-          return Math.min(100, Math.max(0, Math.round((current / target) * 100)));
         },
 
         getPinMethod(pin) {
@@ -2829,12 +2937,11 @@ export function getKeywordsClientAppScript() {
         },
 
         getSparklinePoints(kw) {
-          const history = kw.metadata?.velocity_history;
+          const history = kw?.metadata?.velocity_history;
           if (Array.isArray(history) && history.length > 1) {
             return history.map(h => Number(h.velocity || 0));
           }
-          const cur = Number(kw.avg_daily_velocity || 0);
-          return [Math.max(0, cur * 0.6), Math.max(0, cur * 0.85), cur];
+          return [];
         },
 
         generateSparklinePath(points, width = 80, height = 20) {
@@ -2907,7 +3014,7 @@ export function getKeywordsClientAppScript() {
               if (this.folders.length > 0) {
                 if (this.activeFolderId) {
                   const matched = this.folders.find(f => String(f.id) === String(this.activeFolderId));
-                  if (matched) this.activeFolder = this.activeFolder ? { ...matched, ...this.activeFolder } : matched;
+                  if (matched) this.activeFolder = this.activeFolder ? { ...this.activeFolder, ...matched } : matched;
                 } else if (!this.activeFolder) {
                   this.activeFolder = this.folders[0];
                 }
@@ -2937,7 +3044,7 @@ export function getKeywordsClientAppScript() {
             this.showToast('Campaign folder created!', 'success');
             this.isCreateFolderModalOpen = false;
             await this.fetchFolders();
-            if (data.folder) {
+            if (data.folder && !this.activeFolderId) {
               this.activeFolder = data.folder;
             }
           } catch (err) {
@@ -2968,7 +3075,11 @@ export function getKeywordsClientAppScript() {
           const inFolder = this.isKeywordInFolder(folderId);
           try {
             if (inFolder) {
-              const res = await window.apiFetch(this.getApiUrl('/api/folders/items'), {
+              const deleteUrl = this.getApiUrl(
+                '/api/folders/items?folder_id=' + encodeURIComponent(folderId) +
+                '&keyword_id=' + encodeURIComponent(this.selectedKeyword.id)
+              );
+              const res = await window.apiFetch(deleteUrl, {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ folder_id: folderId, keyword_id: this.selectedKeyword.id })
@@ -2992,6 +3103,9 @@ export function getKeywordsClientAppScript() {
             }
             await this.fetchCurrentKeywordFolders();
             await this.fetchFolders();
+            if (this.activeFolderId && String(folderId) === String(this.activeFolderId)) {
+              await this.fetchKeywords(true);
+            }
           } catch (err) {
             this.showToast('Folder update error: ' + err.message, 'error');
           }

@@ -16,6 +16,7 @@ import {
   addKeywordToFolder,
   batchAddKeywordsToFolder,
   removeKeywordFromFolder,
+  batchRemoveKeywordsFromFolder,
   getFoldersForKeyword,
   listFolderCreators,
   listFolderCreatorsWithDiscovery,
@@ -168,36 +169,62 @@ export async function handleFoldersRoutes({
     // Sub-route: /api/folders/items (POST / DELETE without path :id)
     if (parts.length === 1 && parts[0] === 'items') {
       if (method === 'POST') {
-        await invalidateEdgeCache('keywords');
-        await invalidateEdgeCache('folders');
         const body = await request.json().catch(() => ({}));
         const itemFolderId = body.folder_id || searchParams.get('folder_id');
         if (!itemFolderId) return jsonResponse({ success: false, error: 'folder_id is required' }, 400);
         await assertFolderInWorkspace(sql, itemFolderId, workspaceId);
         if (Array.isArray(body.keyword_ids)) {
           const result = await batchAddKeywordsToFolder(sql, itemFolderId, body.keyword_ids);
+          await invalidateEdgeCache('keywords');
+          await invalidateEdgeCache('folders');
           invalidateFolderCache(itemFolderId, workspaceId);
           return jsonResponse({ success: true, ...result });
         }
         const keywordId = body.keyword_id || searchParams.get('keyword_id');
         if (!keywordId) return jsonResponse({ success: false, error: 'keyword_id or keyword_ids is required' }, 400);
         const item = await addKeywordToFolder(sql, itemFolderId, keywordId, body.notes || '');
+        await invalidateEdgeCache('keywords');
+        await invalidateEdgeCache('folders');
         invalidateFolderCache(itemFolderId, workspaceId);
         return jsonResponse({ success: true, item });
       }
       if (method === 'DELETE') {
-        await invalidateEdgeCache('keywords');
-        await invalidateEdgeCache('folders');
         let itemFolderId = searchParams.get('folder_id');
         let keywordId = searchParams.get('keyword_id');
+        let keywordIds = null;
+        const rawQueryIds = typeof searchParams.getAll === 'function' ? searchParams.getAll('keyword_ids') : [];
+        const singleQueryIds = rawQueryIds.length === 0 ? searchParams.get('keyword_ids') : null;
+        const combinedQueryIds = rawQueryIds.length > 0 ? rawQueryIds : (singleQueryIds ? [singleQueryIds] : []);
+        if (combinedQueryIds.length > 0) {
+          const parsedQueryIds = combinedQueryIds
+            .flatMap((v) => String(v || '').split(','))
+            .map((v) => Number(v.trim()))
+            .filter((n) => Number.isInteger(n) && n > 0);
+          if (parsedQueryIds.length > 0) {
+            keywordIds = parsedQueryIds;
+          }
+        }
         try {
           const body = await request.json();
           itemFolderId = itemFolderId || body.folder_id;
           keywordId = keywordId || body.keyword_id;
+          if (Array.isArray(body.keyword_ids) && (body.keyword_ids.length > 0 || keywordIds === null)) {
+            keywordIds = body.keyword_ids;
+          }
         } catch (_) {}
-        if (!itemFolderId || !keywordId) return jsonResponse({ success: false, error: 'folder_id and keyword_id are required' }, 400);
+        if (!itemFolderId) return jsonResponse({ success: false, error: 'folder_id is required' }, 400);
         await assertFolderInWorkspace(sql, itemFolderId, workspaceId);
+        if (Array.isArray(keywordIds)) {
+          const result = await batchRemoveKeywordsFromFolder(sql, itemFolderId, keywordIds);
+          await invalidateEdgeCache('keywords');
+          await invalidateEdgeCache('folders');
+          invalidateFolderCache(itemFolderId, workspaceId);
+          return jsonResponse({ success: true, ...result });
+        }
+        if (!keywordId) return jsonResponse({ success: false, error: 'folder_id and keyword_id (or keyword_ids) are required' }, 400);
         const deleted = await removeKeywordFromFolder(sql, itemFolderId, keywordId);
+        await invalidateEdgeCache('keywords');
+        await invalidateEdgeCache('folders');
         invalidateFolderCache(itemFolderId, workspaceId);
         return jsonResponse({ success: true, deleted });
       }
@@ -487,8 +514,6 @@ export async function handleFoldersRoutes({
       if (!folderId) return jsonResponse({ success: false, error: 'Valid folder ID is required' }, 400);
       await assertFolderInWorkspace(sql, folderId, workspaceId);
       if (method === 'POST') {
-        await invalidateEdgeCache('keywords');
-        await invalidateEdgeCache('folders');
         const body = await request.json().catch(() => ({}));
         if (Array.isArray(body.keywords) && body.keywords.length > 0) {
           const cleanTerms = Array.from(new Set(
@@ -507,6 +532,8 @@ export async function handleFoldersRoutes({
           const result = createdIds.length > 0
             ? await batchAddKeywordsToFolder(sql, folderId, createdIds)
             : { added: 0 };
+          await invalidateEdgeCache('keywords');
+          await invalidateEdgeCache('folders');
           invalidateFolderCache(folderId, workspaceId);
           return jsonResponse({
             success: true,
@@ -517,18 +544,20 @@ export async function handleFoldersRoutes({
         }
         if (Array.isArray(body.keyword_ids)) {
           const result = await batchAddKeywordsToFolder(sql, folderId, body.keyword_ids);
+          await invalidateEdgeCache('keywords');
+          await invalidateEdgeCache('folders');
           invalidateFolderCache(folderId, workspaceId);
           return jsonResponse({ success: true, ...result });
         }
         const keywordId = body.keyword_id || searchParams.get('keyword_id');
         if (!keywordId) return jsonResponse({ error: 'keyword_id, keyword_ids, or keywords is required' }, 400);
         const item = await addKeywordToFolder(sql, folderId, keywordId, body.notes || '');
+        await invalidateEdgeCache('keywords');
+        await invalidateEdgeCache('folders');
         invalidateFolderCache(folderId, workspaceId);
         return jsonResponse({ success: true, item });
       }
       if (method === 'DELETE') {
-        await invalidateEdgeCache('keywords');
-        await invalidateEdgeCache('folders');
         let keywordId = parts[2] || searchParams.get('keyword_id');
         let body = {};
         try {
@@ -537,6 +566,8 @@ export async function handleFoldersRoutes({
         } catch (_) {}
         if (!keywordId) return jsonResponse({ error: 'keyword_id is required' }, 400);
         const deleted = await removeKeywordFromFolder(sql, folderId, keywordId);
+        await invalidateEdgeCache('keywords');
+        await invalidateEdgeCache('folders');
         invalidateFolderCache(folderId, workspaceId);
         return jsonResponse({ success: true, deleted });
       }

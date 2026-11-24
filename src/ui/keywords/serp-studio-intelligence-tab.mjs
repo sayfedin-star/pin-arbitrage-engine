@@ -124,8 +124,8 @@ export function renderSerpStudioIntelligenceTab() {
               </div>
             </div>
             <div class="space-y-1.5">
-              <div class="text-xs font-black truncate" x-text="selectedKeywordDetails?.intelligence?.opportunity?.badge || 'Wide Open'"></div>
-              <p class="text-[11px] text-slate-500 leading-snug line-clamp-2" x-text="selectedKeywordDetails?.intelligence?.opportunity?.summary || 'Algorithmic Arbitrage target.'"></p>
+              <div class="text-xs font-black truncate" x-text="selectedKeywordDetails?.intelligence?.opportunity?.badge || 'Calculating...'"></div>
+              <p class="text-[11px] text-slate-500 leading-snug line-clamp-2" x-text="selectedKeywordDetails?.intelligence?.opportunity?.summary || 'Waiting for SERP intelligence telemetry.'"></p>
             </div>
           </div>
         </div>

@@ -974,6 +974,31 @@ export async function removeKeywordFromFolder(sql, folderId, keywordId) {
 }
 
 /**
+ * Batch remove keywords from folder (preserves global tracked_keywords & SERP history for other folders)
+ */
+export async function batchRemoveKeywordsFromFolder(sql, folderId, keywordIds = []) {
+  const fid = Number(folderId);
+  const cleanIds = [...new Set((Array.isArray(keywordIds) ? keywordIds : []).map(Number).filter(n => Number.isInteger(n) && n > 0))];
+  if (!fid || cleanIds.length === 0) return { removed: 0, removed_ids: [] };
+
+  const deletedRows = await sql`
+    DELETE FROM keyword_folder_items
+    WHERE folder_id = ${fid} AND keyword_id = ANY(${cleanIds})
+    RETURNING keyword_id;
+  `;
+
+  await sql`
+    UPDATE keyword_folders
+    SET updated_at = NOW()
+    WHERE id = ${fid};
+  `;
+
+  invalidateFolderCache(fid);
+  const removedIds = (deletedRows || []).map(r => Number(r.keyword_id)).filter(Boolean);
+  return { removed: removedIds.length, removed_ids: removedIds };
+}
+
+/**
  * Pin a domain to a campaign folder
  * // [INVARIANT: FOLDER-PINNED-DOMAINS]
  */

@@ -591,9 +591,7 @@ export async function fetchPinterestTrends(term, country = 'US', force = false) 
         const interestInfo = interestData.status === 'fulfilled' ? interestData.value : null;
         const exactSearchCount = interestInfo?.internal_search_count || 0;
 
-        const estimatedMonthlyVolume = exactSearchCount > 0
-          ? exactSearchCount
-          : (avgCount > 0 ? Math.round(avgCount * 3650 + (peakVal * 1200)) : null);
+        const estimatedMonthlyVolume = exactSearchCount > 0 ? exactSearchCount : null;
 
         let demographics = null;
         if (demoRes.status === 'fulfilled') {

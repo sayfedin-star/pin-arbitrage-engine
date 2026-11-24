@@ -67,7 +67,7 @@ export function getKeywordDrawersAndModalsHtml() {
               <span>Alt Text</span>
             </button>
 
-            <button @click="copyToClipboard(dossierData?.description || activeInspectorPin?.metadata?.description || '', 'Copied Pin Description!')"
+            <button @click="copyToClipboard(dossierData?.description || activeInspectorPin?.description || activeInspectorPin?.metadata?.description || '', 'Copied Pin Description!')"
                     class="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition flex items-center space-x-1 cursor-pointer"
                     title="Copy Description">
               <i data-lucide="align-left" class="w-3 h-3 text-emerald-500"></i>
@@ -113,10 +113,10 @@ export function getKeywordDrawersAndModalsHtml() {
     badgeClass: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
     iconName: 'align-left',
     iconClass: 'w-4 h-4 text-emerald-500',
-    copyExpr: "copyToClipboard(dossierData?.description || activeInspectorPin?.metadata?.description || '', 'Copied Pin Description!')",
+    copyExpr: "copyToClipboard(dossierData?.description || activeInspectorPin?.description || activeInspectorPin?.metadata?.description || '', 'Copied Pin Description!')",
     copyButtonLabel: 'Copy Description',
     copyButtonClass: 'px-2 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold transition flex items-center space-x-1 cursor-pointer',
-    bodyTextExpr: "dossierData?.description || activeInspectorPin?.metadata?.description || (isDossierLoading ? 'Extracting pin closeup body...' : 'No description captured for this creative.')"
+    bodyTextExpr: "dossierData?.description || activeInspectorPin?.description || activeInspectorPin?.metadata?.description || (isDossierLoading ? 'Extracting pin closeup body...' : 'No description captured for this creative.')"
   });
 
   const pinInspectorKpiGridHtml = renderPinDossierKpiGrid({
@@ -165,7 +165,7 @@ export function getKeywordDrawersAndModalsHtml() {
       },
       {
         label: 'Reactions',
-        valueExpr: 'formatNumber(dossierData?.kpis?.reactions ?? activeInspectorPin?.reaction_count ?? activeInspectorPin?.metadata?.reactions ?? 0)',
+        valueExpr: 'formatNumber(dossierData?.kpis?.reactions ?? activeInspectorPin?.reaction_count ?? 0)',
         valueClass: 'text-sm sm:text-base font-black text-rose-500 font-mono tabular-nums block',
         extraHtml: `<template x-if="dossierData?.deltas?.reactions_24h">
                   <span class="text-[9px] font-bold text-emerald-500 font-mono block" x-text="'+' + dossierData.deltas.reactions_24h + ' 24h'"></span>
