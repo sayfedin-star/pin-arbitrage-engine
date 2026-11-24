@@ -10,7 +10,7 @@
  */
 
 import { escapeSqlLike } from './whois-age-service.mjs';
-import { safeWaitUntil } from '../../http/security-and-response.mjs';
+import { safeWaitUntil, redactSecrets } from '../../http/security-and-response.mjs';
 
 let rollupRefreshInflight = null;
 
@@ -55,10 +55,17 @@ export function buildDomainAggregationCtes({
   minPins = 1,
   preset = 'all',
   adNetwork = 'all',
+  allowedDomains = null,
   referenceTime,
   forRollupRefresh = false
 }) {
   const includeArchiveAndComp = forRollupRefresh || (fId === null && kId === null);
+  const normalizedAllowed = Array.isArray(allowedDomains)
+    ? allowedDomains.map((d) => String(d || '').trim().toLowerCase().replace(/^www\./, '')).filter(Boolean)
+    : [];
+  const allowedDomainsFilterSql = !forRollupRefresh && normalizedAllowed.length > 0
+    ? sqlFrag`AND REGEXP_REPLACE(LOWER(clean_domain), '^www\\.', '') = ANY(${normalizedAllowed}::text[])`
+    : sqlFrag``;
 
   const rawOccurrencesSql = forRollupRefresh
     ? sqlFrag`
@@ -111,22 +118,29 @@ export function buildDomainAggregationCtes({
             WHEN LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
             ELSE LOWER(TRIM(COALESCE(ump.clean_domain, '')))
           END AS clean_domain,
-          ksp.pin_id,
-          ksp.keyword_id,
-          CASE WHEN ksp.is_displaced = FALSE THEN ksp.rank_position ELSE NULL END AS active_rank,
-          ksp.is_displaced,
+          ksp_dedup.pin_id,
+          NULL::int AS keyword_id,
+          ksp_dedup.active_rank,
+          ksp_dedup.is_displaced,
           ump.save_count::bigint AS saves,
           ump.repin_count::bigint AS repins,
           ump.daily_save_velocity::numeric AS velocity,
           LOWER(TRIM(REPLACE(COALESCE(ump.creator_username, ''), '@', ''))) AS username,
           COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
           TRUE AS is_serp_ranked,
-          COALESCE(NULLIF(TRIM(ump.image_signature), ''), ksp.pin_id) AS creative_signature
-        FROM keyword_serp_positions ksp
-        JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+          COALESCE(NULLIF(TRIM(ump.image_signature), ''), ksp_dedup.pin_id) AS creative_signature
+        FROM (
+          SELECT
+            ksp.pin_id,
+            MIN(CASE WHEN ksp.is_displaced = FALSE THEN ksp.rank_position ELSE NULL END) AS active_rank,
+            BOOL_OR(ksp.is_displaced) AS is_displaced
+          FROM keyword_serp_positions ksp
+          WHERE (${fId}::int IS NULL OR ksp.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
+            AND (${kId}::int IS NULL OR ksp.keyword_id = ${kId})
+          GROUP BY ksp.pin_id
+        ) ksp_dedup
+        JOIN universal_master_pins ump ON ump.pin_id = ksp_dedup.pin_id
         WHERE (${pillar} IN ('all', 'serp', 'competitors', 'displaced'))
-          AND (${fId}::int IS NULL OR ksp.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
-          AND (${kId}::int IS NULL OR ksp.keyword_id = ${kId})
       `);
 
   const dedupWhereSql = forRollupRefresh
@@ -146,6 +160,7 @@ export function buildDomainAggregationCtes({
             FROM competitor_board_pins cbp
             JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
           ))
+          ${allowedDomainsFilterSql}
       `;
 
   const havingSql = forRollupRefresh
@@ -163,6 +178,17 @@ export function buildDomainAggregationCtes({
           OR (${preset} = 'high_multipliers' AND da.pins_per_url >= 3.0)
           OR (${preset} = 'multi_account' AND da.accounts_count >= 2)
           OR (${preset} = 'decaying_monopoly' AND da.top10_pins >= 1 AND da.total_saves >= 3000 AND (da.avg_velocity <= 3.0 OR (da.displaced_pins::numeric / GREATEST(1, da.active_serp_pins + da.displaced_pins)) >= 0.25))
+          OR (${preset} = 'cluster_push_signal' AND (
+            (dir.domain_created_at >= ${referenceTime}::timestamptz - INTERVAL '2 years' OR (dir.age_years IS NOT NULL AND dir.age_years <= 2.0))
+            AND (
+              da.accounts_count >= 2
+              OR EXISTS (
+                SELECT 1 FROM competitor_profiles cp
+                WHERE LOWER(cp.username) = ANY(COALESCE(da.sample_accounts, ARRAY[]::text[]))
+                  AND (COALESCE(cp.monthly_reach, 0) >= 100000 OR COALESCE(cp.profile_views, 0) >= 100000)
+              )
+            )
+          ))
         )
         AND (
           ${adNetwork} = 'all'
@@ -450,6 +476,8 @@ function buildModularFilterAndSortSql({
       ROUND(AVG(pins_per_url) OVER(), 2) AS global_avg_multiplier
     FROM modular_filtered
     ORDER BY
+      CASE WHEN ${sortBy} IN ('domain_asc', 'domain') THEN LOWER(domain) END ASC NULLS LAST,
+      CASE WHEN ${sortBy} = 'domain_desc' THEN LOWER(domain) END DESC NULLS LAST,
       CASE WHEN ${sortBy} = 'visibility' THEN visibility_score END DESC NULLS LAST,
       CASE WHEN ${sortBy} = 'pins_count' THEN total_pins END DESC NULLS LAST,
       CASE WHEN ${sortBy} = 'avg_rank' THEN avg_rank END ASC NULLS LAST,
@@ -517,11 +545,11 @@ function formatDomainsLeaderboardResponse(rows, { page, limit, includeCatalogOnl
       arbitrage_score: Number(r.arbitrage_score || 0)
     })),
     missing_age_domains: safeRows
-      .filter((r) => (!r.age_status || r.age_status === 'unchecked') && r.domain)
+      .filter((r) => (!r.age_status || r.age_status === 'unchecked') && r.domain && String(r.domain).trim().toLowerCase() !== 'uploaded by user')
       .map((r) => r.domain)
       .slice(0, 8),
     missing_ad_domains: safeRows
-      .filter((r) => (!r.ad_network || r.ad_network === 'unchecked') && r.domain)
+      .filter((r) => (!r.ad_network || r.ad_network === 'unchecked') && r.domain && String(r.domain).trim().toLowerCase() !== 'uploaded by user')
       .map((r) => r.domain)
       .slice(0, 10),
     page,
@@ -554,13 +582,16 @@ export async function listDomainsIntelligence(sql, {
   minPins = 1,
   sortBy = 'visibility',
   page = 1,
-  limit = 50
+  limit = 50,
+  allowedDomains = null
 } = {}) {
   const fId = folderId && !isNaN(Number(folderId)) ? Number(folderId) : null;
   const kId = keywordId && !isNaN(Number(keywordId)) ? Number(keywordId) : null;
   const minP = Math.max(1, parseInt(minPins, 10) || 1);
   const pNum = Math.max(1, parseInt(page, 10) || 1);
-  const lim = Math.max(1, Math.min(parseInt(limit, 10) || 50, 2000));
+  const allowedCount = Array.isArray(allowedDomains) ? allowedDomains.filter(Boolean).length : 0;
+  const maxLim = allowedCount > 0 ? Math.min(20000, Math.max(2000, allowedCount)) : 2000;
+  const lim = Math.max(1, Math.min(parseInt(limit, 10) || 50, maxLim));
   const off = (pNum - 1) * lim;
   const searchPattern = search ? `%${escapeSqlLike(search)}%` : null;
   const referenceTime = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
@@ -573,6 +604,7 @@ export async function listDomainsIntelligence(sql, {
     minPins: minP,
     preset,
     adNetwork,
+    allowedDomains,
     referenceTime,
     forRollupRefresh: false
   });
@@ -716,7 +748,7 @@ export async function refreshDomainIntelligenceRollup(sql) {
       WHERE NOT EXISTS (
         SELECT 1 FROM universal_master_pins ump
         WHERE ump.clean_domain = dir.domain
-           OR (dir.domain = 'Uploaded by user' AND LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('uploaded by user', 'uploaded-by-user', 'organic'))
+           OR (dir.domain = 'Uploaded by user' AND LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic'))
       )
       AND NOT EXISTS (
         SELECT 1 FROM folder_pinned_domains fpd
@@ -728,8 +760,9 @@ export async function refreshDomainIntelligenceRollup(sql) {
 
       return { success: true, count: res?.length || 0 };
     } catch (err) {
-      console.warn(`[refreshDomainIntelligenceRollup] Error refreshing rollup:`, err.message);
-      return { success: false, error: err.message };
+      const safeMsg = redactSecrets(err?.message || 'Rollup refresh failed');
+      console.warn(`[refreshDomainIntelligenceRollup] Error refreshing rollup:`, safeMsg);
+      return { success: false, error: safeMsg };
     }
   };
 
@@ -747,13 +780,34 @@ export async function refreshDomainIntelligenceRollup(sql) {
  */
 export async function syncSingleDomainRollup(sql, cleanDomain, dossierData, options = {}) {
   if (!sql || !cleanDomain || !dossierData) return null;
-  if (options?.folderId || dossierData?.folderId) return null;
+  if (options?.folderId || dossierData?.folderId || options?.keywordId || dossierData?.keywordId) return null;
 
   const isOrganicVault = String(cleanDomain).trim().toLowerCase() === 'uploaded by user' || String(cleanDomain).trim().toLowerCase() === 'uploaded-by-user' || String(cleanDomain).trim().toLowerCase() === 'organic';
   const canonicalDomain = isOrganicVault ? 'Uploaded by user' : cleanDomain;
 
   const ageInfo = dossierData.age_info || {};
   const adInfo = dossierData.ad_info || {};
+  const summary = dossierData.summary || {};
+
+  const totalPins = Math.max(0, Number(summary.total_pins || 0));
+  const totalSaves = Math.max(0, Number(summary.total_saves || 0));
+  const accountsCount = Math.max(0, Number(summary.accounts_count || 0));
+  const uniqueUrls = isOrganicVault ? 0 : Math.max(1, Number(summary.unique_urls || 1));
+  const pinsPerUrl = Number(summary.pins_per_url || 1);
+  const activeSerpPins = Math.max(0, Number(summary.active_serp_pins ?? summary.active_pins_count ?? 0));
+  const displacedPins = Math.max(0, Number(summary.displaced_total_count ?? summary.displaced_pins_count ?? 0));
+  const top3Pins = Math.max(0, Number(summary.top3_pins || 0));
+  const top10Pins = Math.max(0, Number(summary.top10_pins || 0));
+  const rank1150Pins = Math.max(0, Number(summary.rank_11_50_pins || 0));
+  const bestRank = summary.best_rank != null ? Number(summary.best_rank) : null;
+  const avgRank = summary.avg_rank != null ? Number(summary.avg_rank) : null;
+  const visibilityScore = Number(summary.visibility_score || 0);
+  const avgVelocity = Number(summary.avg_velocity || 0);
+
+  const rawAgeStatus = isOrganicVault
+    ? 'organic_unlinked'
+    : (ageInfo.age_status || ageInfo.lookup_status || 'unchecked');
+  const normalizedAgeStatus = rawAgeStatus === 'pending' ? 'unchecked' : rawAgeStatus;
 
   try {
     const [existing] = await sql`
@@ -762,7 +816,7 @@ export async function syncSingleDomainRollup(sql, cleanDomain, dossierData, opti
     if (!existing) {
       const [pinCheck] = await sql`
         SELECT 1 FROM universal_master_pins
-        WHERE (clean_domain = ${canonicalDomain} OR (${isOrganicVault}::boolean AND clean_domain = 'uploaded by user'))
+        WHERE (clean_domain = ${canonicalDomain} OR (${isOrganicVault}::boolean AND LOWER(TRIM(COALESCE(clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic')))
         LIMIT 1;
       `;
       if (!pinCheck) {
@@ -779,16 +833,16 @@ export async function syncSingleDomainRollup(sql, cleanDomain, dossierData, opti
         age_days, age_years, age_status, domain_created_at, domain_expires_at,
         refreshed_at
       ) VALUES (
-        ${canonicalDomain}, 0, 0, 0, 1, 1,
-        0, 0, 0, 0, 0,
-        null, null, 0, 0,
+        ${canonicalDomain}, ${totalPins}, ${totalSaves}, ${accountsCount}, ${uniqueUrls}, ${pinsPerUrl},
+        ${activeSerpPins}, ${displacedPins}, ${top3Pins}, ${top10Pins}, ${rank1150Pins},
+        ${bestRank}, ${avgRank}, ${visibilityScore}, ${avgVelocity},
         ${adInfo.current_ad_network || adInfo.ad_network || 'unchecked'},
         ${adInfo.ad_manager_domain || null},
         ${adInfo.primary_pub_id || null},
         ${adInfo.ads_txt_status || 'pending'},
         ${ageInfo.age_days != null ? Number(ageInfo.age_days) : null},
         ${ageInfo.age_years != null ? Number(ageInfo.age_years) : null},
-        ${ageInfo.lookup_status || ageInfo.age_status || 'unchecked'},
+        ${normalizedAgeStatus},
         ${ageInfo.registered_at ? new Date(ageInfo.registered_at) : null},
         ${ageInfo.expires_at ? new Date(ageInfo.expires_at) : null},
         NOW()
@@ -809,7 +863,7 @@ export async function syncSingleDomainRollup(sql, cleanDomain, dossierData, opti
         age_days = COALESCE(EXCLUDED.age_days, domain_intelligence_rollup.age_days),
         age_years = COALESCE(EXCLUDED.age_years, domain_intelligence_rollup.age_years),
         age_status = CASE
-          WHEN EXCLUDED.age_status <> 'unchecked' AND EXCLUDED.age_status <> ''
+          WHEN EXCLUDED.age_status NOT IN ('unchecked', 'pending', '')
           THEN EXCLUDED.age_status
           ELSE domain_intelligence_rollup.age_status
         END,
@@ -847,9 +901,16 @@ export async function listDomainsIntelligenceFast(sql, options = {}) {
       const minPins = Math.max(1, parseInt(options.minPins, 10) || 1);
       const sortBy = options.sortBy || 'visibility';
       const page = Math.max(1, parseInt(options.page, 10) || 1);
-      const limit = Math.max(1, Math.min(parseInt(options.limit, 10) || 50, 2000));
+      const normalizedAllowed = Array.isArray(options.allowedDomains)
+        ? options.allowedDomains.map((d) => String(d || '').trim().toLowerCase().replace(/^www\./, '')).filter(Boolean)
+        : [];
+      const maxLim = normalizedAllowed.length > 0 ? Math.min(20000, Math.max(2000, normalizedAllowed.length)) : 2000;
+      const limit = Math.max(1, Math.min(parseInt(options.limit, 10) || 50, maxLim));
       const offset = (page - 1) * limit;
       const searchPattern = search ? `%${escapeSqlLike(search.toLowerCase())}%` : null;
+      const allowedDomainsFilterSql = normalizedAllowed.length > 0
+        ? sqlFrag`AND REGEXP_REPLACE(LOWER(r.domain), '^www\\.', '') = ANY(${normalizedAllowed}::text[])`
+        : sqlFrag``;
 
       const rollupSrcSql = sqlFrag`
         WITH rollup_src AS (
@@ -865,6 +926,19 @@ export async function listDomainsIntelligenceFast(sql, options = {}) {
               OR (${preset} = 'high_multipliers' AND r.pins_per_url >= 3.0)
               OR (${preset} = 'multi_account' AND r.accounts_count >= 2)
               OR (${preset} = 'decaying_monopoly' AND r.top10_pins >= 1 AND r.total_saves >= 3000 AND (r.avg_velocity <= 3.0 OR r.decay_rate_pct >= 25.0))
+              OR (${preset} = 'cluster_push_signal' AND (
+                r.age_years IS NOT NULL AND r.age_years <= 2.0
+                AND (
+                  r.accounts_count >= 2
+                  OR EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(r.sample_accounts) = 'array' THEN r.sample_accounts ELSE '[]'::jsonb END) AS sa(uname)
+                    JOIN competitor_profiles cp ON LOWER(cp.username) = LOWER(sa.uname)
+                    WHERE COALESCE(cp.monthly_reach, 0) >= 100000
+                       OR COALESCE(cp.profile_views, 0) >= 100000
+                  )
+                )
+              ))
             )
             AND (
               ${adNetwork} = 'all'
@@ -872,6 +946,7 @@ export async function listDomainsIntelligenceFast(sql, options = {}) {
               OR (${adNetwork} = 'unchecked' AND (r.ad_network IS NULL OR r.ad_network = 'unchecked'))
               OR r.ad_network = ${adNetwork}
             )
+            ${allowedDomainsFilterSql}
         )
       `;
 

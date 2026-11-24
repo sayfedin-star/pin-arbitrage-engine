@@ -73,17 +73,25 @@ export function getDomainsClientAppScript() {
         dossierDomain: initialDomain || '',
         dossierLoading: false,
         dossierData: null,
-        dossierTab: 'urls', // 'urls' | 'pins' | 'keywords' | 'accounts' | 'visual_dna'
+        dossierTab: 'hub', // 'hub' | 'accounts' | 'visual_dna'
+        dossierHubMode: 'articles', // 'articles' | 'pins' | 'keywords'
+        dossierSelectedKeyword: '',
+        dossierShowAllKeywordsStrip: false,
+        dossierExpandedArticles: {},
+        dossierExpandedKeywords: {},
+        dossierExpandedPinKws: {},
+        dossierExpandedArtKws: {},
         dossierSearch: '',
         dossierSort: 'saves',
-        dossierStatusFilter: 'all', // 'all' | 'active' | 'displaced'
+        dossierStatusFilter: 'all', // 'all' | 'active' | 'displaced' | 'catalog'
         dossierPinsPage: 1,
         dossierPinsPerPage: 25,
         dossierArticlesPage: 1,
-        dossierArticlesPerPage: 10,
+        dossierArticlesPerPage: 15,
         currentDisplacedLimit: 30,
         dossierLoadingMore: false,
         _dossierReqSeq: 0,
+        _pinnedReqSeq: 0,
         _dossierAbortController: null,
         _blueprintAbortController: null,
 
@@ -178,7 +186,18 @@ export function getDomainsClientAppScript() {
               } catch (_) {}
             })();
           }
-          this.$watch('dossierTab', () => { if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.refreshIcons === 'function') window.PAE.refreshIcons(); else if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); }); });
+          if (!this.scopedFolderId && this.selectedFolderId) { this.fetchPinnedDomains(); }
+          this.$watch('selectedFolderId', (val) => { if (!this.scopedFolderId) this.fetchPinnedDomains(val); });
+          this.$watch('dossierTab', (val) => {
+            if (val === 'urls') { this.dossierTab = 'hub'; this.dossierHubMode = 'articles'; }
+            else if (val === 'pins') { this.dossierTab = 'hub'; this.dossierHubMode = 'pins'; }
+            else if (val === 'keywords' || val === 'monopoly') { this.dossierTab = 'hub'; this.dossierHubMode = 'keywords'; }
+            if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.refreshIcons === 'function') window.PAE.refreshIcons(); else if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
+          });
+          this.$watch('dossierHubMode', () => { if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.refreshIcons === 'function') window.PAE.refreshIcons(); else if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); }); });
+          this.$watch('dossierSelectedKeyword', () => { this.dossierPinsPage = 1; this.dossierArticlesPage = 1; });
+          this.$watch('dossierSearch', () => { this.dossierPinsPage = 1; this.dossierArticlesPage = 1; });
+          this.$watch('dossierSort', () => { this.dossierPinsPage = 1; this.dossierArticlesPage = 1; });
           this.fetchFolders();
           this.loadDomains();
           // Defer heavy database-wide aggregations to background idle so leaderboard query gets 100% database priority
@@ -376,8 +395,11 @@ export function getDomainsClientAppScript() {
             if (data.success === false) throw new Error(data.error || 'Server error');
 
             let rawDomains = Array.isArray(data.domains) ? data.domains : [];
-            if (this.pinnedOnly && this.pinnedDomains.size > 0) {
+            if (this.pinnedOnly && !data.pinned_scoped && this.pinnedDomains.size > 0) {
               rawDomains = rawDomains.filter(d => this.pinnedDomains.has((d.domain || '').toLowerCase()));
+            }
+            if (this.pinnedOnly && !data.pinned_scoped && (this.scopedFolderId || this.selectedFolderId) && this.pinnedDomains.size === 0 && !data.workspace_scoped) {
+              rawDomains = [];
             }
             this.domains = rawDomains;
             this.overview = data.overview || this.overview;
@@ -407,13 +429,23 @@ export function getDomainsClientAppScript() {
               method: 'POST',
               headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' }
             }).catch(() => null);
-            if (res && !res.ok) {
-              console.warn('[DomainRadar] refresh-rollup returned HTTP ' + res.status);
+            const rollupData = res && res.ok ? await res.json().catch(() => null) : null;
+            const rollupOk = Boolean(res && res.ok && rollupData?.success !== false);
+            if (!rollupOk) {
+              console.warn('[DomainRadar] refresh-rollup returned HTTP ' + (res?.status || 'network error'));
+            }
+            if (rollupData?.success === false) {
+              console.warn('[DomainRadar] refresh-rollup error:', rollupData?.error || 'unknown');
             }
             await this.loadDomains(true, true);
-            this.showToast('Domain intelligence refreshed successfully!', 'success');
+            if (rollupOk && !this.loadError) {
+              this.showToast('Domain intelligence refreshed successfully!', 'success');
+            } else {
+              this.showToast('Rollup refresh could not complete; showing latest readable leaderboard.', 'warning');
+            }
           } catch (e) {
             console.error('[DomainRadar] refreshDomains error:', e);
+            this.showToast('Domain refresh encountered an error: ' + (e?.message || 'Unknown error'), 'error');
             await this.loadDomains(true, true);
           } finally {
             this.refreshingRollup = false;
@@ -460,6 +492,11 @@ export function getDomainsClientAppScript() {
         },
 
         toggleSortColumn(col) {
+          if (col === 'domain') {
+            this.sortBy = this.sortBy === 'domain_asc' ? 'domain_desc' : 'domain_asc';
+            this.loadDomains(true);
+            return;
+          }
           if (col === 'age_asc') {
             this.sortBy = this.sortBy === 'age_asc' ? 'age_desc' : 'age_asc';
           } else {
@@ -533,8 +570,49 @@ export function getDomainsClientAppScript() {
           }
         },
 
+        async _runBatchEnrichChunks({ items, chunkSize, endpoint, mapKey, progressKey, applyRecord }) {
+          const chunks = [];
+          for (let i = 0; i < items.length; i += chunkSize) {
+            chunks.push(items.slice(i, i + chunkSize).map(d => d.domain));
+          }
+          let updatedCount = 0;
+          let failedChunks = 0;
+          let authError = null;
+          for (const chunk of chunks) {
+            chunk.forEach(d => { this[mapKey][d] = true; });
+            this[mapKey] = { ...this[mapKey] };
+            try {
+              const res = await (window.safeApiFetch || fetch)(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ domains: chunk })
+              });
+              if (res.status === 401 || res.status === 403) {
+                authError = 'Authentication required (HTTP ' + res.status + ')';
+                failedChunks++;
+              } else if (!res.ok) {
+                failedChunks++;
+              } else {
+                const data = await res.json();
+                if (Array.isArray(data.results)) {
+                  for (const r of data.results) {
+                    if (applyRecord(r)) updatedCount++;
+                  }
+                }
+              }
+            } catch (_) {
+              failedChunks++;
+            }
+            chunk.forEach(d => { delete this[mapKey][d]; });
+            this[progressKey].done = Math.min(this[progressKey].total, this[progressKey].done + chunk.length);
+            this[mapKey] = { ...this[mapKey] };
+            if (authError) break;
+          }
+          return { updatedCount, failedChunks, authError };
+        },
+
         async batchEnrichVisible() {
-          const unchecked = this.domains.filter(d => (!d.age_status || d.age_status === 'unchecked') && !this.enrichingDomains[d.domain]);
+          const unchecked = this.domains.filter(d => d.domain && d.domain.toLowerCase() !== 'uploaded by user' && (!d.age_status || d.age_status === 'unchecked') && !this.enrichingDomains[d.domain]);
           if (unchecked.length === 0) {
             this.showToast('All visible domains on this page are already checked (resolved or privacy-shielded)!', 'info');
             return;
@@ -543,45 +621,33 @@ export function getDomainsClientAppScript() {
           this.batchProgress = { done: 0, total: unchecked.length };
           this.showToast('Verifying ' + unchecked.length + ' visible domains in batch...', 'info');
 
-          // Chunk into batches of 8 with safe jitter
-          const chunks = [];
-          for (let i = 0; i < unchecked.length; i += 8) {
-            chunks.push(unchecked.slice(i, i + 8).map(d => d.domain));
-          }
-
-          for (const chunk of chunks) {
-            chunk.forEach(d => { this.enrichingDomains[d] = true; });
-            this.enrichingDomains = { ...this.enrichingDomains };
-            try {
-              const res = await (window.safeApiFetch || fetch)('/api/domains/enrich-age', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ domains: chunk })
-              });
-              if (res.ok) {
-                const data = await res.json();
-                if (Array.isArray(data.results)) {
-                  for (const r of data.results) {
-                    const target = this.domains.find(d => d.domain === r.domain);
-                    if (target) {
-                      target.age_years = r.age_years;
-                      target.age_days = r.age_days;
-                      target.domain_created_at = r.registered_at;
-                      target.age_status = r.lookup_status;
-                      target.lookup_source = r.lookup_source;
-                    }
-                  }
-                }
-              }
-            } catch (_) {}
-            chunk.forEach(d => { delete this.enrichingDomains[d]; });
-            this.batchProgress.done = Math.min(this.batchProgress.total, this.batchProgress.done + chunk.length);
-            this.enrichingDomains = { ...this.enrichingDomains };
-          }
+          const { updatedCount, failedChunks, authError } = await this._runBatchEnrichChunks({
+            items: unchecked,
+            chunkSize: 8,
+            endpoint: '/api/domains/enrich-age',
+            mapKey: 'enrichingDomains',
+            progressKey: 'batchProgress',
+            applyRecord: (r) => {
+              const target = this.domains.find(d => d.domain === r.domain);
+              if (!target) return false;
+              target.age_years = r.age_years;
+              target.age_days = r.age_days;
+              target.domain_created_at = r.registered_at;
+              target.age_status = r.lookup_status;
+              target.lookup_source = r.lookup_source;
+              return true;
+            }
+          });
 
           this.batchEnriching = false;
           this.fetchGlobalEnrichStatus();
-          this.showToast('Batch verification complete! Updated ' + this.batchProgress.done + ' domains.', 'success');
+          if (authError) {
+            this.showToast(authError, 'error');
+          } else if (failedChunks > 0) {
+            this.showToast('Batch verification finished with ' + failedChunks + ' failed request(s). Updated ' + updatedCount + ' domains.', 'warning');
+          } else {
+            this.showToast('Batch verification complete! Updated ' + updatedCount + ' domains.', 'success');
+          }
         },
 
         async fetchGlobalEnrichStatus() {
@@ -702,12 +768,17 @@ export function getDomainsClientAppScript() {
           }
         },
 
-        async fetchPinnedDomains() {
-          if (!this.scopedFolderId) return;
+        async fetchPinnedDomains(folderId = null) {
+          const reqSeq = ++this._pinnedReqSeq;
+          const targetFid = folderId !== null ? folderId : (this.scopedFolderId || this.selectedFolderId);
+          if (!targetFid) { this.pinnedDomains = new Set(); return; }
+          this.pinnedDomains = new Set();
           try {
-            const res = await (window.safeApiFetch || fetch)('/api/folders/' + encodeURIComponent(this.scopedFolderId) + '/domains');
+            const res = await (window.safeApiFetch || fetch)('/api/folders/' + encodeURIComponent(targetFid) + '/domains');
+            if (reqSeq !== this._pinnedReqSeq) return;
             if (res.ok) {
               const data = await res.json();
+              if (reqSeq !== this._pinnedReqSeq) return;
               const list = data.pinned_domains || data.domains || [];
               this.pinnedDomains = new Set(list.map(p => (typeof p === 'string' ? p : (p.domain || '')).toLowerCase()));
             }
@@ -738,6 +809,11 @@ export function getDomainsClientAppScript() {
               if (isPinned) {
                 this.pinnedDomains.delete(cleanDomain);
                 this.showToast('Unpinned ' + cleanDomain + ' from folder', 'info');
+                if (this.pinnedOnly) {
+                  this.domains = this.domains.filter(d => (d.domain || '').toLowerCase() !== cleanDomain);
+                  this.totalDomains = Math.max(0, this.totalDomains - 1);
+                  this.loadDomains();
+                }
               } else {
                 this.pinnedDomains.add(cleanDomain);
                 this.showToast('Pinned ' + cleanDomain + ' to folder', 'success');
@@ -765,8 +841,16 @@ export function getDomainsClientAppScript() {
           this.isDossierOpen = true;
           this.dossierLoading = true;
           this.dossierData = null;
-          this.dossierTab = (domain && domain.toLowerCase() === 'uploaded by user') ? 'pins' : 'urls';
+          this.dossierTab = 'hub';
+          this.dossierHubMode = (domain && domain.toLowerCase() === 'uploaded by user') ? 'pins' : 'articles';
+          this.dossierSelectedKeyword = '';
+          this.dossierShowAllKeywordsStrip = false;
+          this.dossierExpandedArticles = {};
+          this.dossierExpandedKeywords = {};
+          this.dossierExpandedPinKws = {};
+          this.dossierExpandedArtKws = {};
           this.currentDisplacedLimit = 30;
+          this.dossierLoadingMore = false;
           this.dossierSearch = '';
           this.dossierSort = 'saves';
           this.dossierPinsPage = 1;
@@ -791,8 +875,11 @@ export function getDomainsClientAppScript() {
             const data = await res.json();
             if (reqSeq !== this._dossierReqSeq || (signal && signal.aborted)) return;
             this.dossierData = data;
-            if (Array.isArray(this.dossierData?.top_articles) && this.dossierData.top_articles.length > 0) {
-              const sampleUrls = this.dossierData.top_articles.map(a => a.sample_url).filter(Boolean).slice(0, 15);
+            const _moneyUrls = (!this.dossierData?.summary?.is_organic_vault && Array.isArray(this.dossierData?.money_urls)) ? this.dossierData.money_urls : [];
+            if (_moneyUrls.length > 0) {
+              const decodeEntities = (u) => String(u || '').replace(/&amp;/gi, '&').replace(/&#x26;/gi, '&').replace(/&#38;/gi, '&').trim();
+              const uncachedArticles = _moneyUrls.filter(a => a.sample_url && !(Number(a.url_global_saves || 0) > 0));
+              const sampleUrls = uncachedArticles.map(a => decodeEntities(a.sample_url)).filter(Boolean).slice(0, 15);
               if (sampleUrls.length > 0) {
                 (async () => {
                   try {
@@ -806,15 +893,30 @@ export function getDomainsClientAppScript() {
                     if (reqSeq !== this._dossierReqSeq || (signal && signal.aborted)) return;
                     if (batchRes.ok) {
                       const batchData = await batchRes.json();
-                      const results = batchData.results || batchData.data || [];
+                      const rawResults = batchData?.results ?? batchData?.counts ?? batchData?.data;
+                      const results = Array.isArray(rawResults) ? rawResults : (rawResults && typeof rawResults === 'object' ? Object.entries(rawResults).map(([url, count]) => ({ url, count })) : []);
                       const countMap = new Map();
                       for (const r of results) {
-                        if (r.url) countMap.set(r.url, Number(r.count || r.global_saves || 0));
+                        if (r?.url) {
+                          const raw = decodeEntities(r.url);
+                          const noSlash = raw.replace(/\\/+$/, '');
+                          const noQuery = raw.replace(/[?#].*$/, '').replace(/\\/+$/, '');
+                          const cnt = Number(r.count || r.global_saves || 0);
+                          for (const key of [raw, noSlash, noQuery]) {
+                            if (key && !countMap.has(key)) countMap.set(key, cnt);
+                          }
+                        }
                       }
                       if (reqSeq !== this._dossierReqSeq) return;
-                      for (const art of (this.dossierData?.top_articles || [])) {
-                        if (art.sample_url && countMap.has(art.sample_url)) {
-                          art.url_global_saves = countMap.get(art.sample_url);
+                      for (const art of (this.dossierData?.money_urls || [])) {
+                        const rawSample = art.sample_url ? decodeEntities(art.sample_url) : '';
+                        const normSample = rawSample.replace(/\\/+$/, '');
+                        const normSampleNoQuery = rawSample.replace(/[?#].*$/, '').replace(/\\/+$/, '');
+                        const matchedSaves = rawSample
+                          ? (countMap.has(rawSample) ? countMap.get(rawSample) : (countMap.has(normSample) ? countMap.get(normSample) : countMap.get(normSampleNoQuery)))
+                          : undefined;
+                        if (matchedSaves !== undefined) {
+                          art.url_global_saves = matchedSaves;
                         }
                       }
                     }
@@ -835,9 +937,11 @@ export function getDomainsClientAppScript() {
         },
 
         async loadMoreDisplaced() {
-          if (!this.dossierDomain || this.dossierLoadingMore) return;
+          if (!this.dossierDomain || this.dossierLoadingMore || this.currentDisplacedLimit >= 500) return;
           const signal = this._dossierAbortController ? this._dossierAbortController.signal : undefined;
-          this.currentDisplacedLimit += 50;
+          const reqSeq = this._dossierReqSeq;
+          const prevLimit = this.currentDisplacedLimit;
+          this.currentDisplacedLimit = Math.min(500, this.currentDisplacedLimit + 50);
           this.dossierLoadingMore = true;
           try {
             const activeFid = this.scopedFolderId || this.selectedFolderId || '';
@@ -848,14 +952,31 @@ export function getDomainsClientAppScript() {
             if (!res.ok) throw new Error('HTTP ' + res.status);
             const data = await res.json();
             if (signal && signal.aborted) return;
-            if (data?.ranked_pins && this.dossierData) {
+            const _dossierDataReady = Boolean(data?.ranked_pins && this.dossierData);
+            if (reqSeq !== this._dossierReqSeq) return;
+            if (_dossierDataReady) {
+              const prevGlobalSaves = new Map();
+              for (const art of (this.dossierData.money_urls || [])) {
+                if (art?.clean_slug && Number(art.url_global_saves || 0) > 0) {
+                  prevGlobalSaves.set(art.clean_slug, Number(art.url_global_saves));
+                }
+              }
               this.dossierData.ranked_pins = data.ranked_pins;
               this.dossierData.summary = data.summary;
-              this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+              if (Array.isArray(data.money_urls)) {
+                this.dossierData.money_urls = data.money_urls.map(art => {
+                  const prevSaves = art?.clean_slug ? prevGlobalSaves.get(art.clean_slug) : null;
+                  const nextSaves = Number(art?.url_global_saves || 0);
+                  return (prevSaves && prevSaves > nextSaves) ? { ...art, url_global_saves: prevSaves } : art;
+                });
+              }
+              if (Array.isArray(data.keyword_monopoly)) this.dossierData.keyword_monopoly = data.keyword_monopoly;
+              if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.refreshIcons === 'function') window.PAE.refreshIcons(); else if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
               this.showToast('Loaded ' + data.ranked_pins.length + ' visual pins!', 'success');
             }
           } catch (err) {
-            if ((signal && signal.aborted) || (err && err.name === 'AbortError')) return;
+            if (signal && signal.aborted) return;
+            if (reqSeq === this._dossierReqSeq) this.currentDisplacedLimit = prevLimit;
             this.showToast('Failed to load more displaced pins: ' + err.message, 'error');
           } finally {
             if (!signal || !signal.aborted) {
@@ -865,6 +986,7 @@ export function getDomainsClientAppScript() {
         },
 
         closeDossier(pushState = true) {
+          this.dossierLoadingMore = false;
           if (this._dossierAbortController) {
             try { this._dossierAbortController.abort(); } catch (_) {}
             this._dossierAbortController = null;
@@ -876,10 +998,14 @@ export function getDomainsClientAppScript() {
             const target = this.domains.find(d => d.domain === domainToSync);
             if (target) {
               if (this.dossierData.age_info?.age_days != null) target.age_days = this.dossierData.age_info.age_days;
+              if (this.dossierData.age_info?.age_years != null) target.age_years = this.dossierData.age_info.age_years;
               if (this.dossierData.age_info?.created_date || this.dossierData.age_info?.registered_at) {
                 target.domain_created_at = this.dossierData.age_info.created_date || this.dossierData.age_info.registered_at;
               }
-              if (this.dossierData.age_info?.lookup_status) target.age_status = this.dossierData.age_info.lookup_status;
+              const nextAgeStatus = this.dossierData.age_info?.age_status || this.dossierData.age_info?.lookup_status;
+              if (nextAgeStatus && nextAgeStatus !== 'pending' && nextAgeStatus !== 'organic_vault') {
+                target.age_status = nextAgeStatus;
+              }
               if (this.dossierData.ad_info?.current_ad_network || this.dossierData.ad_info?.ad_network) {
                 target.ad_network = this.dossierData.ad_info.current_ad_network || this.dossierData.ad_info.ad_network;
               }
@@ -892,6 +1018,7 @@ export function getDomainsClientAppScript() {
           this.dossierDomain = '';
           this.selectedDomain = null;
           this.dossierSearch = '';
+          this.dossierSelectedKeyword = '';
           if (pushState && typeof window !== 'undefined' && window.history && window.history.pushState) {
             const basePath = this.getBaseStudioPath();
             if (window.location.pathname !== basePath) {
@@ -900,50 +1027,267 @@ export function getDomainsClientAppScript() {
           }
         },
 
+        navigateDossierView(tab = 'hub', hubMode = null, sortBy = null) {
+          this.dossierTab = tab;
+          if (hubMode) {
+            this.dossierHubMode = hubMode;
+            if (hubMode !== 'pins' && this.dossierStatusFilter === 'catalog') {
+              this.dossierStatusFilter = 'all';
+            }
+          }
+          if (sortBy) {
+            this.dossierSort = sortBy;
+          }
+          this.dossierPinsPage = 1;
+          this.dossierArticlesPage = 1;
+          if (typeof this.$nextTick === 'function') {
+            this.$nextTick(() => {
+              if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.refreshIcons === 'function') window.PAE.refreshIcons();
+              else if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons();
+            });
+          }
+        },
+
+        toggleKeywordFilter(kwName) {
+          const clean = String(kwName || '').trim();
+          if (!clean) return;
+          if (this.dossierSelectedKeyword && this.dossierSelectedKeyword.toLowerCase() === clean.toLowerCase()) {
+            this.dossierSelectedKeyword = '';
+          } else {
+            this.dossierSelectedKeyword = clean;
+          }
+          this.dossierPinsPage = 1;
+          this.dossierArticlesPage = 1;
+        },
+
+        clearDossierFilters() {
+          this.dossierSearch = '';
+          this.dossierSelectedKeyword = '';
+          this.dossierStatusFilter = 'all';
+          this.dossierPinsPage = 1;
+          this.dossierArticlesPage = 1;
+        },
+
+        topKeywordsStripList() {
+          const list = Array.isArray(this.dossierData?.keyword_monopoly) ? [...this.dossierData.keyword_monopoly] : [];
+          list.sort((a, b) => (Number(b.active_slots) || 0) - (Number(a.active_slots) || 0) || (Number(b.total_saves) || 0) - (Number(a.total_saves) || 0));
+          return this.dossierShowAllKeywordsStrip ? list : list.slice(0, 12);
+        },
+
+        toggleArticleExpand(slug) {
+          if (!slug) return;
+          const next = !this.dossierExpandedArticles[slug];
+          this.dossierExpandedArticles = { ...this.dossierExpandedArticles, [slug]: next };
+          if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.refreshIcons === 'function') window.PAE.refreshIcons(); else if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
+        },
+
+        areAllArticlesExpanded() {
+          const visible = this.paginatedDossierArticles();
+          if (!visible.length) return false;
+          return visible.every(a => Boolean(this.dossierExpandedArticles[a.clean_slug]));
+        },
+
+        toggleAllArticlesExpand() {
+          const visible = this.paginatedDossierArticles();
+          const expandAll = !this.areAllArticlesExpanded();
+          const nextMap = { ...this.dossierExpandedArticles };
+          for (const a of visible) {
+            if (a.clean_slug) nextMap[a.clean_slug] = expandAll;
+          }
+          this.dossierExpandedArticles = nextMap;
+          if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.refreshIcons === 'function') window.PAE.refreshIcons(); else if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
+        },
+
+        toggleKeywordExpand(kwId) {
+          if (kwId == null) return;
+          const next = !this.dossierExpandedKeywords[kwId];
+          this.dossierExpandedKeywords = { ...this.dossierExpandedKeywords, [kwId]: next };
+          if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.refreshIcons === 'function') window.PAE.refreshIcons(); else if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
+        },
+
+        areAllKeywordsExpanded() {
+          const visible = this.filteredDossierKeywords();
+          if (!visible.length) return false;
+          return visible.every(k => Boolean(this.dossierExpandedKeywords[k.keyword_id]));
+        },
+
+        toggleAllKeywordsExpand() {
+          const visible = this.filteredDossierKeywords();
+          const expandAll = !this.areAllKeywordsExpanded();
+          const nextMap = { ...this.dossierExpandedKeywords };
+          for (const k of visible) {
+            if (k.keyword_id != null) nextMap[k.keyword_id] = expandAll;
+          }
+          this.dossierExpandedKeywords = nextMap;
+          if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.refreshIcons === 'function') window.PAE.refreshIcons(); else if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
+        },
+
+        togglePinKeywordsExpand(pinId) {
+          if (!pinId) return;
+          const next = !this.dossierExpandedPinKws[pinId];
+          this.dossierExpandedPinKws = { ...this.dossierExpandedPinKws, [pinId]: next };
+        },
+
+        toggleArticleKeywordsExpand(slug) {
+          if (!slug) return;
+          const next = !this.dossierExpandedArtKws[slug];
+          this.dossierExpandedArtKws = { ...this.dossierExpandedArtKws, [slug]: next };
+        },
+
+        formatVelocity(val) {
+          const n = Number(val || 0);
+          if (!Number.isFinite(n) || n <= 0) return '0/d';
+          return '+' + (n >= 100 ? Math.round(n).toLocaleString() : Number(n.toFixed(1))) + '/d';
+        },
+
+        formatSignedDelta(val) {
+          const n = Number(val || 0);
+          if (!Number.isFinite(n) || n === 0) return '0';
+          return (n > 0 ? '+' : '') + this.formatNumber(Math.round(n));
+        },
+
+        formatAgeDays(days) {
+          if (days == null || !Number.isFinite(Number(days))) return '—';
+          const d = Math.max(0, Math.floor(Number(days)));
+          if (d >= 365) return (d / 365).toFixed(1) + 'y';
+          return d + 'd';
+        },
+
+        formatAgeRange(minDays, maxDays, newestIso = null, oldestIso = null) {
+          let lo = minDays != null && Number.isFinite(Number(minDays)) ? Number(minDays) : null;
+          let hi = maxDays != null && Number.isFinite(Number(maxDays)) ? Number(maxDays) : null;
+          if (lo === null && newestIso) {
+            const t = new Date(newestIso).getTime();
+            if (isFinite(t)) lo = Math.max(0, Math.floor((Date.now() - t) / 86400000));
+          }
+          if (hi === null && oldestIso) {
+            const t = new Date(oldestIso).getTime();
+            if (isFinite(t)) hi = Math.max(0, Math.floor((Date.now() - t) / 86400000));
+          }
+          if (lo === null && hi === null) return '—';
+          if (lo === null) lo = hi;
+          if (hi === null) hi = lo;
+          if (lo > hi) [lo, hi] = [hi, lo];
+          if (lo === hi) return this.formatAgeDays(lo);
+          return this.formatAgeDays(lo) + '–' + this.formatAgeDays(hi);
+        },
+
+        getPinInspectUrl(pinId) {
+          const dom = encodeURIComponent(this.dossierDomain || '');
+          const fid = this.activeFolderId ? encodeURIComponent(this.activeFolderId) : '';
+          const ret = encodeURIComponent(fid ? ('/folders/' + fid + '/domains/' + dom) : ('/domains/' + dom));
+          return this.safeUrl('/pin/' + encodeURIComponent(String(pinId || '')) + '?domain=' + dom + (fid ? '&folder_id=' + fid : '') + '&return_url=' + ret);
+        },
+
+        getPinAgeBadgeFromDays(days, dateStr = null) {
+          if (days != null && Number.isFinite(Number(days))) {
+            const diffDays = Math.max(0, Math.floor(Number(days)));
+            const dateNote = dateStr ? ' (' + String(dateStr).slice(0, 10) + ')' : '';
+            if (diffDays < 30) {
+              return {
+                label: diffDays + 'd',
+                title: 'Fresh Pin: Created ' + diffDays + ' days ago' + dateNote,
+                class: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+              };
+            } else if (diffDays <= 180) {
+              return {
+                label: diffDays + 'd',
+                title: 'Velocity Active: Created ' + diffDays + ' days ago' + dateNote,
+                class: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+              };
+            } else {
+              return {
+                label: this.formatAgeDays(diffDays),
+                title: 'Evergreen Pin: Created ' + diffDays + ' days ago' + dateNote,
+                class: 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30'
+              };
+            }
+          }
+          return this.getPinAgeBadge(dateStr);
+        },
+
         getPinAgeBadge(dateStr) {
           if (!dateStr) return null;
           const d = new Date(dateStr);
           if (isNaN(d.getTime())) return null;
           const diffDays = Math.max(0, Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24)));
-          if (diffDays < 30) {
+          return this.getPinAgeBadgeFromDays(diffDays, dateStr);
+        },
+
+        getUnifiedMonetizationChip(adInfo) {
+          const net = adInfo?.current_ad_network || adInfo?.ad_network || 'unchecked';
+          const status = adInfo?.ads_txt_status || 'pending';
+          const snippet = adInfo?.raw_header_snippet || '';
+          const isValid = ['resolved', 'valid'].includes(status);
+          const netLabel = this.getAdNetworkBadgeText(net);
+          if (isValid) {
             return {
-              label: diffDays + 'd',
-              title: 'Fresh Pin: Created ' + diffDays + ' days ago',
-              class: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
-            };
-          } else if (diffDays <= 180) {
-            return {
-              label: diffDays + 'd',
-              title: 'Velocity Active: Created ' + diffDays + ' days ago',
-              class: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
-            };
-          } else {
-            const years = (diffDays / 365).toFixed(1);
-            const text = diffDays >= 365 ? years + 'y' : diffDays + 'd';
-            return {
-              label: text,
-              title: 'Evergreen Pin: Created ' + diffDays + ' days ago',
-              class: 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30'
+              label: netLabel + ' • ads.txt valid',
+              title: snippet ? (netLabel + ' — ' + snippet) : (netLabel + ' (ads.txt verified)'),
+              class: this.getAdNetworkBadgeClasses(net),
+              dotClass: 'text-emerald-500'
             };
           }
+          if (net === 'failed' || status === 'failed') {
+            return {
+              label: snippet && snippet.toLowerCase().includes('cloudflare') ? 'Bot Shield • ads.txt blocked' : 'ads.txt unreachable',
+              title: snippet || 'ads.txt scan failed or blocked',
+              class: 'bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-400 border border-rose-200 dark:border-rose-800',
+              dotClass: 'text-rose-500'
+            };
+          }
+          if (net === 'protected' || status === 'protected') {
+            return {
+              label: 'Bot Protected • ads.txt',
+              title: snippet || 'Protected by WAF / Cloudflare',
+              class: 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 border border-amber-200 dark:border-amber-800',
+              dotClass: 'text-amber-500'
+            };
+          }
+          return {
+            label: netLabel + ' • ads.txt: ' + status,
+            title: snippet || ('ads.txt status: ' + status),
+            class: this.getAdNetworkBadgeClasses(net),
+            dotClass: 'text-slate-400'
+          };
         },
 
         filterToKeyword(kw) {
           if (!kw) return;
-          this.dossierTab = 'keywords';
-          this.dossierSearch = kw;
+          this.dossierTab = 'hub';
+          this.dossierSelectedKeyword = kw;
+          this.dossierPinsPage = 1;
+          this.dossierArticlesPage = 1;
+        },
+
+        inspectKeywordInMatrix(kw) {
+          if (!kw) return;
+          this.dossierTab = 'hub';
+          this.dossierHubMode = 'keywords';
+          this.dossierSelectedKeyword = kw;
+          this.dossierPinsPage = 1;
+          this.dossierArticlesPage = 1;
         },
 
         filterToArticle(urlOrSlug) {
-          if (!urlOrSlug) return;
-          this.dossierTab = 'urls';
+          if (!urlOrSlug || String(urlOrSlug).trim() === '/') return;
+          this.dossierTab = 'hub';
+          this.dossierHubMode = 'articles';
+          if (this.dossierStatusFilter === 'catalog') this.dossierStatusFilter = 'all';
+          this.dossierSelectedKeyword = '';
           this.dossierSearch = urlOrSlug;
+          this.dossierArticlesPage = 1;
+          if (String(urlOrSlug).startsWith('/')) {
+            this.dossierExpandedArticles = { ...this.dossierExpandedArticles, [urlOrSlug]: true };
+          }
         },
 
         filterToArticleKeywords(art) {
-          const kws = art?.target_keywords || art?.keywords || [];
+          const kws = art?.keywords || art?.target_keywords || [];
           if (!kws || kws.length === 0) return;
-          this.dossierTab = 'keywords';
+          this.dossierTab = 'hub';
+          this.dossierHubMode = 'keywords';
+          this.dossierSelectedKeyword = '';
           this.dossierSearch = kws[0];
         },
 
@@ -971,11 +1315,20 @@ export function getDomainsClientAppScript() {
             list = list.filter(p => Boolean(p.is_displaced));
           }
 
+          const selectedKw = (this.dossierSelectedKeyword || '').toLowerCase().trim();
+          if (selectedKw) {
+            list = list.filter(p =>
+              Array.isArray(p.serp_appearances) &&
+              p.serp_appearances.some(a => a.keyword_name && a.keyword_name.toLowerCase().trim() === selectedKw)
+            );
+          }
+
           const q = (this.dossierSearch || '').toLowerCase().trim();
           if (q) {
             list = list.filter(p => {
               return (p.title && p.title.toLowerCase().includes(q)) ||
                      (p.pin_id && String(p.pin_id).includes(q)) ||
+                     (p.clean_slug && p.clean_slug.toLowerCase().includes(q)) ||
                      (p.creator_username && p.creator_username.toLowerCase().includes(q)) ||
                      (Array.isArray(p.serp_appearances) && p.serp_appearances.some(a => a.keyword_name && a.keyword_name.toLowerCase().includes(q)));
             });
@@ -988,6 +1341,10 @@ export function getDomainsClientAppScript() {
           const sort = this.dossierSort || 'saves';
           if (sort === 'saves') {
             list.sort((a, b) => (Number(b.saves) || 0) - (Number(a.saves) || 0));
+          } else if (sort === 'velocity') {
+            list.sort((a, b) => (Number(b.velocity) || 0) - (Number(a.velocity) || 0) || (Number(b.gains_7d) || 0) - (Number(a.gains_7d) || 0) || (Number(b.saves) || 0) - (Number(a.saves) || 0));
+          } else if (sort === 'gains_7d') {
+            list.sort((a, b) => (Number(b.gains_7d) || 0) - (Number(a.gains_7d) || 0) || (Number(b.velocity) || 0) - (Number(a.velocity) || 0));
           } else if (sort === 'age_asc') {
             list.sort((a, b) => {
               const aT = getPinTime(a);
@@ -1054,10 +1411,19 @@ export function getDomainsClientAppScript() {
             list = list.filter(art => art.pins.some(p => Boolean(p.is_displaced)));
           }
 
+          const selectedKw = (this.dossierSelectedKeyword || '').toLowerCase().trim();
+          if (selectedKw) {
+            list = list.filter(art => {
+              const kws = art.keywords || art.target_keywords || [];
+              return (Array.isArray(kws) && kws.some(kw => kw && kw.toLowerCase().trim() === selectedKw)) ||
+                     (Array.isArray(art.pins) && art.pins.some(p => Array.isArray(p.serp_appearances) && p.serp_appearances.some(sa => sa.keyword_name && sa.keyword_name.toLowerCase().trim() === selectedKw)));
+            });
+          }
+
           const q = (this.dossierSearch || '').toLowerCase().trim();
           if (q) {
             list = list.filter(art => {
-              const kws = art.target_keywords || art.keywords || [];
+              const kws = art.keywords || art.target_keywords || [];
               return (art.clean_slug && art.clean_slug.toLowerCase().includes(q)) ||
                      (art.sample_url && art.sample_url.toLowerCase().includes(q)) ||
                      (Array.isArray(art.angles_targeted) && art.angles_targeted.some(ang => ang.toLowerCase().includes(q))) ||
@@ -1085,9 +1451,21 @@ export function getDomainsClientAppScript() {
               .filter(t => t !== null && isFinite(t));
             return times.length > 0 ? Math.min(...times) : null;
           };
+          const getArticleVelocity = (art) => {
+            if (art.daily_velocity != null) return Number(art.daily_velocity) || 0;
+            return (art.pins || []).reduce((acc, p) => acc + Math.max(0, Number(p.velocity || 0)), 0);
+          };
+          const getArticleGains7d = (art) => {
+            if (art.gains_7d != null) return Number(art.gains_7d) || 0;
+            return (art.pins || []).reduce((acc, p) => acc + Number(p.gains_7d || 0), 0);
+          };
           const sort = this.dossierSort || 'saves';
           if (sort === 'saves') {
             list.sort((a, b) => (Number(b.total_saves) || 0) - (Number(a.total_saves) || 0));
+          } else if (sort === 'velocity') {
+            list.sort((a, b) => getArticleVelocity(b) - getArticleVelocity(a) || getArticleGains7d(b) - getArticleGains7d(a) || (Number(b.total_saves) || 0) - (Number(a.total_saves) || 0));
+          } else if (sort === 'gains_7d') {
+            list.sort((a, b) => getArticleGains7d(b) - getArticleGains7d(a) || getArticleVelocity(b) - getArticleVelocity(a));
           } else if (sort === 'multiplier') {
             list.sort((a, b) => (Number(b.pins_count) || 0) - (Number(a.pins_count) || 0));
           } else if (sort === 'rank') {
@@ -1132,23 +1510,54 @@ export function getDomainsClientAppScript() {
           if (this.dossierArticlesPage < this.totalDossierArticlesPages()) this.dossierArticlesPage++;
         },
 
+        filteredDossierAccounts() {
+          let list = Array.isArray(this.dossierData?.accounts) ? [...this.dossierData.accounts] : [];
+          const q = (this.dossierSearch || '').toLowerCase().trim();
+          if (q) {
+            list = list.filter(acc => {
+              return (acc.username && acc.username.toLowerCase().includes(q)) ||
+                     (acc.role_label && acc.role_label.toLowerCase().includes(q)) ||
+                     (Array.isArray(acc.sister_domains) && acc.sister_domains.some(sd => sd?.domain && sd.domain.toLowerCase().includes(q)));
+            });
+          }
+          return list;
+        },
+
         filteredDossierKeywords() {
           let list = Array.isArray(this.dossierData?.keyword_monopoly) ? [...this.dossierData.keyword_monopoly] : [];
+          if (this.dossierStatusFilter === 'active') {
+            list = list.filter(kw => (Number(kw.active_slots) || 0) > 0);
+          } else if (this.dossierStatusFilter === 'displaced') {
+            list = list.filter(kw => (Number(kw.displaced_slots) || 0) > 0);
+          }
+          const selectedKw = (this.dossierSelectedKeyword || '').toLowerCase().trim();
+          if (selectedKw) {
+            list = list.filter(kw => kw.keyword_name && kw.keyword_name.toLowerCase().trim() === selectedKw);
+          }
           const q = (this.dossierSearch || '').toLowerCase().trim();
           if (q) {
             list = list.filter(kw => {
               return (kw.keyword_name && kw.keyword_name.toLowerCase().includes(q)) ||
                      (kw.strategy && kw.strategy.toLowerCase().includes(q)) ||
-                     (kw.top_slot_attribution?.title && kw.top_slot_attribution.title.toLowerCase().includes(q));
+                     (kw.top_slot_attribution?.title && kw.top_slot_attribution.title.toLowerCase().includes(q)) ||
+                     (kw.top_slot_attribution?.clean_slug && kw.top_slot_attribution.clean_slug.toLowerCase().includes(q));
             });
           }
           const getKeywordNewestTime = (kw) => {
+            if (kw.newest_pin_date) {
+              const t = new Date(kw.newest_pin_date).getTime();
+              if (isFinite(t)) return t;
+            }
             const times = (kw.slots_detail || kw.slots || [])
               .map(s => s.created_at_pinterest ? new Date(s.created_at_pinterest).getTime() : null)
               .filter(t => t !== null && isFinite(t));
             return times.length > 0 ? Math.max(...times) : null;
           };
           const getKeywordOldestTime = (kw) => {
+            if (kw.oldest_pin_date) {
+              const t = new Date(kw.oldest_pin_date).getTime();
+              if (isFinite(t)) return t;
+            }
             const times = (kw.slots_detail || kw.slots || [])
               .map(s => s.created_at_pinterest ? new Date(s.created_at_pinterest).getTime() : null)
               .filter(t => t !== null && isFinite(t));
@@ -1157,12 +1566,19 @@ export function getDomainsClientAppScript() {
           const sort = this.dossierSort || 'saves';
           if (sort === 'saves') {
             list.sort((a, b) => (Number(b.total_saves) || 0) - (Number(a.total_saves) || 0));
+          } else if (sort === 'velocity') {
+            list.sort((a, b) => (Number(b.daily_velocity) || 0) - (Number(a.daily_velocity) || 0) || (Number(b.gains_7d) || 0) - (Number(a.gains_7d) || 0) || (Number(b.total_saves) || 0) - (Number(a.total_saves) || 0));
+          } else if (sort === 'gains_7d') {
+            list.sort((a, b) => (Number(b.gains_7d) || 0) - (Number(a.gains_7d) || 0) || (Number(b.daily_velocity) || 0) - (Number(a.daily_velocity) || 0));
           } else if (sort === 'multiplier') {
             // Sort by Pins per Keyword / Monopoly slots
-            list.sort((a, b) => (Number(b.active_slots) || 0) - (Number(a.active_slots) || 0) || (Number(b.unique_urls_count) || 0) - (Number(a.unique_urls_count) || 0));
+            list.sort((a, b) => (Number(b.active_slots) || 0) - (Number(a.active_slots) || 0) || (Number(b.displaced_slots) || 0) - (Number(a.displaced_slots) || 0));
           } else if (sort === 'rank') {
-            // Best rank: Rank #1 first!
-            list.sort((a, b) => (Number(a.best_rank) || 999) - (Number(b.best_rank) || 999));
+            // Best rank: Active Rank #1 first, then Displaced Vault rank
+            const rankKey = (kw) => (kw.best_rank != null && Number(kw.best_rank) > 0)
+              ? Number(kw.best_rank)
+              : ((kw.best_vault_rank != null && Number(kw.best_vault_rank) > 0) ? 1000 + Number(kw.best_vault_rank) : 9999);
+            list.sort((a, b) => rankKey(a) - rankKey(b));
           } else if (sort === 'age_asc') {
             list.sort((a, b) => {
               const aT = getKeywordNewestTime(a);
@@ -1227,10 +1643,14 @@ export function getDomainsClientAppScript() {
 
         copyBlueprintMarkdown() {
           if (!this.blueprintData?.markdown_blueprint) return;
+          if (typeof navigator === 'undefined' || !navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') {
+            this.fallbackCopy(this.blueprintData.markdown_blueprint, 'Attack Blueprint copied to clipboard in Markdown format!');
+            return;
+          }
           navigator.clipboard.writeText(this.blueprintData.markdown_blueprint).then(() => {
             this.showToast('Attack Blueprint copied to clipboard in Markdown format!', 'success');
           }).catch(() => {
-            this.showToast('Failed to copy to clipboard', 'error');
+            this.fallbackCopy(this.blueprintData.markdown_blueprint, 'Attack Blueprint copied to clipboard in Markdown format!');
           });
         },
 
@@ -1305,7 +1725,7 @@ export function getDomainsClientAppScript() {
         },
 
         async batchEnrichAdsVisible() {
-          const unchecked = this.domains.filter(d => (!d.ad_network || d.ad_network === 'unchecked') && !this.enrichingAds[d.domain]);
+          const unchecked = this.domains.filter(d => d.domain && d.domain.toLowerCase() !== 'uploaded by user' && (!d.ad_network || d.ad_network === 'unchecked') && !this.enrichingAds[d.domain]);
           if (unchecked.length === 0) {
             this.showToast('All visible domains on this page already have ads.txt monetization status!', 'info');
             return;
@@ -1314,47 +1734,35 @@ export function getDomainsClientAppScript() {
           this.batchAdsProgress = { done: 0, total: unchecked.length };
           this.showToast('Verifying ads.txt for ' + unchecked.length + ' visible domains in batch...', 'info');
 
-          // Chunk into batches of 6 with safe concurrency
-          const chunks = [];
-          for (let i = 0; i < unchecked.length; i += 6) {
-            chunks.push(unchecked.slice(i, i + 6).map(d => d.domain));
-          }
-
-          for (const chunk of chunks) {
-            chunk.forEach(d => { this.enrichingAds[d] = true; });
-            this.enrichingAds = { ...this.enrichingAds };
-            try {
-              const res = await (window.safeApiFetch || fetch)('/api/domains/enrich-ads', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ domains: chunk })
-              });
-              if (res.ok) {
-                const data = await res.json();
-                if (Array.isArray(data.results)) {
-                  for (const r of data.results) {
-                    const target = this.domains.find(d => d.domain === r.domain);
-                    if (target) {
-                      target.ad_network = r.current_ad_network || r.ad_network;
-                      target.ad_manager_domain = r.ad_manager_domain;
-                      target.primary_pub_id = r.primary_pub_id;
-                      target.previous_ad_network = r.previous_ad_network;
-                      target.ad_switched_at = r.switched_at || r.ad_switched_at;
-                      target.ads_txt_status = r.ads_txt_status;
-                      target.ad_network_history = r.network_history || r.ad_network_history;
-                    }
-                  }
-                }
-              }
-            } catch (_) {}
-            chunk.forEach(d => { delete this.enrichingAds[d]; });
-            this.batchAdsProgress.done = Math.min(this.batchAdsProgress.total, this.batchAdsProgress.done + chunk.length);
-            this.enrichingAds = { ...this.enrichingAds };
-          }
+          const { updatedCount, failedChunks, authError } = await this._runBatchEnrichChunks({
+            items: unchecked,
+            chunkSize: 6,
+            endpoint: '/api/domains/enrich-ads',
+            mapKey: 'enrichingAds',
+            progressKey: 'batchAdsProgress',
+            applyRecord: (r) => {
+              const target = this.domains.find(d => d.domain === r.domain);
+              if (!target) return false;
+              target.ad_network = r.current_ad_network || r.ad_network;
+              target.ad_manager_domain = r.ad_manager_domain;
+              target.primary_pub_id = r.primary_pub_id;
+              target.previous_ad_network = r.previous_ad_network;
+              target.ad_switched_at = r.switched_at || r.ad_switched_at;
+              target.ads_txt_status = r.ads_txt_status;
+              target.ad_network_history = r.network_history || r.ad_network_history;
+              return true;
+            }
+          });
 
           this.batchAdsEnriching = false;
           this.fetchGlobalAdsStatus();
-          this.showToast('Batch ads verification complete! Updated ' + this.batchAdsProgress.done + ' domains.', 'success');
+          if (authError) {
+            this.showToast(authError, 'error');
+          } else if (failedChunks > 0) {
+            this.showToast('Batch ads verification finished with ' + failedChunks + ' failed request(s). Updated ' + updatedCount + ' domains.', 'warning');
+          } else {
+            this.showToast('Batch ads verification complete! Updated ' + updatedCount + ' domains.', 'success');
+          }
         },
 
         async fetchGlobalAdsStatus() {

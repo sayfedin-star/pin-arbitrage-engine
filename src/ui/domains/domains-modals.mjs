@@ -6,7 +6,7 @@ export function getDomainsModalsHtml() {
   <div x-show="isBlueprintModalOpen"
        x-cloak
        class="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4 sm:p-6"
-       @keydown.escape.window="closeBlueprintModal()">
+       data-blueprint-modal="true">
     <!-- Backdrop -->
     <div x-show="isBlueprintModalOpen"
          x-transition:enter="ease-out duration-200"
@@ -46,19 +46,20 @@ export function getDomainsModalsHtml() {
         </div>
 
         <div class="flex items-center gap-2">
-          <button @click="copyBlueprintMarkdown()"
+          <button type="button" @click="copyBlueprintMarkdown()"
                   :disabled="!blueprintData"
                   class="px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold font-mono tabular-nums transition flex items-center gap-1.5 shadow-sm disabled:opacity-50">
             <i data-lucide="clipboard-list" class="w-3.5 h-3.5 shrink-0"></i>
             <span>Copy Markdown</span>
           </button>
-          <button @click="exportBlueprintJson()"
+          <button type="button" @click="exportBlueprintJson()"
                   :disabled="!blueprintData"
                   class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 text-xs font-semibold font-mono tabular-nums transition flex items-center gap-1.5 border border-slate-200 dark:border-[#27272A] disabled:opacity-50">
             <i data-lucide="download" class="w-3.5 h-3.5 shrink-0"></i>
             <span>JSON</span>
           </button>
-          <button @click="closeBlueprintModal()"
+          <button type="button" @click="closeBlueprintModal()"
+                  aria-label="Close Attack Blueprint modal"
                   class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center justify-center text-sm font-bold transition">
             ✕
           </button>
@@ -102,7 +103,7 @@ export function getDomainsModalsHtml() {
                       </div>
                       <div class="flex items-center gap-3 shrink-0 font-mono tabular-nums text-xs">
                         <span class="text-emerald-600 dark:text-emerald-400 font-bold" x-text="formatNumber(art.total_saves) + ' saves'"></span>
-                        <span class="text-sky-600 dark:text-sky-400 font-bold" x-text="'#' + art.best_rank"></span>
+                        <span class="text-sky-600 dark:text-sky-400 font-bold" x-text="art.best_rank != null ? '#' + art.best_rank : 'Vault'"></span>
                       </div>
                     </div>
 
@@ -137,7 +138,7 @@ export function getDomainsModalsHtml() {
                   <template x-for="(t, idx) in blueprintData.title_blueprints" :key="idx">
                     <div class="p-2.5 rounded-xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] font-mono tabular-nums text-xs flex items-center justify-between gap-2 shadow-sm">
                       <span class="text-slate-800 dark:text-slate-200" x-text="t"></span>
-                      <button @click="copyToClipboard(t, 'Copied title formula!')" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 inline-flex items-center" title="Copy title formula"><i data-lucide="clipboard-list" class="w-3.5 h-3.5"></i></button>
+                      <button type="button" @click="copyToClipboard(t, 'Copied title formula!')" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 inline-flex items-center" title="Copy title formula" aria-label="Copy title formula"><i data-lucide="clipboard-list" class="w-3.5 h-3.5"></i></button>
                     </div>
                   </template>
                 </div>

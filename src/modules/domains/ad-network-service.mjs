@@ -15,6 +15,7 @@
 import { sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import { chunkArray } from '../../utils.mjs';
 import { safeExternalFetch, SsrfBlockedError } from '../../lib/net-guard.mjs';
+import { redactSecrets } from '../../http/security-and-response.mjs';
 import { normalizeCleanDomain } from './domain-constants.mjs';
 
 export const KNOWN_AD_NETWORKS = {
@@ -37,86 +38,86 @@ export const KNOWN_AD_NETWORKS = {
 export const AD_NETWORK_DISPLAY_CONFIG = {
   [KNOWN_AD_NETWORKS.RAPTIVE]: {
     label: 'Raptive',
-    badge: '💎 Raptive',
-    icon: '💎',
+    badge: 'Raptive',
+    icon: 'gem',
     colorClasses: 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30'
   },
   [KNOWN_AD_NETWORKS.MEDIAVINE]: {
     label: 'Mediavine',
-    badge: '🍇 Mediavine',
-    icon: '🍇',
+    badge: 'Mediavine',
+    icon: 'sparkles',
     colorClasses: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
   },
   [KNOWN_AD_NETWORKS.HBAGENCY]: {
     label: 'HBAgency',
-    badge: '⚡ HBAgency',
-    icon: '⚡',
+    badge: 'HBAgency',
+    icon: 'zap',
     colorClasses: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
   },
   [KNOWN_AD_NETWORKS.JOURNEY]: {
     label: 'Journey',
-    badge: '🚀 Journey',
-    icon: '🚀',
+    badge: 'Journey',
+    icon: 'rocket',
     colorClasses: 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/30'
   },
   [KNOWN_AD_NETWORKS.EZOIC]: {
     label: 'Ezoic',
-    badge: '⚡ Ezoic',
-    icon: '⚡',
+    badge: 'Ezoic',
+    icon: 'zap',
     colorClasses: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30'
   },
   [KNOWN_AD_NETWORKS.MONUMETRIC]: {
     label: 'Monumetric',
-    badge: '📊 Monumetric',
-    icon: '📊',
+    badge: 'Monumetric',
+    icon: 'bar-chart-2',
     colorClasses: 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30'
   },
   [KNOWN_AD_NETWORKS.SHEMEDIA]: {
     label: 'SheMedia',
-    badge: '🌸 SheMedia',
-    icon: '🌸',
+    badge: 'SheMedia',
+    icon: 'flower',
     colorClasses: 'bg-pink-500/15 text-pink-700 dark:text-pink-300 border-pink-500/30'
   },
   [KNOWN_AD_NETWORKS.FREESTAR]: {
     label: 'Freestar',
-    badge: '⭐ Freestar',
-    icon: '⭐',
+    badge: 'Freestar',
+    icon: 'star',
     colorClasses: 'bg-yellow-500/15 text-yellow-700 dark:text-yellow-300 border-yellow-500/30'
   },
   [KNOWN_AD_NETWORKS.PLAYWIRE]: {
     label: 'Playwire',
-    badge: '🎮 Playwire',
-    icon: '🎮',
+    badge: 'Playwire',
+    icon: 'gamepad-2',
     colorClasses: 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30'
   },
   [KNOWN_AD_NETWORKS.SNIGEL]: {
     label: 'Snigel',
-    badge: '🐌 Snigel',
-    icon: '🐌',
+    badge: 'Snigel',
+    icon: 'activity',
     colorClasses: 'bg-teal-500/15 text-teal-700 dark:text-teal-300 border-teal-500/30'
   },
   [KNOWN_AD_NETWORKS.ADSENSE]: {
     label: 'AdSense',
-    badge: '🟡 AdSense',
-    icon: '🟡',
+    badge: 'AdSense',
+    icon: 'circle-dollar-sign',
     colorClasses: 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30'
   },
   [KNOWN_AD_NETWORKS.AFFILIATE_ONLY]: {
     label: 'Affiliate Only',
-    badge: '🛒 Affiliate Only',
-    icon: '🛒',
+    badge: 'Affiliate Only',
+    icon: 'shopping-cart',
     colorClasses: 'bg-slate-500/10 text-slate-700 dark:text-slate-300 border-slate-500/20'
   },
   [KNOWN_AD_NETWORKS.PROTECTED]: {
     label: 'Protected',
-    badge: '🛡️ Cloudflare Bot Shield',
-    icon: '🛡️',
+    badge: 'Cloudflare Bot Shield',
+    icon: 'shield',
     colorClasses: 'bg-orange-500/15 text-orange-700 dark:text-orange-300 border-orange-500/30'
   },
   [KNOWN_AD_NETWORKS.FAILED]: {
     label: 'Unchecked / Failed',
-    badge: '❓ Unchecked',
-    icon: '❓',
+    badge: 'Unchecked',
+    icon: 'help-circle',
     colorClasses: 'bg-slate-400/10 text-slate-500 border-slate-300 dark:border-slate-700'
   }
 };
@@ -405,7 +406,8 @@ export async function fetchAdsTxt(cleanDomain) {
       totalBytes += value.length;
       chunks += decoder.decode(value, { stream: true });
     }
-    try { reader.cancel(); } catch (_) {}
+    chunks += decoder.decode();
+    await reader.cancel().catch(() => {});
 
     // Check if response is actually HTML error page rather than ads.txt
     const lowerTrimmed = chunks.trim().toLowerCase();
@@ -465,30 +467,40 @@ export function normalizeMonetizationRecord(record) {
 /**
  * Fetches, detects network, tracks transitions, and caches results into Unified PostgreSQL.
  */
-export async function fetchAndCacheDomainAdNetwork(sql, rawDomain, { forceRefresh = false, fastPath = false } = {}) {
+export async function fetchAndCacheDomainAdNetwork(sql, rawDomain, { forceRefresh = false, fastPath = false, throwOnDbError = false } = {}) {
   const cleanDomain = normalizeCleanDomain(rawDomain);
   if (!cleanDomain) return null;
 
   // 1. Check existing record in unified domain_intelligence_rollup
-  const [existing] = await sql`
-    SELECT
-      domain,
-      COALESCE(ad_network, 'unchecked') AS current_ad_network,
-      ad_network,
-      ad_manager_domain,
-      primary_pub_id,
-      previous_ad_network,
-      ad_switched_at AS switched_at,
-      ad_switched_at,
-      ad_network_history AS network_history,
-      ad_network_history,
-      ads_txt_status,
-      raw_header_snippet,
-      ads_checked_at AS checked_at,
-      ads_checked_at
-    FROM domain_intelligence_rollup
-    WHERE domain = ${cleanDomain};
-  `.catch(() => []);
+  let existing = null;
+  try {
+    [existing] = await sql`
+      SELECT
+        domain,
+        COALESCE(ad_network, 'unchecked') AS current_ad_network,
+        ad_network,
+        ad_manager_domain,
+        primary_pub_id,
+        previous_ad_network,
+        ad_switched_at AS switched_at,
+        ad_switched_at,
+        ad_network_history AS network_history,
+        ad_network_history,
+        ads_txt_status,
+        raw_header_snippet,
+        ads_checked_at AS checked_at,
+        ads_checked_at
+      FROM domain_intelligence_rollup
+      WHERE domain = ${cleanDomain};
+    `;
+  } catch (dbReadErr) {
+    console.error(`[ad-network-service] DB cache read failed for ${cleanDomain}:`, dbReadErr?.message || dbReadErr);
+    if (throwOnDbError) {
+      const wrapped = dbReadErr instanceof Error ? dbReadErr : new Error(String(dbReadErr));
+      wrapped.isDbError = true;
+      throw wrapped;
+    }
+  }
 
   // Return cached result if fresh and not forced
   if (
@@ -664,7 +676,13 @@ export async function fetchAndCacheDomainAdNetwork(sql, rawDomain, { forceRefres
       raw_header_snippet: headerSnippet,
       checked_at: new Date().toISOString()
     });
-  } catch (err) {
+  } catch (dbWriteErr) {
+    console.error(`[ad-network-service] DB persist failed for ${cleanDomain}:`, dbWriteErr?.message || dbWriteErr);
+    if (throwOnDbError) {
+      const wrapped = dbWriteErr instanceof Error ? dbWriteErr : new Error(String(dbWriteErr));
+      wrapped.isDbError = true;
+      throw wrapped;
+    }
     return normalizeMonetizationRecord({
       domain: cleanDomain,
       current_ad_network: finalNetwork,
@@ -683,15 +701,16 @@ export async function fetchAndCacheDomainAdNetwork(sql, rawDomain, { forceRefres
 /**
  * Batch enriches candidate domains with ad network metadata
  */
-export async function enrichMissingAdNetworksBatch(sql, candidateDomains = [], maxBatch = 10, { forceRefresh = false } = {}) {
+export async function enrichMissingAdNetworksBatch(sql, candidateDomains = [], maxBatch = 10, { forceRefresh = false, throwOnDbError = false } = {}) {
   if (!Array.isArray(candidateDomains)) return { enriched: 0, results: [] };
   const safeMax = Math.max(1, Math.min(Number(maxBatch) || 10, 50));
-  const unique = [...new Set(candidateDomains.map(normalizeCleanDomain).filter(Boolean))].slice(0, safeMax);
+  const safeCandidates = candidateDomains.slice(0, 100);
+  const unique = [...new Set(safeCandidates.map(normalizeCleanDomain).filter(Boolean))].slice(0, safeMax);
   if (unique.length === 0) return { enriched: 0, results: [] };
 
   const results = [];
   for (let i = 0; i < unique.length; i++) {
-    const res = await fetchAndCacheDomainAdNetwork(sql, unique[i], { forceRefresh });
+    const res = await fetchAndCacheDomainAdNetwork(sql, unique[i], { forceRefresh, throwOnDbError });
     if (res) results.push(res);
     if (i < unique.length - 1) {
       await sleep(randomJitterMs(250, 600));
@@ -795,6 +814,8 @@ export async function getDatabaseMonetizationStats(sql) {
           COUNT(*) FILTER (WHERE ad_switched_at IS NOT NULL)::int AS switched_count
         FROM domain_intelligence_rollup
         WHERE ad_network IS NOT NULL AND ad_network <> 'unchecked'
+          AND domain <> 'Uploaded by user'
+          AND COALESCE(age_status, '') <> 'organic_unlinked'
       )
       SELECT
         (SELECT COUNT(*)::int FROM filtered_candidates) AS total_domains,
@@ -866,7 +887,7 @@ export async function getDatabaseMonetizationStats(sql) {
       protected_count: 0,
       failed_count: 0,
       switched_count: 0,
-      error: err.message
+      error: redactSecrets(err?.message || 'Failed to load monetization stats')
     };
   }
 }
@@ -937,8 +958,12 @@ export async function enrichNextUncheckedAdsBatch(sql, { batchSize = 15, concurr
     const slice = chunks[idx];
     const chunkPromises = slice.map(async (dom) => {
       try {
-        return await fetchAndCacheDomainAdNetwork(sql, dom, { forceRefresh });
-      } catch (_) {
+        return await fetchAndCacheDomainAdNetwork(sql, dom, { forceRefresh, throwOnDbError: true });
+      } catch (err) {
+        if (err?.isDbError) {
+          console.error(`[ad-network-service] Fatal DB error during batch enrichment of ${dom}:`, err?.message || err);
+          throw err;
+        }
         return { domain: dom, current_ad_network: 'failed', ads_txt_status: 'failed' };
       }
     });

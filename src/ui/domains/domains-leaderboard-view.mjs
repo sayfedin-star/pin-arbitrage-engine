@@ -8,7 +8,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
     <!-- TOP 5 EXECUTIVE KPI CARDS -->
     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
       <!-- 1. Total Ranked Domains -->
-      <div @click="setPreset('all')"
+      <div @click="setPreset('all')" role="button" tabindex="0" @keydown.enter.prevent="setPreset('all')" @keydown.space.prevent="setPreset('all')"
            class="bg-white dark:bg-[#121215] border rounded-2xl p-4 flex flex-col gap-1 shadow-sm cursor-pointer transition-all hover:border-sky-500/50"
            :class="activePreset === 'all' ? 'border-sky-500 ring-2 ring-sky-500/20' : 'border-slate-200 dark:border-[#27272A]'"
            title="Click to reset filters and view all domains">
@@ -33,7 +33,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
       </div>
 
       <!-- 3. Baby Giants (< 2 Years) -->
-      <div @click="setPreset(activePreset === 'baby_giants' ? 'all' : 'baby_giants')"
+      <div @click="setPreset(activePreset === 'baby_giants' ? 'all' : 'baby_giants')" role="button" tabindex="0" @keydown.enter.prevent="setPreset(activePreset === 'baby_giants' ? 'all' : 'baby_giants')" @keydown.space.prevent="setPreset(activePreset === 'baby_giants' ? 'all' : 'baby_giants')"
            class="bg-white dark:bg-[#121215] border rounded-2xl p-4 flex flex-col gap-1 shadow-sm cursor-pointer transition-all hover:border-emerald-500/50"
            :class="activePreset === 'baby_giants' ? 'border-emerald-500 ring-2 ring-emerald-500/20' : 'border-slate-200 dark:border-[#27272A]'">
         <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
@@ -45,7 +45,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
       </div>
 
       <!-- 4. Multi-Account Networks -->
-      <div @click="setPreset(activePreset === 'multi_account' ? 'all' : 'multi_account')"
+      <div @click="setPreset(activePreset === 'multi_account' ? 'all' : 'multi_account')" role="button" tabindex="0" @keydown.enter.prevent="setPreset(activePreset === 'multi_account' ? 'all' : 'multi_account')" @keydown.space.prevent="setPreset(activePreset === 'multi_account' ? 'all' : 'multi_account')"
            class="bg-white dark:bg-[#121215] border rounded-2xl p-4 flex flex-col gap-1 shadow-sm cursor-pointer transition-all hover:border-purple-500/50"
            :class="activePreset === 'multi_account' ? 'border-purple-500 ring-2 ring-purple-500/20' : 'border-slate-200 dark:border-[#27272A]'">
         <div class="flex items-center justify-between text-slate-500 dark:text-slate-400">
@@ -57,7 +57,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
       </div>
 
       <!-- 5. Avg Pin-to-URL Multiplier -->
-      <div @click="setPreset(activePreset === 'high_multipliers' ? 'all' : 'high_multipliers')"
+      <div @click="setPreset(activePreset === 'high_multipliers' ? 'all' : 'high_multipliers')" role="button" tabindex="0" @keydown.enter.prevent="setPreset(activePreset === 'high_multipliers' ? 'all' : 'high_multipliers')" @keydown.space.prevent="setPreset(activePreset === 'high_multipliers' ? 'all' : 'high_multipliers')"
            class="bg-white dark:bg-[#121215] border rounded-2xl p-4 flex flex-col gap-1 shadow-sm cursor-pointer transition-all hover:border-amber-500/50"
            :class="activePreset === 'high_multipliers' ? 'border-amber-500 ring-2 ring-amber-500/20' : 'border-slate-200 dark:border-[#27272A]'"
            title="Click to filter by High Multipliers (>= 3.0x pins/URL)">
@@ -80,54 +80,57 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
                  x-model="searchQuery"
                  @input.debounce.400ms="applySearch()"
                  placeholder="Search domain (e.g. tasty)..."
+                 aria-label="Search domains"
                  class="w-full bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A]/80 rounded-xl pl-8 pr-7 py-1.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/40">
           <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2 pointer-events-none"></i>
           <button x-show="searchQuery"
+                  type="button"
+                  aria-label="Clear domain search"
                   @click="searchQuery = ''; applySearch()"
                   class="absolute right-2 top-2 text-slate-400 hover:text-slate-600 text-xs font-bold">✕</button>
         </div>
 
         <!-- Presets & Target Domains (Center) -->
         <div class="flex items-center gap-1.5 flex-wrap">
-          <button @click="setPreset('all')"
+          <button type="button" @click="setPreset('all')"
                   class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer"
                   :class="activePreset === 'all' && !pinnedOnly ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200/60 dark:border-[#27272A]'">
             All
           </button>
-          <button @click="setPreset(activePreset === 'baby_giants' ? 'all' : 'baby_giants')"
+          <button type="button" @click="setPreset(activePreset === 'baby_giants' ? 'all' : 'baby_giants')"
                   class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer"
                   :class="activePreset === 'baby_giants' ? 'bg-emerald-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200/60 dark:border-[#27272A]'">
             <span>Baby Giants</span>
           </button>
-          <button @click="setPreset(activePreset === 'easy_arbitrage' ? 'all' : 'easy_arbitrage')"
+          <button type="button" @click="setPreset(activePreset === 'easy_arbitrage' ? 'all' : 'easy_arbitrage')"
                   class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer"
                   :class="activePreset === 'easy_arbitrage' ? 'bg-indigo-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200/60 dark:border-[#27272A]'">
             <span>Easy Arb</span>
           </button>
-          <button @click="setPreset(activePreset === 'bleeding_giants' ? 'all' : 'bleeding_giants')"
+          <button type="button" @click="setPreset(activePreset === 'bleeding_giants' ? 'all' : 'bleeding_giants')"
                   class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer"
                   :class="activePreset === 'bleeding_giants' ? 'bg-rose-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200/60 dark:border-[#27272A]'">
             <span>Bleeding</span>
           </button>
-          <button @click="setPreset(activePreset === 'high_multipliers' ? 'all' : 'high_multipliers')"
+          <button type="button" @click="setPreset(activePreset === 'high_multipliers' ? 'all' : 'high_multipliers')"
                   class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer"
                   :class="activePreset === 'high_multipliers' ? 'bg-amber-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200/60 dark:border-[#27272A]'">
             <span>High Mult</span>
           </button>
-          <button @click="setPreset(activePreset === 'multi_account' ? 'all' : 'multi_account')"
+          <button type="button" @click="setPreset(activePreset === 'multi_account' ? 'all' : 'multi_account')"
                   class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer"
                   :class="activePreset === 'multi_account' ? 'bg-purple-600 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200/60 dark:border-[#27272A]'">
             <span>Multi-Acct</span>
           </button>
           <!-- Cluster Push Signal Filter Pill -->
-          <button @click="setPreset(activePreset === 'cluster_push_signal' ? 'all' : 'cluster_push_signal')"
+          <button type="button" @click="setPreset(activePreset === 'cluster_push_signal' ? 'all' : 'cluster_push_signal')"
                   class="px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer flex items-center gap-1"
                   :class="activePreset === 'cluster_push_signal' ? 'bg-amber-500 text-white font-semibold shadow-xs' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200/60 dark:border-[#27272A]'"
                   title="Filter young domains (age <= 2y) backed by high-audience creator accounts">
             <i data-lucide="zap" class="w-3.5 h-3.5 shrink-0"></i><span>Cluster Push Signal</span>
           </button>
           <!-- Target Domains Toggle -->
-          <button @click="pinnedOnly = !pinnedOnly; loadDomains(true)"
+          <button type="button" @click="pinnedOnly = !pinnedOnly; loadDomains(true)"
                   class="px-2.5 py-1 rounded-xl text-xs font-semibold transition-all flex items-center gap-1 shadow-2xs cursor-pointer"
                   :class="pinnedOnly ? 'bg-indigo-600 text-white ring-2 ring-indigo-500/20' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200/80 dark:border-[#27272A]'"
                   title="Toggle view between all ranked domains and pinned campaign targets">
@@ -142,7 +145,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
         <div class="flex items-center gap-2" x-data="{ actionsOpen: false }" @click.away="actionsOpen = false">
           <!-- Actions ▾ Dropdown -->
           <div class="relative">
-            <button @click="actionsOpen = !actionsOpen"
+            <button type="button" @click="actionsOpen = !actionsOpen"
                     class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-50 dark:hover:bg-[#27272A]/60 text-xs font-semibold text-slate-700 dark:text-slate-200 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer">
               <span>Actions</span>
               <span :class="actionsOpen ? 'rotate-180' : ''" class="transition-transform duration-150 text-[10px]">▾</span>
@@ -160,14 +163,14 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
                  x-transition:leave-end="transform opacity-0 scale-95"
                  class="absolute right-0 mt-1.5 w-56 rounded-2xl bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] shadow-xl py-1.5 z-40 text-xs flex flex-col font-medium">
               
-              <button @click="batchEnrichVisible(); actionsOpen = false"
+              <button type="button" @click="batchEnrichVisible(); actionsOpen = false"
                       :disabled="batchEnriching || globalEnriching"
                       class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 disabled:opacity-40 transition-colors flex items-center justify-between cursor-pointer">
                 <span>Verify Page WHOIS</span>
                 <span x-show="batchEnriching" class="inline-flex"><i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i></span>
               </button>
 
-              <button @click="batchEnrichAdsVisible(); actionsOpen = false"
+              <button type="button" @click="batchEnrichAdsVisible(); actionsOpen = false"
                       :disabled="batchAdsEnriching || globalAdsEnriching"
                       title="Batch Check Ads"
                       class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 disabled:opacity-40 transition-colors flex items-center justify-between cursor-pointer">
@@ -178,14 +181,14 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
 
               <div class="h-px bg-slate-100 dark:bg-[#18181B] my-1"></div>
 
-              <button @click="toggleGlobalEnrichment(); actionsOpen = false"
+              <button type="button" @click="toggleGlobalEnrichment(); actionsOpen = false"
                       title="Verify Entire Database"
                       class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 transition-colors flex items-center justify-between cursor-pointer">
                 <span x-text="globalEnriching ? 'Pause Auto-Age' : 'Auto-Verify Database Age'">Verify Entire Database</span>
                 <span x-show="globalEnriching" class="text-[10px] text-amber-500 font-mono tabular-nums font-bold" x-text="(globalStats.percent_complete || 0) + '%'"></span>
               </button>
 
-              <button @click="toggleGlobalAdsEnrichment(); actionsOpen = false"
+              <button type="button" @click="toggleGlobalAdsEnrichment(); actionsOpen = false"
                       title="Auto-Verify All Ads"
                       class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 transition-colors flex items-center justify-between cursor-pointer">
                 <span x-text="globalAdsEnriching ? 'Pause Auto-Ads' : 'Auto-Verify All Ads'">Auto-Verify All Ads</span>
@@ -194,7 +197,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
 
               <div class="h-px bg-slate-100 dark:bg-[#18181B] my-1"></div>
 
-              <button @click="downloadDomainsCsv(); actionsOpen = false"
+              <button type="button" @click="downloadDomainsCsv(); actionsOpen = false"
                       class="px-3.5 py-2 text-left hover:bg-slate-50 dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-300 transition-colors flex items-center justify-between cursor-pointer">
                 <span>Export CSV</span>
                 <span class="text-[10px] text-slate-400 font-mono tabular-nums">.csv</span>
@@ -208,7 +211,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
       <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 border-t border-slate-100 dark:border-[#27272A]/80 items-center" :class="scopedFolderId ? 'lg:grid-cols-6' : 'lg:grid-cols-7'">
         <!-- 1. Ad Network -->
         <div>
-          <select x-model="selectedAdNetwork"
+          <select x-model="selectedAdNetwork" aria-label="Filter by ad network"
                   @change="loadDomains(true)"
                   class="w-full bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium cursor-pointer">
             <option value="all">All Ads</option>
@@ -227,7 +230,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
         <!-- 2. Campaign Folder (hidden inside scoped folder workspace) -->
         <template x-if="!scopedFolderId">
           <div>
-            <select x-model="selectedFolderId"
+            <select x-model="selectedFolderId" aria-label="Filter by campaign folder"
                     @change="loadDomains(true)"
                     class="w-full bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium cursor-pointer">
               <option value="">All Folders</option>
@@ -240,7 +243,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
 
         <!-- 3. Domain Age -->
         <div>
-          <select x-model="ageFilter"
+          <select x-model="ageFilter" aria-label="Filter by domain age"
                   @change="applyModularFilter()"
                   class="w-full bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium cursor-pointer"
                   :class="ageFilter !== 'all' ? 'border-emerald-500 bg-emerald-500/5' : ''">
@@ -258,7 +261,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
 
         <!-- 4. SERP Rank -->
         <div>
-          <select x-model="rankFilter"
+          <select x-model="rankFilter" aria-label="Filter by SERP rank"
                   @change="applyModularFilter()"
                   class="w-full bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium cursor-pointer"
                   :class="rankFilter !== 'all' ? 'border-sky-500 bg-sky-500/5' : ''">
@@ -274,7 +277,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
 
         <!-- 5. Saves & Velocity -->
         <div>
-          <select x-model="savesFilter"
+          <select x-model="savesFilter" aria-label="Filter by saves or velocity"
                   @change="applyModularFilter()"
                   class="w-full bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-amber-500 font-medium cursor-pointer"
                   :class="savesFilter !== 'all' ? 'border-amber-500 bg-amber-500/5' : ''">
@@ -291,7 +294,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
 
         <!-- 6. Sort By -->
         <div>
-          <select x-model="sortBy"
+          <select x-model="sortBy" aria-label="Sort domains by"
                   @change="loadDomains(true)"
                   class="w-full bg-slate-50 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] rounded-lg px-2 py-1 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono tabular-nums cursor-pointer">
             <option value="visibility">Sort: Visibility</option>
@@ -302,6 +305,8 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
             <option value="velocity">Sort: Velocity</option>
             <option value="avg_rank">Sort: Best Rank</option>
             <option value="multiplier">Sort: Multiplier</option>
+            <option value="domain_asc">Sort: Domain (A-Z)</option>
+            <option value="domain_desc">Sort: Domain (Z-A)</option>
           </select>
         </div>
 
@@ -315,7 +320,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
             <span x-text="logicMode.toUpperCase()">AND</span>
           </button>
           <template x-if="hasActiveFilters()">
-            <button @click="resetFilters()"
+            <button type="button" @click="resetFilters()"
                     class="text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline font-mono tabular-nums">
               ✕ Reset
             </button>
@@ -349,7 +354,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
               <span class="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-bold"><i data-lucide="sprout" class="w-3 h-3 shrink-0"></i><span x-text="formatNumber(globalStats.resolved_domains) + ' resolved'"></span></span>
               <span class="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400 font-bold"><i data-lucide="lock" class="w-3 h-3 shrink-0"></i><span x-text="formatNumber(globalStats.failed_domains) + ' shielded'"></span></span>
               <span class="inline-flex items-center gap-1 text-slate-500 font-mono tabular-nums"><i data-lucide="hourglass" class="w-3 h-3 shrink-0"></i><span x-text="formatNumber(globalStats.unchecked_domains) + ' remaining'"></span></span>
-              <button @click="stopGlobalEnrichment()"
+              <button type="button" @click="stopGlobalEnrichment()"
                       class="px-2.5 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30 text-[11px] font-semibold transition flex items-center gap-1 shadow-sm">
                 <i data-lucide="pause" class="w-3 h-3 shrink-0"></i>
                 <span>Pause</span>
@@ -380,7 +385,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
               <span class="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold"><i data-lucide="zap" class="w-3 h-3 shrink-0"></i><span x-text="formatNumber(globalAdsStats.hbagency_count) + ' HBAgency'"></span></span>
               <span class="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold"><span class="w-2 h-2 rounded-full bg-amber-500 inline-block shrink-0" aria-hidden="true"></span><span x-text="formatNumber(globalAdsStats.adsense_count) + ' AdSense'"></span></span>
               <span class="inline-flex items-center gap-1 text-slate-500 font-mono tabular-nums"><i data-lucide="hourglass" class="w-3 h-3 shrink-0"></i><span x-text="formatNumber(globalAdsStats.unchecked_domains) + ' remaining'"></span></span>
-              <button @click="stopGlobalAdsEnrichment()"
+              <button type="button" @click="stopGlobalAdsEnrichment()"
                       class="px-2.5 py-1 rounded bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30 text-[11px] font-semibold transition flex items-center gap-1 shadow-sm">
                 <i data-lucide="pause" class="w-3 h-3 shrink-0"></i>
                 <span>Pause</span>
@@ -400,20 +405,20 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
         <table class="w-full text-left text-xs border-collapse min-w-[1020px]">
           <thead>
             <tr class="bg-slate-50/80 dark:bg-[#09090B]/60 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-[#27272A] font-mono tabular-nums text-[11px] uppercase select-none">
-              <th @click="toggleSortColumn('domain')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
+              <th @click="toggleSortColumn('domain')" role="button" tabindex="0" @keydown.enter.prevent="toggleSortColumn('domain')" @keydown.space.prevent="toggleSortColumn('domain')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
                 # & Domain <span x-show="sortBy === 'domain_asc' || sortBy === 'domain_desc'" x-text="sortBy === 'domain_asc' ? '↑' : '↓'"></span>
               </th>
               <th class="py-3 px-4 font-semibold">Ad Network</th>
-              <th @click="toggleSortColumn('pins_count')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
+              <th @click="toggleSortColumn('pins_count')" role="button" tabindex="0" @keydown.enter.prevent="toggleSortColumn('pins_count')" @keydown.space.prevent="toggleSortColumn('pins_count')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
                 Pins & Multiplier <span x-show="sortBy === 'pins_count' || sortBy === 'multiplier'" x-text="'↓'"></span>
               </th>
-              <th @click="toggleSortColumn('visibility')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
+              <th @click="toggleSortColumn('visibility')" role="button" tabindex="0" @keydown.enter.prevent="toggleSortColumn('visibility')" @keydown.space.prevent="toggleSortColumn('visibility')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
                 SERP Distribution <span x-show="sortBy === 'visibility' || sortBy === 'avg_rank'" x-text="'↓'"></span>
               </th>
-              <th @click="toggleSortColumn('saves')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
+              <th @click="toggleSortColumn('saves')" role="button" tabindex="0" @keydown.enter.prevent="toggleSortColumn('saves')" @keydown.space.prevent="toggleSortColumn('saves')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
                 Saves & Velocity <span x-show="sortBy === 'saves' || sortBy === 'velocity'" x-text="'↓'"></span>
               </th>
-              <th @click="toggleSortColumn('arbitrage_score')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
+              <th @click="toggleSortColumn('arbitrage_score')" role="button" tabindex="0" @keydown.enter.prevent="toggleSortColumn('arbitrage_score')" @keydown.space.prevent="toggleSortColumn('arbitrage_score')" class="py-3 px-4 font-semibold cursor-pointer hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
                 Arbitrage & Accounts <span x-show="sortBy === 'arbitrage_score'" x-text="'↓'"></span>
               </th>
               <th class="py-3 px-4 text-right font-semibold sticky right-0 bg-slate-50/95 dark:bg-[#09090B]/95 backdrop-blur-xs shadow-[-6px_0_8px_-2px_rgba(0,0,0,0.06)] z-10 select-none">Actions</th>
@@ -439,7 +444,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
                   <div class="flex flex-col items-center gap-2">
                     <i data-lucide="alert-triangle" class="w-6 h-6 text-rose-500"></i>
                     <span class="font-semibold text-slate-700 dark:text-slate-300" x-text="loadError"></span>
-                    <button @click="loadDomains(false)" class="px-3.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold font-sans transition shadow-sm mt-1 flex items-center gap-1.5">
+                    <button type="button" @click="loadDomains(false)" class="px-3.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold font-sans transition shadow-sm mt-1 flex items-center gap-1.5">
                       <i data-lucide="refresh-cw" class="w-3.5 h-3.5 shrink-0"></i>
                       <span>Retry Loading</span>
                     </button>
@@ -455,7 +460,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
                   <div class="flex flex-col items-center gap-2">
                     <i data-lucide="search" class="w-6 h-6 text-slate-400"></i>
                     <span class="font-semibold text-slate-700 dark:text-slate-300">No domains match the selected filters</span>
-                    <button @click="resetFilters()" class="text-xs text-sky-600 hover:underline">Reset all filters</button>
+                    <button type="button" @click="resetFilters()" class="text-xs text-sky-600 hover:underline">Reset all filters</button>
                   </div>
                 </td>
               </tr>
@@ -519,7 +524,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
                               <span class="inline-flex items-center gap-0.5 text-slate-500 dark:text-slate-400 font-medium"
                                     title="Registry Withheld / Privacy Shielded">
                                 <span>Redacted / Shielded</span>
-                                <button @click.stop="enrichAge(d.domain, true)"
+                                <button type="button" @click.stop="enrichAge(d.domain, true)" aria-label="Re-check WHOIS age"
                                         :disabled="enrichingDomains[d.domain]"
                                         class="hover:text-slate-600 dark:hover:text-slate-200 transition text-[9px] ml-0.5"
                                         title="Re-check WHOIS">
@@ -530,7 +535,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
 
                             <!-- Unchecked -->
                             <template x-if="(d.age_years === null || d.age_years === undefined) && d.age_status !== 'failed'">
-                              <button @click.stop="enrichAge(d.domain)"
+                              <button type="button" @click.stop="enrichAge(d.domain)"
                                       :disabled="enrichingDomains[d.domain]"
                                       class="hover:text-sky-600 dark:hover:text-sky-400 underline font-medium transition"
                                       title="Check WHOIS age">
@@ -574,7 +579,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
                         </template>
 
                         <!-- Force Re-check Button on hover -->
-                        <button @click.stop="enrichAd(d.domain, true)"
+                        <button type="button" @click.stop="enrichAd(d.domain, true)" aria-label="Re-scan ads.txt"
                                 :disabled="enrichingAds[d.domain]"
                                 class="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-slate-200 dark:hover:bg-[#27272A] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-[10px] transition"
                                 title="Re-scan ads.txt">
@@ -585,7 +590,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
 
                     <!-- State 2: Unchecked Ad Network -->
                     <template x-if="!d.ad_network || d.ad_network === 'unchecked'">
-                      <button @click.stop="enrichAd(d.domain)"
+                      <button type="button" @click.stop="enrichAd(d.domain)"
                               :disabled="enrichingAds[d.domain]"
                               class="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-600 dark:text-slate-300 text-[10px] font-mono tabular-nums border border-slate-200 dark:border-[#27272A] transition flex items-center gap-1 disabled:opacity-60 shadow-sm w-fit">
                         <span x-show="enrichingAds[d.domain]" class="inline-flex"><i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i></span><span x-show="!enrichingAds[d.domain]" class="inline-flex"><i data-lucide="dollar-sign" class="w-3 h-3"></i></span>
@@ -685,14 +690,14 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
                 <!-- 7. Actions -->
                 <td class="py-3 px-4 text-right sticky right-0 bg-white/95 dark:bg-[#121215]/95 backdrop-blur-xs group-hover:bg-slate-50/95 dark:group-hover:bg-slate-800/95 shadow-[-6px_0_8px_-2px_rgba(0,0,0,0.06)] z-10">
                   <div class="flex items-center justify-end gap-1.5 whitespace-nowrap">
-                    <button @click.stop="togglePinDomain(d.domain)"
+                    <button type="button" @click.stop="togglePinDomain(d.domain)"
                             class="px-2 py-1 rounded-lg text-xs font-semibold transition flex items-center gap-1 shadow-2xs"
                             :class="pinnedDomains.has(d.domain.toLowerCase()) ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30' : 'bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-[#27272A]'"
                             :title="pinnedDomains.has(d.domain.toLowerCase()) ? 'Unpin domain from folder' : 'Pin domain to campaign folder'">
                       <i data-lucide="pin" class="w-3 h-3 shrink-0"></i>
                       <span x-text="pinnedDomains.has(d.domain.toLowerCase()) ? 'Pinned' : 'Pin'"></span>
                     </button>
-                    <button @click.stop="openDossier(d.domain)"
+                    <button type="button" @click.stop="openDossier(d.domain)"
                             class="px-2.5 py-1.5 rounded-lg bg-sky-50 dark:bg-sky-950/60 hover:bg-sky-100 dark:hover:bg-sky-900/60 text-sky-600 dark:text-sky-400 text-xs font-semibold transition border border-sky-200 dark:border-sky-800">
                       Dossier →
                     </button>
@@ -714,13 +719,13 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
         </div>
 
         <div class="flex items-center gap-2">
-          <button @click="changePage(currentPage - 1)"
+          <button type="button" @click="changePage(currentPage - 1)"
                   :disabled="currentPage <= 1 || loading"
                   class="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-50 dark:hover:bg-[#27272A] text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition">
             ← Previous
           </button>
           <span class="font-mono tabular-nums text-xs text-slate-700 dark:text-slate-300 font-bold px-2" x-text="currentPage + ' / ' + totalPages"></span>
-          <button @click="changePage(currentPage + 1)"
+          <button type="button" @click="changePage(currentPage + 1)"
                   :disabled="currentPage >= totalPages || loading"
                   class="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:bg-slate-50 dark:hover:bg-[#27272A] text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition">
             Next →

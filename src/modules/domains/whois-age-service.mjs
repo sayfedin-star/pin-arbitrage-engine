@@ -10,6 +10,7 @@ import { StringDecoder } from 'node:string_decoder';
 import { sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import { escapeSqlWildcards, chunkArray } from '../../utils.mjs';
 import { connectSafeTcpSocket, safeExternalFetch } from '../../lib/net-guard.mjs';
+import { redactSecrets } from '../../http/security-and-response.mjs';
 import { normalizeCleanDomain } from './domain-constants.mjs';
 
 export const CRT_SH_MAX_BYTES = 2 * 1024 * 1024; // 2 MB hard cap for crt.sh JSON responses
@@ -650,7 +651,7 @@ export async function getDatabaseEnrichmentStats(sql) {
       failed_domains: 0,
       unchecked_domains: 0,
       percent_complete: 0,
-      error: err.message
+      error: redactSecrets(err?.message || 'Failed to load enrichment stats')
     };
   }
 }

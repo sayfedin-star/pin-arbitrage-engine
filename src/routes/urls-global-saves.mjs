@@ -6,8 +6,9 @@
  * the single process-local `batchGlobalSavesRateStore` Map singleton.
  */
 
+import crypto from 'node:crypto';
 import { escapeSqlWildcards, chunkArray } from '../utils.mjs';
-import { sanitizeDestinationUrl, fetchUrlGlobalSaves } from '../core/pinterest/index.mjs';
+import { sanitizeDestinationUrl, canonicalizeArticleUrlForCount, fetchUrlGlobalSaves } from '../core/pinterest/index.mjs';
 
 const BATCH_GLOBAL_SAVES_WINDOW_MS = 60_000;
 const BATCH_GLOBAL_SAVES_MAX_REQUESTS = 20;
@@ -166,17 +167,22 @@ export async function handleUrlGlobalSavesRoutes({
       const count = Number(fetchRes?.count || 0);
       if (fetchRes && fetchRes.ok) {
         if (sql && count > 0) {
-          const escapedCleanUrl = escapeSqlWildcards(cleanUrl);
+          const cleanNoSlash = cleanUrl.replace(/\/+$/, '');
+          const cleanWithSlash = `${cleanNoSlash}/`;
+          const escapedNoSlash = escapeSqlWildcards(cleanNoSlash);
+          const escapedWithSlash = escapeSqlWildcards(cleanWithSlash);
           safeWaitUntil(ctx, async () => {
             await sql`
               UPDATE universal_master_pins
               SET url_global_saves = GREATEST(COALESCE(url_global_saves, 0), ${count}::bigint)
               WHERE destination_url IS NOT NULL
                 AND destination_url <> ''
+                AND COALESCE(url_global_saves, 0) < ${count}::bigint
                 AND (
-                  (md5(destination_url) = md5(${cleanUrl}) AND destination_url = ${cleanUrl})
-                  OR (md5(destination_url) = md5(${cleanUrl + '/'}) AND destination_url = ${cleanUrl + '/'})
-                  OR LEFT(destination_url, 1024) LIKE ${escapedCleanUrl.slice(0, 1000) + '?%'} ESCAPE '\\'
+                  (md5(destination_url) = md5(${cleanNoSlash}) AND destination_url = ${cleanNoSlash})
+                  OR (md5(destination_url) = md5(${cleanWithSlash}) AND destination_url = ${cleanWithSlash})
+                  OR LEFT(destination_url, 1024) LIKE ${escapedNoSlash.slice(0, 1000) + '?%'} ESCAPE '\\'
+                  OR LEFT(destination_url, 1024) LIKE ${escapedWithSlash.slice(0, 1000) + '?%'} ESCAPE '\\'
                 );
             `;
           }, 'write_back_single_url_global_saves');
@@ -235,16 +241,81 @@ export async function handleUrlGlobalSavesRoutes({
       body = {};
     }
     const rawList = Array.isArray(body?.urls) ? body.urls : (Array.isArray(body?.destination_urls) ? body.destination_urls : []);
-    const cleanUrls = Array.from(new Set(rawList.map(u => sanitizeDestinationUrl(u)).filter(Boolean))).slice(0, 15);
+    const canonicalToRawMap = new Map();
+    const cleanUrls = [];
+    for (const rawItem of rawList) {
+      const sanitized = sanitizeDestinationUrl(rawItem);
+      const canonical = canonicalizeArticleUrlForCount(rawItem) || sanitized;
+      if (!canonical) continue;
+      if (!canonicalToRawMap.has(canonical)) {
+        if (cleanUrls.length >= 15) continue;
+        canonicalToRawMap.set(canonical, new Set([canonical]));
+        cleanUrls.push(canonical);
+      }
+      if (sanitized) canonicalToRawMap.get(canonical).add(sanitized);
+    }
 
     if (cleanUrls.length === 0) {
       return jsonResponse({ ok: true, results: {}, counts: {}, total: 0 });
     }
 
+    const md5Hex = (s) => crypto.createHash('md5').update(String(s)).digest('hex');
     const results = {};
     const uncached = [];
 
-    uncached.push(...cleanUrls);
+    // Pre-read DB-cached url_global_saves via indexed md5(destination_url) lookup to avoid redundant Pinterest calls
+    const dbCachedMap = new Map();
+    if (sql) {
+      try {
+        const candidateKeys = [];
+        for (const u of cleanUrls) {
+          const noSlash = u.replace(/\/+$/, '');
+          candidateKeys.push(u, noSlash, `${noSlash}/`);
+          for (const rawAlias of (canonicalToRawMap.get(u) || [])) {
+            candidateKeys.push(rawAlias);
+          }
+        }
+        const uniqueCandidates = Array.from(new Set(candidateKeys.filter(Boolean)));
+        const md5List = Array.from(new Set(uniqueCandidates.map(md5Hex)));
+        if (md5List.length > 0) {
+          const dbRows = await sql`
+            SELECT ump.destination_url, MAX(ump.url_global_saves)::bigint AS url_global_saves
+            FROM universal_master_pins ump
+            WHERE ump.destination_url IS NOT NULL
+              AND ump.destination_url <> ''
+              AND ump.url_global_saves IS NOT NULL
+              AND ump.url_global_saves > 0
+              AND md5(ump.destination_url) = ANY(${md5List}::text[])
+              AND ump.destination_url = ANY(${uniqueCandidates}::text[])
+            GROUP BY ump.destination_url;
+          `;
+          for (const r of (dbRows || [])) {
+            const val = Number(r?.url_global_saves || 0);
+            if (val > 0 && r?.destination_url) {
+              const canon = canonicalizeArticleUrlForCount(r.destination_url) || r.destination_url;
+              const mapKey = canon.replace(/\/+$/, '') || canon;
+              const prev = dbCachedMap.get(mapKey) || 0;
+              if (val > prev) dbCachedMap.set(mapKey, val);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[urls-global-saves] DB pre-read failed, falling back to live fetch:', err?.message || err);
+      }
+    }
+
+    for (const u of cleanUrls) {
+      const lookupKey = u.replace(/\/+$/, '') || u;
+      const cachedCount = dbCachedMap.get(lookupKey);
+      if (cachedCount && cachedCount > 0) {
+        results[u] = cachedCount;
+        for (const rawAlias of (canonicalToRawMap.get(u) || [])) {
+          results[rawAlias] = cachedCount;
+        }
+      } else {
+        uncached.push(u);
+      }
+    }
 
     const writeBackEntries = [];
     if (uncached.length > 0) {
@@ -260,27 +331,61 @@ export async function handleUrlGlobalSavesRoutes({
         const res = fetchResults[i];
         if (res.status === 'fulfilled' && res.value?.ok) {
           const count = Number(res.value.count || 0);
+          const resolvedUrl = canonicalizeArticleUrlForCount(res.value.url || targetUrl) || targetUrl;
           results[targetUrl] = count;
-          writeBackEntries.push({ url: targetUrl, count });
+          results[resolvedUrl] = count;
+          for (const rawAlias of (canonicalToRawMap.get(targetUrl) || [])) {
+            results[rawAlias] = count;
+          }
+          writeBackEntries.push({ url: resolvedUrl, count });
         } else {
           results[targetUrl] = 0;
+          for (const rawAlias of (canonicalToRawMap.get(targetUrl) || [])) {
+            results[rawAlias] = 0;
+          }
         }
       }
     }
 
-    // Write-Back UPDATE to universal_master_pins.url_global_saves via safeWaitUntil
+    // Write-Back UPDATE to universal_master_pins.url_global_saves via safeWaitUntil using indexed unnest + md5
     if (sql && writeBackEntries.length > 0) {
       safeWaitUntil(ctx, async () => {
         const validEntries = writeBackEntries
           .filter(e => e.count > 0 && e.url)
-          .map(e => ({ url: e.url, escaped_url: escapeSqlWildcards(e.url), count: e.count }));
+          .map(e => {
+            const cleanNoSlash = e.url.replace(/\/+$/, '');
+            const cleanWithSlash = `${cleanNoSlash}/`;
+            return {
+              url: cleanNoSlash,
+              url_slash: cleanWithSlash,
+              escaped_url: escapeSqlWildcards(cleanNoSlash),
+              escaped_url_slash: escapeSqlWildcards(cleanWithSlash),
+              url_md5: md5Hex(cleanNoSlash),
+              url_slash_md5: md5Hex(cleanWithSlash),
+              count: e.count
+            };
+          });
         if (validEntries.length === 0) return;
         validEntries.sort((a, b) => a.url.localeCompare(b.url));
-        const payloadJson = JSON.stringify(validEntries);
+        const urlsArr = validEntries.map(e => e.url);
+        const urlSlashArr = validEntries.map(e => e.url_slash);
+        const escapedArr = validEntries.map(e => e.escaped_url);
+        const escapedSlashArr = validEntries.map(e => e.escaped_url_slash);
+        const md5Arr = validEntries.map(e => e.url_md5);
+        const md5SlashArr = validEntries.map(e => e.url_slash_md5);
+        const countsArr = validEntries.map(e => e.count);
         await sql`
           WITH input_urls AS (
-            SELECT url, escaped_url, count
-            FROM jsonb_to_recordset(${payloadJson}::jsonb) AS x(url text, escaped_url text, count bigint)
+            SELECT url, url_slash, escaped_url, escaped_url_slash, url_md5, url_slash_md5, count
+            FROM unnest(
+              ${urlsArr}::text[],
+              ${urlSlashArr}::text[],
+              ${escapedArr}::text[],
+              ${escapedSlashArr}::text[],
+              ${md5Arr}::text[],
+              ${md5SlashArr}::text[],
+              ${countsArr}::bigint[]
+            ) AS x(url, url_slash, escaped_url, escaped_url_slash, url_md5, url_slash_md5, count)
           ),
           matched_pins AS (
             SELECT ump.pin_id, iu.count
@@ -288,7 +393,7 @@ export async function handleUrlGlobalSavesRoutes({
             JOIN universal_master_pins ump
               ON ump.destination_url IS NOT NULL
              AND ump.destination_url <> ''
-             AND md5(ump.destination_url) = md5(iu.url)
+             AND md5(ump.destination_url) = iu.url_md5
              AND ump.destination_url = iu.url
             UNION ALL
             SELECT ump.pin_id, iu.count
@@ -296,8 +401,8 @@ export async function handleUrlGlobalSavesRoutes({
             JOIN universal_master_pins ump
               ON ump.destination_url IS NOT NULL
              AND ump.destination_url <> ''
-             AND md5(ump.destination_url) = md5(iu.url || '/')
-             AND ump.destination_url = (iu.url || '/')
+             AND md5(ump.destination_url) = iu.url_slash_md5
+             AND ump.destination_url = iu.url_slash
             UNION ALL
             SELECT ump.pin_id, iu.count
             FROM input_urls iu
@@ -307,6 +412,15 @@ export async function handleUrlGlobalSavesRoutes({
              AND LEFT(ump.destination_url, 1024) ~>=~ (LEFT(iu.url, 1020) || '?')
              AND LEFT(ump.destination_url, 1024) ~<~ (LEFT(iu.url, 1020) || '@')
              AND LEFT(ump.destination_url, 1024) LIKE (LEFT(iu.escaped_url, 1020) || '?%') ESCAPE '\\'
+            UNION ALL
+            SELECT ump.pin_id, iu.count
+            FROM input_urls iu
+            JOIN universal_master_pins ump
+              ON ump.destination_url IS NOT NULL
+             AND ump.destination_url <> ''
+             AND LEFT(ump.destination_url, 1024) ~>=~ (LEFT(iu.url_slash, 1020) || '?')
+             AND LEFT(ump.destination_url, 1024) ~<~ (LEFT(iu.url_slash, 1020) || '@')
+             AND LEFT(ump.destination_url, 1024) LIKE (LEFT(iu.escaped_url_slash, 1020) || '?%') ESCAPE '\\'
           ),
           dedup_matches AS (
             SELECT pin_id, MAX(count)::bigint AS max_count
@@ -316,7 +430,8 @@ export async function handleUrlGlobalSavesRoutes({
           UPDATE universal_master_pins ump
           SET url_global_saves = GREATEST(COALESCE(ump.url_global_saves, 0), dm.max_count)
           FROM dedup_matches dm
-          WHERE ump.pin_id = dm.pin_id;
+          WHERE ump.pin_id = dm.pin_id
+            AND COALESCE(ump.url_global_saves, 0) < dm.max_count;
         `;
       }, 'write_back_batch_global_saves');
     }

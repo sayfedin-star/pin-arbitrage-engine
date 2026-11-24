@@ -12,7 +12,11 @@ import { renderSharedDocumentHead } from '../shared-head.mjs';
 
 export function getDomainsPageHtml(initialDomain = '', folderId = '') {
   const rawDomain = String(initialDomain || '').trim();
-  const safeInitialDomain = rawDomain.replace(/[^a-zA-Z0-9.-]/g, '').toLowerCase();
+  const rawLower = rawDomain.toLowerCase();
+  const isOrganicVault = rawLower === 'uploaded by user' || rawLower === 'uploaded-by-user' || rawLower === 'organic';
+  const safeInitialDomain = isOrganicVault
+    ? 'Uploaded by user'
+    : rawDomain.replace(/[^a-zA-Z0-9.-]/g, '').toLowerCase();
   const hasInitialDomain = Boolean(safeInitialDomain);
   const rawFolderId = String(folderId || '').trim();
   const safeFolderId = rawFolderId.replace(/[^a-zA-Z0-9_-]/g, '');
@@ -51,7 +55,7 @@ ${renderSharedDocumentHead({
              'bg-amber-50 dark:bg-amber-950/90 border-amber-500/40 text-amber-900 dark:text-amber-200': toast.type === 'warning'
            }">
         <span x-text="toast.message" class="font-medium"></span>
-        <button @click="removeToast(toast.id)" class="text-slate-400 hover:text-slate-900 dark:hover:text-white text-xs">✕</button>
+        <button type="button" @click="removeToast(toast.id)" aria-label="Dismiss notification" class="text-slate-400 hover:text-slate-900 dark:hover:text-white text-xs">✕</button>
       </div>
     </template>
   </div>
@@ -91,7 +95,7 @@ ${renderSharedDocumentHead({
             <i data-lucide="activity" class="w-3.5 h-3.5 text-rose-500"></i>
             <span>24h Pulse Radar</span>
           </a>
-          <button @click="refreshDomains()" :disabled="refreshingRollup || loading" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white transition inline-flex items-center space-x-1.5 shadow-xs active:scale-95 disabled:opacity-50">
+          <button type="button" @click="refreshDomains()" :disabled="refreshingRollup || loading" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white transition inline-flex items-center space-x-1.5 shadow-xs active:scale-95 disabled:opacity-50">
             <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="(refreshingRollup || loading) ? 'animate-spin' : ''"></i>
             <span x-text="refreshingRollup ? 'Refreshing...' : 'Refresh'">Refresh</span>
           </button>
