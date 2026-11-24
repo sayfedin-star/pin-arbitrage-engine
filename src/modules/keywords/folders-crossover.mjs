@@ -324,7 +324,7 @@ async function queryAggregatedFolderPins(sql, fid) {
           WHERE i.folder_id = ${fid}
             AND (
               (c.is_displaced IS FALSE AND c.rank_position IS NOT NULL AND c.rank_position >= 1)
-              OR (c.is_displaced IS TRUE AND COALESCE(c.last_known_rank, c.rank_position) IS NOT NULL AND COALESCE(c.last_known_rank, c.rank_position) >= 1)
+              OR c.is_displaced IS TRUE
             )
         ),
         pin_agg AS (
@@ -343,7 +343,7 @@ async function queryAggregatedFolderPins(sql, fid) {
                 'rank_position', fp.rank_position,
                 'is_displaced', fp.is_displaced
               )
-              ORDER BY fp.is_displaced ASC, fp.rank_position ASC
+              ORDER BY fp.is_displaced ASC, fp.rank_position ASC NULLS LAST
             ) AS rankings
           FROM folder_positions fp
           GROUP BY fp.pin_id
@@ -406,7 +406,7 @@ async function queryAggregatedFolderPins(sql, fid) {
         WHERE i.folder_id = ${fid}
           AND (
             (c.is_displaced IS FALSE AND c.rank_position IS NOT NULL AND c.rank_position >= 1)
-            OR (c.is_displaced IS TRUE AND COALESCE(c.last_known_rank, c.rank_position) IS NOT NULL AND COALESCE(c.last_known_rank, c.rank_position) >= 1)
+            OR c.is_displaced IS TRUE
           )
       ),
       pin_agg AS (
@@ -425,7 +425,7 @@ async function queryAggregatedFolderPins(sql, fid) {
               'rank_position', fp.rank_position,
               'is_displaced', fp.is_displaced
             )
-            ORDER BY fp.is_displaced ASC, fp.rank_position ASC
+            ORDER BY fp.is_displaced ASC, fp.rank_position ASC NULLS LAST
           ) AS rankings
         FROM folder_positions fp
         GROUP BY fp.pin_id
@@ -575,7 +575,7 @@ async function _executeFolderCrossover(sql, fid) {
           FIRST_VALUE(pdm.recorded_date) OVER (PARTITION BY pdm.pin_id ORDER BY pdm.recorded_date DESC) AS latest_date
         FROM pins_daily_metrics pdm
         JOIN folder_pins fp ON fp.pin_id = pdm.pin_id
-        WHERE pdm.recorded_date >= (NOW() AT TIME ZONE 'UTC')::date - INTERVAL '18 days'
+        WHERE pdm.recorded_date >= (NOW() AT TIME ZONE 'UTC')::date - INTERVAL '45 days'
           AND pdm.repin_count IS NOT NULL
       ),
       pin_baselines AS (

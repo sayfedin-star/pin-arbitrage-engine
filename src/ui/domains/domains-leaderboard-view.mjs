@@ -205,7 +205,7 @@ export function getDomainsLeaderboardViewHtml({ hasInitialDomain = false } = {})
       </div>
 
       <!-- Tier 2: Refined Attribute Selects & Quick Toggles (~36px) -->
-      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 pt-2 border-t border-slate-100 dark:border-[#27272A]/80 items-center">
+      <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 border-t border-slate-100 dark:border-[#27272A]/80 items-center" :class="scopedFolderId ? 'lg:grid-cols-6' : 'lg:grid-cols-7'">
         <!-- 1. Ad Network -->
         <div>
           <select x-model="selectedAdNetwork"

@@ -114,7 +114,7 @@ export async function listFolders(sql, { projectId = 'default', workspaceId = DE
           ELSE 'other'
         END AS item_source,
         ksp.is_displaced,
-        LOWER(TRIM(COALESCE(ump.clean_domain, ''))) AS clean_domain,
+        REGEXP_REPLACE(LOWER(TRIM(COALESCE(ump.clean_domain, ''))), '^www\\.', '') AS clean_domain,
         LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
       FROM keyword_folder_items kfi
       JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
@@ -145,7 +145,9 @@ export async function listFolders(sql, { projectId = 'default', workspaceId = DE
         folder_id,
         COUNT(DISTINCT clean_domain) FILTER (
           WHERE clean_domain IS NOT NULL AND clean_domain <> ''
-            AND clean_domain NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pinterest.com', 'www.pinterest.com', 'pin.it')
+            AND clean_domain NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pin.it')
+            AND clean_domain !~ '(^|\\.)pinterest\\.[a-z.]+$'
+            AND clean_domain !~ '(^|\\.)pinimg\\.com$'
             AND POSITION('.' IN clean_domain) > 0
         )::int AS domain_count,
         COUNT(DISTINCT clean_username) FILTER (
@@ -394,7 +396,7 @@ export async function getFolder(sql, folderId, { workspaceId = DEFAULT_WORKSPACE
             ELSE 'other'
           END AS item_source,
           ksp.is_displaced,
-          LOWER(TRIM(COALESCE(ump.clean_domain, ''))) AS clean_domain,
+          REGEXP_REPLACE(LOWER(TRIM(COALESCE(ump.clean_domain, ''))), '^www\\.', '') AS clean_domain,
           LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
         FROM keyword_folder_items kfi
         JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
@@ -425,7 +427,9 @@ export async function getFolder(sql, folderId, { workspaceId = DEFAULT_WORKSPACE
           folder_id,
           COUNT(DISTINCT clean_domain) FILTER (
             WHERE clean_domain IS NOT NULL AND clean_domain <> ''
-              AND clean_domain NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pinterest.com', 'www.pinterest.com', 'pin.it')
+              AND clean_domain NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pin.it')
+              AND clean_domain !~ '(^|\\.)pinterest\\.[a-z.]+$'
+              AND clean_domain !~ '(^|\\.)pinimg\\.com$'
               AND POSITION('.' IN clean_domain) > 0
           )::int AS domain_count,
           COUNT(DISTINCT clean_username) FILTER (

@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import crypto from 'node:crypto';
 import {
   isLinklessVacuumDomain,
   buildFolderCrossoverMatrix,
@@ -11,7 +12,9 @@ import {
   invalidateFolderCache,
   folderForceRefreshCooldown
 } from '../src/modules/keywords/folders-crossover.mjs';
+import { getFolder, listFolders, getPruningCandidates } from '../src/modules/keywords/folders-crud.mjs';
 import { syncCampaignTopNSerpPins } from '../src/modules/workspaces/service.mjs';
+import { splitSqlStatements } from '../scripts/migrate.mjs';
 import { getCampaignFoldersPageHtml } from '../src/ui/folders/index.mjs';
 import { getFoldersClientAppScript } from '../src/ui/folders/folders-client-app.mjs';
 import { getDashboardHtml } from '../src/ui/dashboard/index.mjs';
@@ -453,3 +456,314 @@ test('Phase 1 & 3: Migration 013 exists and rapid calculateFolderCrossover refre
   invalidateFolderCache(fid);
   folderForceRefreshCooldown.delete(`refresh:all:${fid}`);
 });
+
+test('Audit P0: Migration 014 repairs first_seen_at & drops duplicate idx_pdm_pin_date without modifying Migration 013 checksum', () => {
+  const mig013Path = path.join(process.cwd(), 'scripts', 'migrations', '013_campaign_room1_first_seen_and_indexes.sql');
+  const mig013Hash = crypto.createHash('sha256').update(fs.readFileSync(mig013Path, 'utf8')).digest('hex');
+  assert.ok(mig013Hash.startsWith('452ef90c6f7b'), `Migration 013 checksum must remain locked (got ${mig013Hash.slice(0, 12)})`);
+
+  const mig014Path = path.join(process.cwd(), 'scripts', 'migrations', '014_room1_first_seen_repair_and_drop_dup_index.sql');
+  assert.ok(fs.existsSync(mig014Path), 'Migration 014 SQL file must exist');
+  const mig014Sql = fs.readFileSync(mig014Path, 'utf8');
+  const statements = splitSqlStatements(mig014Sql);
+  assert.equal(statements.length, 2, 'Migration 014 must parse cleanly into 2 statements');
+  assert.ok(/DROP\s+INDEX\s+CONCURRENTLY\s+IF\s+EXISTS\s+public\.idx_pdm_pin_date/i.test(statements[0]), 'Statement 1 must drop duplicate idx_pdm_pin_date concurrently');
+  assert.ok(statements[1].includes('pins_daily_metrics') && statements[1].includes('first_discovered_at') && statements[1].includes('UPDATE public.keyword_serp_positions'), 'Statement 2 must restore historical first_seen_at from pins_daily_metrics & universal_master_pins');
+});
+
+test('Audit P1: buildFolderCrossoverMatrix preserves rankless Newborn Vault pins and honors zero super_pins_count fallback semantics', async () => {
+  const now = Date.now();
+  const daysAgo = (d) => new Date(now - d * 86400000).toISOString();
+
+  const folderKeywords = [
+    { keyword_id: 201, keyword: 'high protein', slug: 'high-protein', category: 'Food', status: 'ACTIVE', created_at: daysAgo(30), added_at: daysAgo(20) },
+    { keyword_id: 202, keyword: 'meal prep', slug: 'meal-prep', category: 'Food', status: 'ACTIVE', created_at: daysAgo(30), added_at: daysAgo(20) }
+  ];
+
+  // Zero super pins (each pin ranks in only 1 keyword), plus one rankless Newborn Vault pin & one imageless linkless pin
+  const pinRows = [
+    {
+      pin_id: '300001',
+      title: 'Newborn Vault Pin Without Rank',
+      description: 'Promoted from Newborn Hunter into Vault with NULL rank_position',
+      image_url: 'https://i.pinimg.com/nb1.jpg',
+      destination_url: 'https://cleanblog.example.com/nb',
+      domain: 'cleanblog.example.com',
+      save_count: 350,
+      repin_count: 100,
+      comment_count: 1,
+      daily_save_velocity: 18,
+      delta_saves_24h: 18,
+      delta_repins_24h: 6,
+      gains_5d: 80,
+      gains_7d: 120,
+      gains_10d: null,
+      gains_15d: null,
+      dominant_color: '#FFFFFF',
+      visual_annotations: ['High Protein'],
+      creator_username: 'nbcreator',
+      creator_name: 'NB Creator',
+      created_at_pinterest: daysAgo(12),
+      pin_first_seen_at: daysAgo(8),
+      rankings: [
+        { keyword_id: 201, keyword: 'high protein', rank_position: null, is_vault: true, added_at: daysAgo(20) }
+      ]
+    },
+    {
+      pin_id: '300002',
+      title: 'Imageless Linkless Pin',
+      description: 'No image_url should NOT be counted as vacuum pin',
+      image_url: '',
+      destination_url: '',
+      domain: 'uploaded by user',
+      save_count: 900,
+      repin_count: 400,
+      comment_count: 0,
+      daily_save_velocity: 10,
+      delta_saves_24h: 10,
+      delta_repins_24h: 4,
+      gains_5d: 40,
+      gains_7d: 60,
+      gains_10d: null,
+      gains_15d: null,
+      dominant_color: '#000000',
+      visual_annotations: ['Meal Prep'],
+      creator_username: 'noimg',
+      creator_name: 'No Img',
+      created_at_pinterest: daysAgo(30),
+      pin_first_seen_at: daysAgo(10),
+      rankings: [
+        { keyword_id: 202, keyword: 'meal prep', rank_position: 5, is_vault: false, added_at: daysAgo(20) }
+      ]
+    }
+  ];
+
+  const mockSql = async () => [];
+  const result = await buildFolderCrossoverMatrix({
+    sql: mockSql,
+    folder: { id: 6, name: 'single-rank cluster', description: '', color: '#ec4899', icon: 'folder', created_at: daysAgo(30) },
+    folderKeywords,
+    totalKeywords: folderKeywords.length,
+    pinRows,
+    displacedRows: [],
+    capsuleRows: [],
+    repinWindowRows: [],
+    pulseAnalyticsPromise: Promise.resolve({ trendsLoaded: 0, trendsResults: [] })
+  });
+
+  // Rankless Vault pin must be preserved
+  const nbPin = result.all_pins.find(p => p.pin_id === '300001');
+  assert.ok(nbPin, 'Rankless displaced Vault pin must be preserved in all_pins');
+  assert.equal(nbPin.has_vault_rank, true);
+  assert.equal(nbPin.has_active_rank, false);
+  assert.equal(nbPin.min_rank, null);
+  assert.equal(nbPin.rankings[0].rank_position, null);
+  assert.equal(result.summary.vault_pins_count, 1);
+
+  // Imageless linkless pin must NOT be vacuum
+  const noImgPin = result.all_pins.find(p => p.pin_id === '300002');
+  assert.equal(noImgPin.is_vacuum_pin, false);
+  assert.equal(result.summary.vacuum_pins_count, 0);
+
+  // When super_pins_count is 0, fallback super_pins still has topRankedPins, so client MUST honor summary.super_pins_count (0) and return [] in super_only scope
+  assert.equal(result.summary.super_pins_count, 0);
+  assert.ok(result.super_pins.length > 0, 'legacy fallback super_pins populates topRankedPins when 0 true super-pins');
+
+  const { app, html } = instantiateFoldersApp('6');
+  assert.ok(html.includes('crossoverData?.summary?.super_pins_count ??'), 'Super-Pins Scope button must use ?? not ||');
+  assert.ok(html.includes('x-show="rk.rank_position != null"'), 'Rank badge must hide #null for rankless Vault pins');
+  assert.ok(html.includes("selectedTimeWindow === 'all' ? 'Total Saves (All-Time)'"), 'All-time rollup label must not say Saves Gains');
+  assert.ok(html.includes('Cluster gross saves gain'), 'Rollup subtitle must accurately say gross saves gain');
+
+  app.crossoverData = result;
+  app.scopeFilter = 'super_only';
+  assert.equal(app.filteredPinsList().length, 0, 'super_only scope must return 0 when no pin has overlap_count >= 2');
+
+  // Client Vacuum & Breakout fallback parity edge cases + pin_id search
+  app.scopeFilter = 'all';
+  app.crossoverData = {
+    summary: { super_pins_count: 0 },
+    all_pins: [
+      { pin_id: '777888999', title: 'Alpha', domain: 'uploaded by user', image_url: '', save_count: 500, is_vacuum_pin: false },
+      { pin_id: '777889000', title: 'Beta', domain: 'uploaded by user', image_url: '', save_count: 500 }, // missing boolean -> fallback must require image_url
+      { pin_id: '777889001', title: 'Gamma', domain: 'baby.example.com', image_url: 'https://i.pinimg.com/g.jpg', save_count: 200, domain_age_days: 0, domain_age_years: 0.01, gains_7d: 50 } // 0 days must NOT fall back to domain_age_years * 365
+    ]
+  };
+
+  app.onlyVacuumPins = true;
+  assert.equal(app.filteredPinsList().length, 0, 'Client Vacuum filter must require image_url parity and respect boolean false');
+  app.onlyVacuumPins = false;
+
+  app.onlyBreakoutBabyDomains = true;
+  assert.equal(app.filteredPinsList().length, 0, 'Client Breakout filter must not treat domain_age_days=0 as falsy and fall back to domain_age_years');
+  app.onlyBreakoutBabyDomains = false;
+
+  app.searchQuery = '777888999';
+  assert.equal(app.filteredPinsList().length, 1, 'Search query must match pin_id for resolved pin.it shortlinks');
+  assert.equal(app.filteredPinsList()[0].pin_id, '777888999');
+});
+
+test('Audit P1: Header Refresh calls loadActiveFolder(true) which refreshes metadata & crossover with ?refresh=true and shows cooldown toast', async () => {
+  const { app, html } = instantiateFoldersApp('5');
+  assert.ok(html.includes("typeof loadActiveFolder === 'function' ? loadActiveFolder(true)"), 'Header Refresh must call loadActiveFolder(true) in Room 1/5');
+
+  const fetchedUrls = [];
+  const toasts = [];
+  app.showToast = (msg, type) => toasts.push({ msg, type });
+  app.loadTrackedPinsSummary = async () => {};
+  app.loadPinGraphSeeds = async () => {};
+
+  // Inject mock fetch into app's global window via safeApiFetch isn't directly on app; test via globalThis/window override inside fresh sandbox
+  const scriptHtml = getFoldersClientAppScript();
+  const match = scriptHtml.match(/<script>([\s\S]*)<\/script>/i);
+  const sandbox = {
+    window: {
+      location: { pathname: '/folders/5', search: '', href: 'http://localhost:3000/folders/5' },
+      history: { pushState: () => {}, replaceState: () => {} },
+      localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+      matchMedia: () => ({ matches: false }),
+      addEventListener: () => {},
+      safeApiFetch: async (url) => {
+        fetchedUrls.push(url);
+        if (url.includes('/raw-visual-crossover')) {
+          return {
+            ok: true,
+            json: async () => ({
+              crossover: {
+                folder: { id: 5, name: 'high protein' },
+                summary: { total_unique_pins: 1, super_pins_count: 0 },
+                all_pins: [],
+                super_pins: [],
+                cooldown_cached: true
+              },
+              cooldown_cached: true
+            })
+          };
+        }
+        return {
+          ok: true,
+          json: async () => ({ folder: { id: 5, name: 'high protein', domain_count: 10, items: [] } })
+        };
+      }
+    },
+    document: { documentElement: { classList: { toggle: () => {} } }, cookie: '' },
+    URLSearchParams,
+    console
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(match[1], sandbox);
+  const liveApp = sandbox.foldersApp('5');
+  liveApp.showToast = (msg, type) => toasts.push({ msg, type });
+  liveApp.loadTrackedPinsSummary = async () => {};
+  liveApp.loadPinGraphSeeds = async () => {};
+
+  await liveApp.loadActiveFolder(true);
+  assert.ok(fetchedUrls.includes('/api/folders/5?refresh=true'), 'must refresh /api/folders/:id?refresh=true');
+  assert.ok(fetchedUrls.includes('/api/folders/5/raw-visual-crossover?refresh=true'), 'must refresh /raw-visual-crossover?refresh=true');
+  assert.ok(toasts.some(t => t.msg.includes('15s refresh cooldown')), 'must display cooldown toast when cooldown_cached is true');
+
+  // Settings room must skip crossover fetch and show settings toast
+  fetchedUrls.length = 0;
+  toasts.length = 0;
+  liveApp.currentRoom = 'settings';
+  await liveApp.loadActiveFolder(true);
+  assert.ok(fetchedUrls.includes('/api/folders/5?refresh=true'));
+  assert.equal(fetchedUrls.some(u => u.includes('/raw-visual-crossover')), false, 'settings room must bypass crossover fetch');
+  assert.ok(toasts.some(t => t.msg.includes('Folder settings refreshed')));
+});
+
+test('Audit P1: 42703 first_seen_at fallback paths work in calculateFolderCrossover & getPruningCandidates, and syncCampaignTopNSerpPins handles empty pinIds', async () => {
+  const fid = 99908;
+  invalidateFolderCache(fid);
+  folderForceRefreshCooldown.delete(`refresh:all:${fid}`);
+
+  let firstSeenErrorThrownInCrossover = false;
+  const crossoverFallbackSql = async (strings) => {
+    const q = strings.join(' ');
+    if (q.includes('c.first_seen_at')) {
+      firstSeenErrorThrownInCrossover = true;
+      const err = new Error('column c.first_seen_at does not exist');
+      err.code = '42703';
+      throw err;
+    }
+    if (q.includes('FROM keyword_folders')) {
+      return [{ id: fid, name: 'Fallback Test', description: '', color: '#ec4899', icon: 'folder', created_at: new Date().toISOString() }];
+    }
+    if (q.includes('FROM keyword_folder_items i') && q.includes('JOIN tracked_keywords') && !q.includes('keyword_serp_positions')) {
+      return [{ keyword_id: 501, keyword: 'protein', slug: 'protein', category: 'Food', status: 'ACTIVE', created_at: new Date().toISOString(), added_at: new Date().toISOString() }];
+    }
+    return [];
+  };
+
+  const crossRes = await calculateFolderCrossover(crossoverFallbackSql, fid, { refresh: true });
+  assert.equal(firstSeenErrorThrownInCrossover, true, 'must attempt first_seen_at query first');
+  assert.ok(crossRes && crossRes.folder.id === fid, 'calculateFolderCrossover must recover via 42703 fallback');
+  invalidateFolderCache(fid);
+  folderForceRefreshCooldown.delete(`refresh:all:${fid}`);
+
+  let firstSeenErrorThrownInPruning = false;
+  const pruningFallbackSql = async (strings) => {
+    const q = strings.join(' ');
+    if (q.includes('ksp.first_seen_at')) {
+      firstSeenErrorThrownInPruning = true;
+      const err = new Error('column ksp.first_seen_at does not exist');
+      err.code = '42703';
+      throw err;
+    }
+    return [{ keyword_id: 501, pin_id: '888', title: 'Old Pin', save_count: 5, repin_count: 1, daily_save_velocity: 0, is_displaced: true, created_at_pinterest: null, keyword: 'protein', folder_added_at: new Date().toISOString() }];
+  };
+  const candidates = await getPruningCandidates(pruningFallbackSql, fid, { minFolderAgeDays: 14 });
+  assert.equal(firstSeenErrorThrownInPruning, true, 'getPruningCandidates must attempt first_seen_at query first');
+  assert.equal(candidates.length, 1, 'getPruningCandidates must recover via 42703 fallback');
+
+  // Empty Top-N deactivation branch in syncCampaignTopNSerpPins
+  const executed = [];
+  const emptyTopNSql = async (strings, ...values) => {
+    const query = strings.join('?');
+    executed.push({ query, values });
+    if (query.includes('FROM keyword_folders')) return [{ id: 5, workspace_id: 1, name: 'empty' }];
+    if (query.includes('FROM workspace_settings')) return [{ top_n_search_pins: 20 }];
+    if (query.includes('FROM keyword_folder_items') && query.includes('keyword_serp_positions')) return [];
+    if (query.includes('UPDATE campaign_tracked_pins') && query.includes('SET is_active = FALSE')) return [{ pin_id: 'old1' }, { pin_id: 'old2' }];
+    return [];
+  };
+  const emptyRes = await syncCampaignTopNSerpPins(emptyTopNSql, { folderId: 5, workspaceId: 1, topN: 20 });
+  assert.equal(emptyRes.synced, 0);
+  assert.equal(emptyRes.deactivated, 2, 'empty top-N must deactivate all previously active search-tracked pins');
+  assert.ok(executed.some(e => e.query.includes('UPDATE campaign_tracked_pins') && !e.query.includes('NOT (pin_id = ANY')));
+});
+
+test('Audit P1 & P2: folders-crud normalizes www/pinterest/pinimg domains, Room 2 avoids dead-click, Room 4 uses 6-col scoped grid', async () => {
+  const crudQueries = [];
+  const mockCrudSql = async (strings) => {
+    const q = strings.join(' ');
+    crudQueries.push(q);
+    if (q.includes('WHERE id =') && q.includes('FROM keyword_folders')) {
+      return [{ id: 5, name: 'high protein', items: [], workspace_id: 1 }];
+    }
+    return [];
+  };
+
+  await listFolders(mockCrudSql, { workspaceId: 1 });
+  await getFolder(mockCrudSql, 5, { workspaceId: 1 });
+
+  const normalizedDomainQueries = crudQueries.filter(q =>
+    q.includes("REGEXP_REPLACE(LOWER(TRIM(COALESCE(ump.clean_domain, ''))), '^www\\.', '')") &&
+    q.includes("pinterest\\.[a-z.]+$") &&
+    q.includes("pinimg\\.com$")
+  );
+  assert.ok(normalizedDomainQueries.length >= 2, 'Both listFolders and getFolder must normalize www. and exclude pinterest.*/pinimg.com subdomains');
+
+  const keywordsHtml = getKeywordsPageHtml('', '', '5');
+  assert.ok(
+    keywordsHtml.includes("activeFolderId ? (String(f.id) !== String(activeFolderId) ? (window.location.href = '/folders/' + encodeURIComponent(f.id) + '/keywords') : null) : filterByFolder(f.id)"),
+    'Room 2 folder badges must navigate cleanly in scoped mode instead of dead-clicking filterByFolder'
+  );
+
+  const domainsHtml = getDomainsPageHtml('', '5');
+  assert.ok(
+    domainsHtml.includes(":class=\"scopedFolderId ? 'lg:grid-cols-6' : 'lg:grid-cols-7'\""),
+    'Room 4 filter bar must switch to lg:grid-cols-6 when scopedFolderId hides the inner folder select'
+  );
+});
+

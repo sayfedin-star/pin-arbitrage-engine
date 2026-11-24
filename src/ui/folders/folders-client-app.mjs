@@ -1200,13 +1200,17 @@ export function getFoldersClientAppScript() {
           this.loadPinGraphSeeds().catch(() => {});
           if (this.currentRoom === 'settings') {
             this.crossoverLoading = false;
+            if (forceRefresh === true) {
+              this.showToast('Folder settings refreshed', 'success');
+            }
             return;
           }
 
           // Phase 2: Crossover Matrix analysis (< 30s)
           this.crossoverLoading = true;
           try {
-            const crossoverRes = await (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId + '/raw-visual-crossover', {
+            const crossoverUrl = '/api/folders/' + this.activeFolderId + '/raw-visual-crossover' + (forceRefresh === true ? '?refresh=true' : '');
+            const crossoverRes = await (window.safeApiFetch || fetch)(crossoverUrl, {
               timeout: 30000,
               retries: 1,
               ...(signal ? { signal } : {})
@@ -1219,6 +1223,13 @@ export function getFoldersClientAppScript() {
               this.computePowerPairs();
               this.currentPage = 1;
               this._pinsCacheKey = '';
+              if (forceRefresh === true) {
+                if (cdata.cooldown_cached || this.crossoverData?.cooldown_cached) {
+                  this.showToast('Using recent snapshot (15s refresh cooldown active)', 'info');
+                } else {
+                  this.showToast('Workspace & crossover refreshed successfully', 'success');
+                }
+              }
             } else {
               this.showToast('Failed to compute crossover matrix', 'error');
             }
@@ -1912,7 +1923,7 @@ export function getFoldersClientAppScript() {
           if (this.scopeFilter === 'super_only') {
             list = (this.crossoverData?.all_pins && this.crossoverData.all_pins.length > 0)
               ? this.crossoverData.all_pins.filter(p => p.is_super_pin || (p.overlap_count || 0) >= 2)
-              : (this.crossoverData?.super_pins || []);
+              : (this.crossoverData?.super_pins || []).filter(p => p.is_super_pin || (p.overlap_count || 0) >= 2);
           } else if (this.scopeFilter === 'active_only') {
             const source = (this.crossoverData?.all_pins && this.crossoverData.all_pins.length > 0)
               ? this.crossoverData.all_pins
@@ -1950,10 +1961,11 @@ export function getFoldersClientAppScript() {
             list = list.filter(p => this.pinMatchesMatrixItem(p, mf.item, mf.type));
           }
 
-          // 3. Search query
+          // 3. Search query (supports title, domain, creator, visual tags, and pin_id)
           if (this.searchQuery.trim()) {
             const q = this.searchQuery.toLowerCase().trim();
             list = list.filter(p => 
+              String(p.pin_id || '').toLowerCase().includes(q) ||
               (p.title || '').toLowerCase().includes(q) ||
               (p.domain || '').toLowerCase().includes(q) ||
               (p.creator_username || '').toLowerCase().includes(q) ||
@@ -1967,15 +1979,17 @@ export function getFoldersClientAppScript() {
           // 3B. Breakout Baby Domains Filter (<2y + Authentic 7d Gains >= 15)
           if (this.onlyBreakoutBabyDomains) {
             list = list.filter(p => {
-              if (p.is_breakout_baby_domain) return true;
-              const ageDays = Number(p.domain_age_days || (p.domain_age_years ? p.domain_age_years * 365 : 0));
+              if (typeof p.is_breakout_baby_domain === 'boolean') return p.is_breakout_baby_domain;
+              const ageDays = Number(p.domain_age_days != null ? p.domain_age_days : (p.domain_age_years != null ? p.domain_age_years * 365 : 0));
               return ageDays > 0 && ageDays <= 730 && p.gains_7d != null && Number(p.gains_7d) >= 15;
             });
           }
 
-          // 3C. Linkless Vacuums Filter (High Saves >= 100, Case-Insensitive No Domain / User Upload)
+          // 3C. Linkless Vacuums Filter (High Saves >= 100, Case-Insensitive No Domain / User Upload, requires image_url parity)
           if (this.onlyVacuumPins) {
-            list = list.filter(p => Boolean(p.is_vacuum_pin || (this.isLinklessVacuumDomain(p.domain) && Number(p.save_count || 0) >= 100)));
+            list = list.filter(p => typeof p.is_vacuum_pin === 'boolean'
+              ? p.is_vacuum_pin
+              : Boolean(p.image_url && this.isLinklessVacuumDomain(p.domain) && Number(p.save_count || 0) >= 100));
           }
 
           // 3D. Fresh Rockets Filter (<= 14d age with positive 24h momentum)

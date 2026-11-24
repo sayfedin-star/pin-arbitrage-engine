@@ -442,10 +442,10 @@ export function getKeywordsDashboardViewHtml() {
                           
                           <!-- Campaign Folders Tags -->
                           <template x-for="f in getKeywordFolders(kw)" :key="f.id">
-                            <button type="button" @click.stop="filterByFolder(f.id)"
+                            <button type="button" @click.stop="activeFolderId ? (String(f.id) !== String(activeFolderId) ? (window.location.href = '/folders/' + encodeURIComponent(f.id) + '/keywords') : null) : filterByFolder(f.id)"
                                     class="px-1.5 py-0.5 rounded text-[10px] font-medium font-mono tabular-nums transition inline-flex items-center gap-1 border cursor-pointer hover:opacity-85 shadow-2xs"
                                     :style="'background-color: ' + safeColor(f.color, '#ec4899') + '12; color: ' + safeColor(f.color, '#ec4899') + '; border-color: ' + safeColor(f.color, '#ec4899') + '30;'"
-                                    :title="'Filter by folder: ' + f.name">
+                                    :title="activeFolderId ? (String(f.id) === String(activeFolderId) ? ('Current workspace: ' + f.name) : ('Open workspace: ' + f.name)) : ('Filter by folder: ' + f.name)">
                               <i data-lucide="folder" class="w-2.5 h-2.5 shrink-0"></i>
                               <span class="max-w-[110px] truncate" x-text="f.name"></span>
                             </button>
@@ -734,10 +734,10 @@ export function getKeywordsDashboardViewHtml() {
                       
                       <!-- Folder Tags -->
                       <template x-for="f in getKeywordFolders(kw)" :key="f.id">
-                        <button type="button" @click.stop="filterByFolder(f.id)"
+                        <button type="button" @click.stop="activeFolderId ? (String(f.id) !== String(activeFolderId) ? (window.location.href = '/folders/' + encodeURIComponent(f.id) + '/keywords') : null) : filterByFolder(f.id)"
                                 class="px-1.5 py-0.5 rounded text-[10px] font-medium font-mono tabular-nums transition inline-flex items-center space-x-1 border cursor-pointer hover:opacity-85 shadow-2xs"
                                 :style="'background-color: ' + safeColor(f.color, '#ec4899') + '12; color: ' + safeColor(f.color, '#ec4899') + '; border-color: ' + safeColor(f.color, '#ec4899') + '30;'"
-                                :title="'Click to filter keywords in: ' + f.name">
+                                :title="activeFolderId ? (String(f.id) === String(activeFolderId) ? ('Current workspace: ' + f.name) : ('Open workspace: ' + f.name)) : ('Click to filter keywords in: ' + f.name)">
                           <i data-lucide="folder" class="w-2.5 h-2.5 shrink-0"></i>
                           <span class="max-w-[110px] truncate" x-text="f.name"></span>
                         </button>

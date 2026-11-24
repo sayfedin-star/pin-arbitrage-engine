@@ -557,8 +557,9 @@ export async function handleFoldersRoutes({
             folder = await getFolder(sql, folderId, { workspaceId });
           } catch (_) {}
         }
+        const refreshFolder = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
         if (!folder) return jsonResponse({ error: 'Folder not found' }, 404);
-        return jsonResponse({ success: true, folder }, 200, 15);
+        return jsonResponse({ success: true, folder }, 200, refreshFolder ? 0 : 15);
       }
 
       try {

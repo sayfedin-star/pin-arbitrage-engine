@@ -92,7 +92,7 @@ export function renderCampaignWorkspaceHeader({
           ? "typeof refreshDomains === 'function' ? refreshDomains() : window.location.reload()"
           : isPulse
             ? "typeof refreshPulse === 'function' ? refreshPulse(true) : window.location.reload()"
-            : "typeof runCrossoverAnalysis === 'function' ? runCrossoverAnalysis(true) : (typeof loadFolders === 'function' ? loadFolders() : window.location.reload())";
+            : "typeof loadActiveFolder === 'function' ? loadActiveFolder(true) : (typeof runCrossoverAnalysis === 'function' ? runCrossoverAnalysis(true) : (typeof loadFolders === 'function' ? loadFolders() : window.location.reload()))";
 
   return `
   <!-- [INVARIANT: CAMPAIGN-WORKSPACE-HEADER-PARITY] Shared Workspace Header -->

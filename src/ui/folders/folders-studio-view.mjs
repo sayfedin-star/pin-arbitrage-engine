@@ -77,14 +77,14 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
         <!-- Rollup Cards: Saves Gains, Repins Gains, Avg Daily Velocity, Competitor Gains -->
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
           <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#18181B]/60 border border-slate-200/80 dark:border-[#27272A] flex flex-col gap-1">
-            <span class="text-[10px] uppercase font-mono tabular-nums text-slate-500 dark:text-slate-400" x-text="'Saves Gains (' + selectedTimeWindow + ')'">Saves Gains</span>
-            <span class="text-base font-bold font-mono tabular-nums" :class="clusterWindowSavesGains === null ? 'text-slate-400 dark:text-slate-500' : 'text-emerald-600 dark:text-emerald-400'" x-text="clusterWindowSavesGains === null ? '—' : ('+' + formatNumber(clusterWindowSavesGains))">+0</span>
-            <span class="text-[10px] text-slate-400" x-text="clusterWindowSavesGains === null ? ('No ' + selectedTimeWindow + ' history yet') : 'Cluster net saves gain'">Cluster net saves gain</span>
+            <span class="text-[10px] uppercase font-mono tabular-nums text-slate-500 dark:text-slate-400" x-text="selectedTimeWindow === 'all' ? 'Total Saves (All-Time)' : ('Saves Gains (' + selectedTimeWindow + ')')">Saves Gains</span>
+            <span class="text-base font-bold font-mono tabular-nums" :class="clusterWindowSavesGains === null ? 'text-slate-400 dark:text-slate-500' : 'text-emerald-600 dark:text-emerald-400'" x-text="clusterWindowSavesGains === null ? '—' : ((selectedTimeWindow === 'all' ? '' : '+') + formatNumber(clusterWindowSavesGains))">+0</span>
+            <span class="text-[10px] text-slate-400" x-text="clusterWindowSavesGains === null ? ('No ' + selectedTimeWindow + ' history yet') : (selectedTimeWindow === 'all' ? 'Cumulative cluster saves' : 'Cluster gross saves gain')">Cluster gross saves gain</span>
           </div>
           <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#18181B]/60 border border-slate-200/80 dark:border-[#27272A] flex flex-col gap-1">
-            <span class="text-[10px] uppercase font-mono tabular-nums text-slate-500 dark:text-slate-400" x-text="'Repins Gains (' + selectedTimeWindow + ')'">Repins Gains</span>
-            <span class="text-base font-bold font-mono tabular-nums" :class="clusterWindowRepinsGains === null ? 'text-slate-400 dark:text-slate-500' : 'text-sky-600 dark:text-sky-400'" x-text="clusterWindowRepinsGains === null ? '—' : ('+' + formatNumber(clusterWindowRepinsGains))">+0</span>
-            <span class="text-[10px] text-slate-400" x-text="clusterWindowRepinsGains === null ? ('No ' + selectedTimeWindow + ' history yet') : 'Cluster shared repins'">Cluster shared repins</span>
+            <span class="text-[10px] uppercase font-mono tabular-nums text-slate-500 dark:text-slate-400" x-text="selectedTimeWindow === 'all' ? 'Total Repins (All-Time)' : ('Repins Gains (' + selectedTimeWindow + ')')">Repins Gains</span>
+            <span class="text-base font-bold font-mono tabular-nums" :class="clusterWindowRepinsGains === null ? 'text-slate-400 dark:text-slate-500' : 'text-sky-600 dark:text-sky-400'" x-text="clusterWindowRepinsGains === null ? '—' : ((selectedTimeWindow === 'all' ? '' : '+') + formatNumber(clusterWindowRepinsGains))">+0</span>
+            <span class="text-[10px] text-slate-400" x-text="clusterWindowRepinsGains === null ? ('No ' + selectedTimeWindow + ' history yet') : (selectedTimeWindow === 'all' ? 'Cumulative cluster repins' : 'Cluster gross repins')">Cluster gross repins</span>
           </div>
           <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#18181B]/60 border border-slate-200/80 dark:border-[#27272A] flex flex-col gap-1">
             <span class="text-[10px] uppercase font-mono tabular-nums text-slate-500 dark:text-slate-400">Avg Daily Velocity</span>
@@ -92,9 +92,9 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
             <span class="text-[10px] text-slate-400">Per-pin daily momentum</span>
           </div>
           <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#18181B]/60 border border-slate-200/80 dark:border-[#27272A] flex flex-col gap-1">
-            <span class="text-[10px] uppercase font-mono tabular-nums text-slate-500 dark:text-slate-400" x-text="'Competitor Gains (' + selectedTimeWindow + ')'">Competitor Gains</span>
-            <span class="text-base font-bold font-mono tabular-nums" :class="clusterCompetitorAudienceGains === null ? 'text-slate-400 dark:text-slate-500' : 'text-indigo-600 dark:text-indigo-400'" x-text="clusterCompetitorAudienceGains === null ? '—' : ('+' + formatNumber(clusterCompetitorAudienceGains))">+0</span>
-            <span class="text-[10px] text-slate-400" x-text="clusterCompetitorAudienceGains === null ? 'Tracked on 24h & 7d windows' : ('Cluster reach (' + formatNumber(crossoverData?.summary?.competitor_audience_gains?.matched_creators_count || (crossoverData?.top_creators?.length || 0)) + ' creators)')">Audience &amp; reach expansion</span>
+            <span class="text-[10px] uppercase font-mono tabular-nums text-slate-500 dark:text-slate-400" x-text="selectedTimeWindow === 'all' ? 'Combined Reach (All-Time)' : ('Competitor Gains (' + selectedTimeWindow + ')')">Competitor Gains</span>
+            <span class="text-base font-bold font-mono tabular-nums" :class="clusterCompetitorAudienceGains === null ? 'text-slate-400 dark:text-slate-500' : 'text-indigo-600 dark:text-indigo-400'" x-text="clusterCompetitorAudienceGains === null ? '—' : ((selectedTimeWindow === 'all' ? '' : '+') + formatNumber(clusterCompetitorAudienceGains))">+0</span>
+            <span class="text-[10px] text-slate-400" x-text="clusterCompetitorAudienceGains === null ? 'Tracked on 24h & 7d windows' : ((selectedTimeWindow === 'all' ? 'Total cluster reach (' : 'Cluster reach gain (') + formatNumber(crossoverData?.summary?.competitor_audience_gains?.matched_creators_count || (crossoverData?.top_creators?.length || 0)) + ' creators)')">Audience &amp; reach expansion</span>
           </div>
         </div>
       </div>
@@ -195,24 +195,24 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
               <button @click="scopeFilter = 'all'; currentPage = 1" 
                       class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
                       :class="scopeFilter === 'all' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
-                All Cluster Pins (<span x-text="formatNumber(crossoverData?.summary?.total_unique_pins || (crossoverData?.all_pins?.length || 0))"></span>)
+                All Cluster Pins (<span x-text="formatNumber(crossoverData?.summary?.total_unique_pins ?? (crossoverData?.all_pins?.length || 0))"></span>)
               </button>
               <button @click="scopeFilter = 'active_only'; currentPage = 1" 
                       class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
                       :title="crossoverData?.summary?.active_serp_slots_count ? ('Unique active SERP pins (' + formatNumber(crossoverData.summary.active_serp_slots_count) + ' ranked slots)') : 'Unique active SERP pins'"
                       :class="scopeFilter === 'active_only' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
-                <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0" aria-hidden="true"></span> Active SERP (<span x-text="formatNumber(crossoverData?.summary?.active_pins_count || (crossoverData?.all_pins?.filter(p => p.has_active_rank)?.length || 0))"></span>)
+                <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0" aria-hidden="true"></span> Active SERP (<span x-text="formatNumber(crossoverData?.summary?.active_pins_count ?? (crossoverData?.all_pins?.filter(p => p.has_active_rank)?.length || 0))"></span>)
               </button>
               <button @click="scopeFilter = 'vault_only'; currentPage = 1" 
                       class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
                       :class="scopeFilter === 'vault_only' ? 'bg-purple-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
-                <span class="w-2 h-2 rounded-full bg-purple-500 inline-block shrink-0" aria-hidden="true"></span> Vault Movers (<span x-text="formatNumber(crossoverData?.summary?.vault_pins_count || (crossoverData?.all_pins?.filter(p => !p.has_active_rank && p.has_vault_rank)?.length || 0))"></span>)
+                <span class="w-2 h-2 rounded-full bg-purple-500 inline-block shrink-0" aria-hidden="true"></span> Vault Movers (<span x-text="formatNumber(crossoverData?.summary?.vault_pins_count ?? (crossoverData?.all_pins?.filter(p => !p.has_active_rank && p.has_vault_rank)?.length || 0))"></span>)
               </button>
               <button @click="scopeFilter = 'super_only'; currentPage = 1" 
                       class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
                       title="All pins appearing in >= 2 keywords across Active SERP and Vault"
                       :class="scopeFilter === 'super_only' ? 'bg-pink-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
-                <i data-lucide="star" class="w-3.5 h-3.5 shrink-0"></i> Super-Pins Only (<span x-text="formatNumber(crossoverData?.summary?.super_pins_count || (crossoverData?.super_pins?.length || 0))"></span>)
+                <i data-lucide="star" class="w-3.5 h-3.5 shrink-0"></i> Super-Pins Only (<span x-text="formatNumber(crossoverData?.summary?.super_pins_count ?? (crossoverData?.all_pins?.filter(p => p.is_super_pin || (p.overlap_count || 0) >= 2)?.length || 0))"></span>)
               </button>
               <template x-if="activeFolder?.items?.length">
                 <select x-model="scopeFilter" @change="currentPage = 1" class="bg-white dark:bg-[#18181B] text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] rounded-lg text-xs py-1.5 px-2.5 font-mono tabular-nums shadow-sm cursor-pointer">
@@ -385,11 +385,11 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                                  x-text="sp.format || 'ORGANIC PIN'"></span>
                            <span class="text-[9px] font-mono tabular-nums text-slate-500" x-text="sp.aspect_ratio || '2:3'"></span>
                            <!-- Breakout Baby Domain Badge -->
-                           <template x-if="sp.is_breakout_baby_domain || ((Number(sp.domain_age_days || (sp.domain_age_years ? sp.domain_age_years * 365 : 0)) > 0) && (Number(sp.domain_age_days || (sp.domain_age_years ? sp.domain_age_years * 365 : 0)) <= 730) && sp.gains_7d != null && Number(sp.gains_7d) >= 15)">
+                           <template x-if="typeof sp.is_breakout_baby_domain === 'boolean' ? sp.is_breakout_baby_domain : ((Number(sp.domain_age_days != null ? sp.domain_age_days : (sp.domain_age_years != null ? sp.domain_age_years * 365 : 0)) > 0) && (Number(sp.domain_age_days != null ? sp.domain_age_days : (sp.domain_age_years != null ? sp.domain_age_years * 365 : 0)) <= 730) && sp.gains_7d != null && Number(sp.gains_7d) >= 15)">
                              <span class="inline-flex items-center gap-1 text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold" title="Breakout Baby Domain (<2y + Authentic 7d Gains >= 15)"><i data-lucide="sparkles" class="w-2.5 h-2.5 shrink-0"></i><span>Baby Breakout</span></span>
                            </template>
                            <!-- Linkless Vacuum Pin Badge -->
-                           <template x-if="sp.is_vacuum_pin || (isLinklessVacuumDomain(sp.domain) && Number(sp.save_count || 0) >= 100)">
+                           <template x-if="typeof sp.is_vacuum_pin === 'boolean' ? sp.is_vacuum_pin : Boolean(sp.image_url && isLinklessVacuumDomain(sp.domain) && Number(sp.save_count || 0) >= 100)">
                              <span class="inline-flex items-center gap-1 text-[9px] font-mono tabular-nums px-1.5 py-0.5 rounded bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 font-semibold" title="Linkless SERP Vacuum (High Saves, No Outbound Domain)"><i data-lucide="target" class="w-2.5 h-2.5 shrink-0"></i><span>Vacuum</span></span>
                            </template>
                          </div>
@@ -417,14 +417,14 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                            <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums border flex items-center gap-1"
                                  :class="rk.is_displaced
                                    ? 'bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/30'
-                                   : rk.rank_position <= 3 
+                                   : (rk.rank_position != null && rk.rank_position <= 3) 
                                    ? 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/30' 
-                                   : rk.rank_position <= 10 
+                                   : (rk.rank_position != null && rk.rank_position <= 10) 
                                    ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30' 
                                    : 'bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A]'">
                              <span x-show="rk.is_displaced" class="w-1.5 h-1.5 rounded-full bg-purple-500 inline-block shrink-0" aria-hidden="true"></span>
                              <span x-text="rk.keyword"></span>
-                             <span class="font-bold" x-text="'#' + rk.rank_position"></span>
+                             <span x-show="rk.rank_position != null" class="font-bold" x-text="'#' + rk.rank_position"></span>
                              <span x-show="rk.is_displaced" class="text-[9px] font-normal opacity-80">(Vault)</span>
                            </span>
                          </template>
@@ -495,7 +495,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                      <div class="flex flex-col gap-0.5">
                        <span class="font-bold" :class="getPinWindowGain(sp) === null ? 'text-slate-400 dark:text-slate-500' : ''" x-text="formatPinWindowPrimary(sp)"></span>
                        <template x-if="(getPinWindowRepins(sp) || 0) > 0">
-                         <span class="text-[10px] text-sky-500 dark:text-sky-400 font-semibold" x-text="'+' + formatNumber(getPinWindowRepins(sp)) + ' repins (' + (selectedTimeWindow === 'all' ? 'total' : selectedTimeWindow) + ')'"></span>
+                         <span class="text-[10px] text-sky-500 dark:text-sky-400 font-semibold" x-text="(selectedTimeWindow === 'all' ? '' : '+') + formatNumber(getPinWindowRepins(sp)) + ' repins (' + (selectedTimeWindow === 'all' ? 'total' : selectedTimeWindow) + ')'"></span>
                        </template>
                        <template x-if="selectedTimeWindow === '24h' && sp.gains_7d != null">
                          <span class="text-[9px] text-slate-400" x-text="'+' + formatNumber(sp.gains_7d) + ' (7d)'"></span>
