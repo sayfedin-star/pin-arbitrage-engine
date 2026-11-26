@@ -286,8 +286,8 @@ export function getDomainsClientAppScript() {
           }
           // @deprecated VM fallback when shared-head formatters are absent
           if (!url) return '#';
-          const s = String(url).trim();
-          if (/^https?:\\/\\//i.test(s) || (s.startsWith('/') && !s.startsWith('//'))) return s;
+          const s = String(url).replace(/[\\u0000-\\u001F\\u007F]/g, '').trim();
+          if (/^https?:\\/\\//i.test(s) || (s.startsWith('/') && !s.startsWith('//') && !s.startsWith('/\\\\'))) return s;
           return '#';
         },
 

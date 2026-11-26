@@ -1,18 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import vm from 'node:vm';
 
-import { isReadOnlySql } from '../src/db/client.mjs';
+import { isReadOnlyQuery as isReadOnlySql } from '../src/db/client.mjs';
 import { createFastifyApp } from '../src/server.mjs';
-import { safeUrl, getInlineFormattersScript } from '../src/ui/shared-formatters.mjs';
-import { handlePinsRoutes } from '../src/routes/pins.mjs';
-import { handleCreatorsRoutes } from '../src/routes/creators.mjs';
-import {
-  jsonResponse,
-  buildCanonicalCacheKey,
-  getCachedOrFetch,
-  invalidateEdgeCache
-} from '../src/http/security-and-response.mjs';
+import { invalidateEdgeCache } from '../src/http/security-and-response.mjs';
 
 import { getDomainsClientAppScript } from '../src/ui/domains/domains-client-app.mjs';
 import { getDashboardClientAppScript } from '../src/ui/dashboard/dashboard-client-app.mjs';
@@ -21,6 +14,8 @@ import { getDiscoveryClientAppScript } from '../src/ui/discovery/discovery-clien
 import { getKeywordsClientAppScript } from '../src/ui/keywords/keywords-client-app.mjs';
 import { getPinDetailsClientAppScripts } from '../src/ui/pin-details/client-app.mjs';
 import { getPulseClientAppScript } from '../src/ui/pulse/pulse-client-app.mjs';
+
+const PAE_SHELL_SCRIPT = fs.readFileSync(new URL('../public/pae-shell.js', import.meta.url), 'utf8');
 
 function extractScriptBody(scriptTag) {
   return String(scriptTag || '')
@@ -42,7 +37,7 @@ test('Hostile Audit 1: isReadOnlySql blocks SELECT ... INTO table creation and P
   assert.equal(isReadOnlySql("SELECT 'SELECT * INTO foo' AS lit"), true);
 });
 
-test('Hostile Audit 2: safeUrl rejects /\\ protocol-relative bypass and control chars across ESM, PAEFormatters, and all 7 UI client fallbacks', () => {
+test('Hostile Audit 2: safeUrl rejects /\\ protocol-relative bypass and control chars across pae-shell.js PAEFormatters and all 7 UI client fallbacks', () => {
   const vectors = [
     '/\\evil.com/phish',
     ' /\\evil.com',
@@ -52,20 +47,29 @@ test('Hostile Audit 2: safeUrl rejects /\\ protocol-relative bypass and control 
     'java\nscript:alert(1)'
   ];
 
-  for (const vec of vectors) {
-    assert.equal(safeUrl(vec), '#', `ESM safeUrl failed to neutralize: ${JSON.stringify(vec)}`);
-  }
-  assert.equal(safeUrl('/keywords/minimalist'), '/keywords/minimalist');
-  assert.equal(safeUrl('https://pinterest.com/pin/123/'), 'https://pinterest.com/pin/123/');
-
-  // Inline window.PAEFormatters.safeUrl
-  const fmtCtx = { window: {}, document: {} };
+  // Shared browser shell window.PAEFormatters.safeUrl / window.PAE.safeUrl / window.safeUrl
+  const shellWin = {
+    location: { origin: 'http://localhost:3000', pathname: '/', search: '' },
+    addEventListener: () => {}
+  };
+  const fmtCtx = {
+    window: shellWin,
+    globalThis: shellWin,
+    document: { addEventListener: () => {} },
+    localStorage: { getItem: () => null, setItem: () => {} },
+    setTimeout: () => 0,
+    clearTimeout: () => {}
+  };
   vm.createContext(fmtCtx);
-  vm.runInContext(extractScriptBody(getInlineFormattersScript()), fmtCtx);
+  vm.runInContext(PAE_SHELL_SCRIPT, fmtCtx);
   for (const vec of vectors) {
-    assert.equal(fmtCtx.window.PAEFormatters.safeUrl(vec), '#', `PAEFormatters.safeUrl failed: ${JSON.stringify(vec)}`);
+    assert.equal(shellWin.PAEFormatters.safeUrl(vec), '#', `PAEFormatters.safeUrl failed: ${JSON.stringify(vec)}`);
+    assert.equal(shellWin.PAE.safeUrl(vec), '#', `PAE.safeUrl failed: ${JSON.stringify(vec)}`);
+    assert.equal(shellWin.safeUrl(vec), '#', `window.safeUrl failed: ${JSON.stringify(vec)}`);
   }
-  assert.equal(fmtCtx.window.PAEFormatters.safeUrl('/folders/12'), '/folders/12');
+  assert.equal(shellWin.PAEFormatters.safeUrl('/keywords/minimalist'), '/keywords/minimalist');
+  assert.equal(shellWin.PAEFormatters.safeUrl('/folders/12'), '/folders/12');
+  assert.equal(shellWin.PAEFormatters.safeUrl('https://pinterest.com/pin/123/'), 'https://pinterest.com/pin/123/');
 
   // All 7 UI client scripts even WITHOUT window.PAEFormatters loaded
   const clients = [
@@ -157,6 +161,9 @@ test('Hostile Audit 3: POST /api/internal/self-update requires auth and emits Ca
 test('Hostile Audit 4: DELETE pin snapshots, daily-metrics, and serp-positions fail loudly with HTTP 500 on DB errors', async () => {
   const failingDeleteSql = async (strings) => {
     const q = strings.join('?');
+    if (/FROM\s+workspaces/i.test(q)) {
+      return [{ id: 1, name: 'Default Workspace', slug: 'default', icon: 'layers', color: '#6366f1', is_default: true }];
+    }
     if (/SELECT metadata FROM universal_master_pins/i.test(q)) {
       return [{ metadata: {} }];
     }
@@ -166,69 +173,62 @@ test('Hostile Audit 4: DELETE pin snapshots, daily-metrics, and serp-positions f
     return [];
   };
   failingDeleteSql.begin = async (cb) => cb(failingDeleteSql);
+  failingDeleteSql.end = async () => {};
 
-  const baseCtx = {
-    method: 'DELETE',
-    env: {},
-    ctx: {},
-    sql: failingDeleteSql,
-    jsonResponse,
-    methodNotAllowedResponse: () => jsonResponse({ error: 'method' }, 405),
-    buildCanonicalCacheKey,
-    getCachedOrFetch,
-    invalidateEdgeCache,
-    safeWaitUntil: () => {},
-    isValidPinId: (id) => /^\d{10,30}$/.test(String(id || '')),
-    redactSecrets: (s) => s
-  };
-
-  // 1) Daily snapshot delete
-  const dailyRes = await handlePinsRoutes({
-    ...baseCtx,
-    pathname: '/api/pins/123456789012/snapshots/2026-11-10',
-    request: new Request('http://localhost/api/pins/123456789012/snapshots/2026-11-10', { method: 'DELETE' }),
-    searchParams: new URLSearchParams()
+  const app = await createFastifyApp({
+    SQL_CLIENT: failingDeleteSql,
+    API_SECRET_KEY: 'audit-delete-key'
   });
-  assert.equal(dailyRes.status, 500);
-  const dailyBody = await dailyRes.json();
-  assert.equal(dailyBody.success, false);
-  assert.equal(dailyBody.error, 'SNAPSHOT_DELETE_FAILED');
 
-  // 2) Intraday snapshot delete
-  const intraRes = await handlePinsRoutes({
-    ...baseCtx,
-    pathname: '/api/pins/123456789012/snapshots/intra_2026-11-10T12',
-    request: new Request('http://localhost/api/pins/123456789012/snapshots/intra_2026-11-10T12', { method: 'DELETE' }),
-    searchParams: new URLSearchParams()
-  });
-  assert.equal(intraRes.status, 500);
-  const intraBody = await intraRes.json();
-  assert.equal(intraBody.success, false);
-  assert.equal(intraBody.error, 'SNAPSHOT_DELETE_FAILED');
+  try {
+    const headers = { 'x-api-key': 'audit-delete-key' };
 
-  // 3) Daily-metrics route delete
-  const dmRes = await handlePinsRoutes({
-    ...baseCtx,
-    pathname: '/api/pins/123456789012/daily-metrics/2026-11-10',
-    request: new Request('http://localhost/api/pins/123456789012/daily-metrics/2026-11-10', { method: 'DELETE' }),
-    searchParams: new URLSearchParams()
-  });
-  assert.equal(dmRes.status, 500);
-  const dmBody = await dmRes.json();
-  assert.equal(dmBody.success, false);
-  assert.equal(dmBody.error, 'SNAPSHOT_DELETE_FAILED');
+    // 1) Daily snapshot delete
+    const dailyRes = await app.inject({
+      method: 'DELETE',
+      url: '/api/pins/123456789012/snapshots/2026-11-10',
+      headers
+    });
+    assert.equal(dailyRes.statusCode, 500);
+    const dailyBody = dailyRes.json();
+    assert.equal(dailyBody.success, false);
+    assert.equal(dailyBody.error, 'SNAPSHOT_DELETE_FAILED');
 
-  // 4) SERP positions route delete
-  const serpRes = await handlePinsRoutes({
-    ...baseCtx,
-    pathname: '/api/pins/123456789012/serp-positions',
-    request: new Request('http://localhost/api/pins/123456789012/serp-positions?keyword_id=42', { method: 'DELETE' }),
-    searchParams: new URLSearchParams('keyword_id=42')
-  });
-  assert.equal(serpRes.status, 500);
-  const serpBody = await serpRes.json();
-  assert.equal(serpBody.success, false);
-  assert.equal(serpBody.error, 'SERP_POSITION_DELETE_FAILED');
+    // 2) Intraday snapshot delete
+    const intraRes = await app.inject({
+      method: 'DELETE',
+      url: '/api/pins/123456789012/snapshots/intra_2026-11-10T12',
+      headers
+    });
+    assert.equal(intraRes.statusCode, 500);
+    const intraBody = intraRes.json();
+    assert.equal(intraBody.success, false);
+    assert.equal(intraBody.error, 'SNAPSHOT_DELETE_FAILED');
+
+    // 3) Daily-metrics route delete
+    const dmRes = await app.inject({
+      method: 'DELETE',
+      url: '/api/pins/123456789012/daily-metrics/2026-11-10',
+      headers
+    });
+    assert.equal(dmRes.statusCode, 500);
+    const dmBody = dmRes.json();
+    assert.equal(dmBody.success, false);
+    assert.equal(dmBody.error, 'SNAPSHOT_DELETE_FAILED');
+
+    // 4) SERP positions route delete
+    const serpRes = await app.inject({
+      method: 'DELETE',
+      url: '/api/pins/123456789012/serp-positions?keyword_id=42',
+      headers
+    });
+    assert.equal(serpRes.statusCode, 500);
+    const serpBody = serpRes.json();
+    assert.equal(serpBody.success, false);
+    assert.equal(serpBody.error, 'SERP_POSITION_DELETE_FAILED');
+  } finally {
+    await app.close();
+  }
 });
 
 test('Hostile Audit 5: GET /api/creators/pins, /api/competitors/boards, and /api/creators/pin-detail return 503 Retry-After: 3 on DB failure', async () => {
@@ -236,50 +236,49 @@ test('Hostile Audit 5: GET /api/creators/pins, /api/competitors/boards, and /api
   invalidateEdgeCache('competitors');
   invalidateEdgeCache('creators');
 
-  const failingSql = async () => {
+  const failingSql = async (strings) => {
+    const q = Array.isArray(strings) ? strings.join('?') : '';
+    if (/FROM\s+workspaces/i.test(q)) {
+      return [{ id: 1, name: 'Default Workspace', slug: 'default', icon: 'layers', color: '#6366f1', is_default: true }];
+    }
     const err = new Error('remaining connection slots are reserved');
     err.code = '53300';
     throw err;
   };
+  failingSql.end = async () => {};
 
-  const baseCtx = {
-    method: 'GET',
-    env: {},
-    ctx: {},
-    sql: failingSql,
-    jsonResponse,
-    clampLimit: (v, d, m) => Math.min(Number(v) || d, m),
-    buildCanonicalCacheKey,
-    getCachedOrFetch,
-    invalidateEdgeCache,
-    safeWaitUntil: () => {},
-    tripPinterestCircuitBreaker: async () => {}
-  };
-
-  const pinsRes = await handleCreatorsRoutes({
-    ...baseCtx,
-    pathname: '/api/creators/pins',
-    request: new Request('http://localhost/api/creators/pins'),
-    searchParams: new URLSearchParams()
+  const app = await createFastifyApp({
+    SQL_CLIENT: failingSql,
+    API_SECRET_KEY: 'audit-creators-key'
   });
-  assert.equal(pinsRes.status, 503);
-  assert.equal(pinsRes.headers.get('Retry-After'), '3');
 
-  const boardsRes = await handleCreatorsRoutes({
-    ...baseCtx,
-    pathname: '/api/competitors/boards',
-    request: new Request('http://localhost/api/competitors/boards?username=chef'),
-    searchParams: new URLSearchParams('username=chef')
-  });
-  assert.equal(boardsRes.status, 503);
-  assert.equal(boardsRes.headers.get('Retry-After'), '3');
+  try {
+    const headers = { 'x-api-key': 'audit-creators-key' };
 
-  const pinDetailRes = await handleCreatorsRoutes({
-    ...baseCtx,
-    pathname: '/api/creators/pin-detail',
-    request: new Request('http://localhost/api/creators/pin-detail?pin_id=123456789012'),
-    searchParams: new URLSearchParams('pin_id=123456789012')
-  });
-  assert.equal(pinDetailRes.status, 503);
-  assert.equal(pinDetailRes.headers.get('Retry-After'), '3');
+    const pinsRes = await app.inject({
+      method: 'GET',
+      url: '/api/creators/pins',
+      headers
+    });
+    assert.equal(pinsRes.statusCode, 503);
+    assert.equal(pinsRes.headers['retry-after'], '3');
+
+    const boardsRes = await app.inject({
+      method: 'GET',
+      url: '/api/competitors/boards?username=chef',
+      headers
+    });
+    assert.equal(boardsRes.statusCode, 503);
+    assert.equal(boardsRes.headers['retry-after'], '3');
+
+    const pinDetailRes = await app.inject({
+      method: 'GET',
+      url: '/api/creators/pin-detail?pin_id=123456789012',
+      headers
+    });
+    assert.equal(pinDetailRes.statusCode, 503);
+    assert.equal(pinDetailRes.headers['retry-after'], '3');
+  } finally {
+    await app.close();
+  }
 });

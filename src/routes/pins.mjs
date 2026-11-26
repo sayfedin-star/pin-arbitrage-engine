@@ -114,7 +114,16 @@ export async function handlePinsRoutes({
       }, 400);
     }
     if (isIntradayParam) {
-      await deletePinSnapshotByTarget({ sql, pinId, rawTarget: rawSnapshotParam });
+      try {
+        await deletePinSnapshotByTarget({ sql, pinId, rawTarget: rawSnapshotParam, throwOnError: true });
+      } catch (err) {
+        const safeErr = redactSecrets ? redactSecrets(err?.message || String(err)) : (err?.message || String(err));
+        return jsonResponse({
+          success: false,
+          error: 'SNAPSHOT_DELETE_FAILED',
+          message: safeErr
+        }, 500);
+      }
       await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
       await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
       await invalidateEdgeCache('keywords:pin-dossier');
@@ -138,17 +147,28 @@ export async function handlePinsRoutes({
       }, 400);
     }
 
-    const delRes = await deletePinSnapshotByTarget({
-      sql,
-      pinId,
-      rawTarget: targetDate,
-      deleteDailyMetricsRow: async (txSql = sql) => {
-        await txSql`
-          DELETE FROM pins_daily_metrics
-          WHERE pin_id = ${pinId} AND recorded_date = ${targetDate}::date;
-        `;
-      }
-    });
+    let delRes;
+    try {
+      delRes = await deletePinSnapshotByTarget({
+        sql,
+        pinId,
+        rawTarget: targetDate,
+        throwOnError: true,
+        deleteDailyMetricsRow: async (txSql = sql) => {
+          await txSql`
+            DELETE FROM pins_daily_metrics
+            WHERE pin_id = ${pinId} AND recorded_date = ${targetDate}::date;
+          `;
+        }
+      });
+    } catch (err) {
+      const safeErr = redactSecrets ? redactSecrets(err?.message || String(err)) : (err?.message || String(err));
+      return jsonResponse({
+        success: false,
+        error: 'SNAPSHOT_DELETE_FAILED',
+        message: safeErr
+      }, 500);
+    }
     if (!delRes.ok) {
       return jsonResponse({ success: false, error: delRes.error, message: delRes.message }, delRes.status || 400);
     }
@@ -244,7 +264,17 @@ export async function handlePinsRoutes({
       }, 400);
     }
     const rawTarget = decodeURIComponent(String(parts[2] || searchParams.get('snapshot_date') || '').trim());
-    const delRes = await deletePinSnapshotByTarget({ sql, pinId, rawTarget });
+    let delRes;
+    try {
+      delRes = await deletePinSnapshotByTarget({ sql, pinId, rawTarget, throwOnError: true });
+    } catch (err) {
+      const safeErr = redactSecrets ? redactSecrets(err?.message || String(err)) : (err?.message || String(err));
+      return jsonResponse({
+        success: false,
+        error: 'SNAPSHOT_DELETE_FAILED',
+        message: safeErr
+      }, 500);
+    }
     if (!delRes.ok) {
       return jsonResponse({
         success: false,

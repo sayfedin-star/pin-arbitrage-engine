@@ -294,11 +294,21 @@ export async function handleCreatorsRoutes(routeCtx) {
     const idOrUser = username || competitorId;
     if (!idOrUser) return jsonResponse({ error: 'competitor_id or username is required' }, 400);
     const cacheKey = buildCanonicalCacheKey('creators:boards', { idOrUser, username: username || '' });
-    const boardsData = await getCachedOrFetch(cacheKey, async () => {
-      const boards = await getCompetitorBoards(sql, idOrUser, { username });
-      return { success: true, boards };
-    }, 30000, 60000);
-    return jsonResponse(boardsData, 200, 30);
+    try {
+      const boardsData = await getCachedOrFetch(cacheKey, async () => {
+        const boards = await getCompetitorBoards(sql, idOrUser, { username });
+        return { success: true, boards };
+      }, 30000, 60000);
+      return jsonResponse(boardsData, 200, 30);
+    } catch (err) {
+      console.error('[CreatorsRoute.GET /boards] DB error:', err?.message || err);
+      return jsonResponse({
+        success: false,
+        error: 'DB_UNAVAILABLE',
+        degraded: true,
+        message: 'Competitor boards temporarily unavailable while database is waking up. Retry in 3 seconds.'
+      }, 503, 0, { 'Retry-After': '3' });
+    }
   }
 
   // POST /api/creators/sync-boards
@@ -1307,26 +1317,36 @@ export async function handleCreatorsRoutes(routeCtx) {
       offset
     });
 
-    const data = await getCachedOrFetch(cacheKey, async () => {
-      const pins = await listArchivedPins(sql, {
-        search,
-        topic,
-        board,
-        stage,
-        account,
-        minSaves,
-        maxSaves,
-        timeframe,
-        changedOnly,
-        sortBy,
-        order,
-        limit,
-        offset
-      });
-      return { success: true, pins, total: pins.total ?? pins.length };
-    }, 10000, 30000);
+    try {
+      const data = await getCachedOrFetch(cacheKey, async () => {
+        const pins = await listArchivedPins(sql, {
+          search,
+          topic,
+          board,
+          stage,
+          account,
+          minSaves,
+          maxSaves,
+          timeframe,
+          changedOnly,
+          sortBy,
+          order,
+          limit,
+          offset
+        });
+        return { success: true, pins, total: pins.total ?? pins.length };
+      }, 10000, 30000);
 
-    return jsonResponse(data, 200, 10);
+      return jsonResponse(data, 200, 10);
+    } catch (err) {
+      console.error('[CreatorsRoute.GET /pins] DB error:', err?.message || err);
+      return jsonResponse({
+        success: false,
+        error: 'DB_UNAVAILABLE',
+        degraded: true,
+        message: 'Creator pins temporarily unavailable while database is waking up. Retry in 3 seconds.'
+      }, 503, 0, { 'Retry-After': '3' });
+    }
   }
 
   // 4. Pin Detail With Metrics (GET /api/creators/pin-detail)
@@ -1334,10 +1354,28 @@ export async function handleCreatorsRoutes(routeCtx) {
     const pinId = searchParams.get('pin_id') || searchParams.get('id');
     if (!pinId) return jsonResponse({ error: 'pin_id is required' }, 400);
     const refresh = searchParams.get('refresh') === 'true';
-    // [INVARIANT: READ-ONLY-GET-SAFE] Read-only GET cache-busting without live scraping
-    const detail = await getPinDetailWithMetrics(sql, pinId, { refresh, env, isReadOnly: true });
-    if (!detail) return jsonResponse({ error: 'Pin not found' }, 404);
-    return jsonResponse({ success: true, ...detail }, 200, refresh ? 0 : 60);
+    try {
+      // [INVARIANT: READ-ONLY-GET-SAFE] Read-only GET cache-busting without live scraping
+      const detail = await getPinDetailWithMetrics(sql, pinId, { refresh, env, isReadOnly: true });
+      if (detail?._dbUnavailable || detail?.error === 'DB_UNAVAILABLE') {
+        return jsonResponse({
+          success: false,
+          error: 'DB_UNAVAILABLE',
+          degraded: true,
+          message: detail.message || 'Pin detail temporarily unavailable while database is waking up. Retry in 3 seconds.'
+        }, 503, 0, { 'Retry-After': '3' });
+      }
+      if (!detail) return jsonResponse({ error: 'Pin not found' }, 404);
+      return jsonResponse({ success: true, ...detail }, 200, refresh ? 0 : 60);
+    } catch (err) {
+      console.error('[CreatorsRoute.GET /pin-detail] DB error:', err?.message || err);
+      return jsonResponse({
+        success: false,
+        error: 'DB_UNAVAILABLE',
+        degraded: true,
+        message: 'Pin detail temporarily unavailable while database is waking up. Retry in 3 seconds.'
+      }, 503, 0, { 'Retry-After': '3' });
+    }
   }
 
   // 5. Delete Pin Metric Snapshot (DELETE /api/creators/pin-snapshot)

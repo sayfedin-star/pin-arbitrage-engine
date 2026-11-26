@@ -10,8 +10,14 @@ export function getDiscoveryClientAppScript() {
     function discoveryApp() {
       return {
         safeUrl(rawUrl, fallback = '#') {
-          const res = window.PAEFormatters.safeUrl(rawUrl);
-          return res === '#' ? fallback : res;
+          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.safeUrl === 'function') {
+            const res = window.PAEFormatters.safeUrl(rawUrl);
+            return res === '#' ? fallback : res;
+          }
+          if (!rawUrl) return fallback;
+          const s = String(rawUrl).replace(/[\\u0000-\\u001F\\u007F]/g, '').trim();
+          if (/^https?:\\/\\//i.test(s) || (s.startsWith('/') && !s.startsWith('//') && !s.startsWith('/\\\\'))) return s;
+          return fallback;
         },
         isSidebarCollapsed: (() => {
           try {

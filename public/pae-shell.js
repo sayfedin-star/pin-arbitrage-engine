@@ -72,8 +72,8 @@
 
   function safeUrl(url) {
     if (!url || typeof url !== 'string') return '#';
-    var trimmed = url.trim();
-    if (/^https?:\/\//i.test(trimmed) || (trimmed.indexOf('/') === 0 && trimmed.indexOf('//') !== 0)) {
+    var trimmed = url.replace(/[\u0000-\u001F\u007F]/g, '').trim();
+    if (/^https?:\/\//i.test(trimmed) || (trimmed.indexOf('/') === 0 && trimmed.indexOf('//') !== 0 && trimmed.indexOf('/\\') !== 0)) {
       return trimmed;
     }
     return '#';

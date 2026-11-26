@@ -19,7 +19,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
-import { createSqlClient, getSqlClient, getPoolStats, drainSqlClient } from './db/client.mjs';
+import { createSqlClient, getSqlClient, getPoolStats, drainSqlClient, isTransientPgConnectionError } from './db/client.mjs';
 import { apiRoutesPlugin } from './plugins/api-routes.mjs';
 import { handlePagesRoutes } from './routes/pages.mjs';
 import { newbornBackgroundQueue } from './modules/newborn/service.mjs';
@@ -232,6 +232,18 @@ export function createFastifyApp(customEnv = {}) {
 
   app.setErrorHandler((err, _request, reply) => {
     const isSyntax = err instanceof SyntaxError || err?.name === 'SyntaxError' || err?.code === 'FST_ERR_CTP_INVALID_JSON_BODY';
+    if (!isSyntax && !(err?.statusCode || err?.status) && isTransientPgConnectionError(err)) {
+      return reply
+        .code(503)
+        .header('Content-Type', 'application/json; charset=utf-8')
+        .header('Retry-After', '3')
+        .send({
+          success: false,
+          error: 'DB_UNAVAILABLE',
+          degraded: true,
+          message: redactSecrets(err?.message || 'Database temporarily unavailable. Retry in 3 seconds.')
+        });
+    }
     const status = isSyntax ? 400 : (err?.statusCode || err?.status || 500);
     const errorCode = status === 400 ? 'BAD_REQUEST'
       : status === 401 ? 'UNAUTHORIZED'

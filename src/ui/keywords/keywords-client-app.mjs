@@ -3112,7 +3112,16 @@ export function getKeywordsClientAppScript() {
         },
 
         safeUrl(url) {
-          return window.PAE.safeUrl(url);
+          if (typeof window !== 'undefined' && window.PAEFormatters && typeof window.PAEFormatters.safeUrl === 'function') {
+            return window.PAEFormatters.safeUrl(url);
+          }
+          if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.safeUrl === 'function') {
+            return window.PAE.safeUrl(url);
+          }
+          if (!url) return '#';
+          const s = String(url).replace(/[\\u0000-\\u001F\\u007F]/g, '').trim();
+          if (/^https?:\\/\\//i.test(s) || (s.startsWith('/') && !s.startsWith('//') && !s.startsWith('/\\\\'))) return s;
+          return '#';
         },
 
         safeColor(color, fallback = '#ec4899') {
