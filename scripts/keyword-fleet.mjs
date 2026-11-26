@@ -250,7 +250,7 @@ export async function runKeywordFleetDispatch({ sql, env = process.env }) {
         max_pins: resolvedMaxSerpPins,
         max_serp_pins: resolvedMaxSerpPins,
         max_catalog_inspect: resolvedMaxCatalogInspect,
-        enable_serp_harvest: enableSerpHarvest
+        enable_serp_harvest: folderKeywords.length > 0 ? enableSerpHarvest : false
       };
     });
 

@@ -98,7 +98,7 @@ export async function resolveIdeaPageIntelligence(term, { router = null, country
     if (intRes.status === 'fulfilled' && intRes.value?.ok) {
       const data = intRes.value.data?.resource_response?.data || intRes.value.data?.data || null;
       const rawInterestId = String(data?.id || '').trim();
-      if (data && data.is_interest !== false && /^\d+$/.test(rawInterestId) && rawInterestId !== '0') {
+      if (data && typeof data === 'object' && !Array.isArray(data) && /^\d+$/.test(rawInterestId) && !/^0+$/.test(rawInterestId)) {
         const rawRelated = Array.isArray(data.seo_related_interests) ? data.seo_related_interests : [];
         const rawPivots = Array.isArray(data.ideas_klp_pivots) ? data.ideas_klp_pivots : [];
         interestInfo = {
@@ -153,7 +153,7 @@ export async function resolveIdeaPageIntelligence(term, { router = null, country
       fetchPinterestBatchVelocity(cleanTerm, [cleanTerm], cleanCountry)
     ]);
     const resolvedId = intRes.status === 'fulfilled' ? String(intRes.value?.id || '').trim() : '';
-    if (intRes.status === 'fulfilled' && intRes.value && /^\d+$/.test(resolvedId) && resolvedId !== '0') {
+    if (intRes.status === 'fulfilled' && intRes.value && /^\d+$/.test(resolvedId) && !/^0+$/.test(resolvedId)) {
       interestInfo = intRes.value;
     }
     if (velMapRes.status === 'fulfilled' && velMapRes.value instanceof Map) {

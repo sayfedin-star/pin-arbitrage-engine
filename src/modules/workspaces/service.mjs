@@ -872,9 +872,7 @@ export async function addCampaignTrackedPins(sql, { folderId, workspaceId, pinId
           if (derivedSeed) seedQueryByPin.set(String(c.pin_id), derivedSeed);
         }
 
-        const toHydrateMaster = cleanSource === 'newborn'
-          ? matchingNewbornCandidates
-          : matchingNewbornCandidates.filter((c) => c.missing_in_master !== false);
+        const toHydrateMaster = matchingNewbornCandidates.filter((c) => c.missing_in_master !== false);
 
         if (toHydrateMaster.length > 0) {
           const masterBatch = toHydrateMaster.map(normalizeCandidateForMasterIngest);
@@ -995,42 +993,92 @@ export async function listCampaignTrackedPins(sql, { folderId, workspaceId, sour
   const lim = Math.max(1, Math.min(500, Number(limit) || 250));
   const off = Math.max(0, Number(offset) || 0);
 
-  const rows = await sql`
-    SELECT
-      ctp.folder_id,
-      ctp.workspace_id,
-      ctp.pin_id,
-      ctp.source_type,
-      ctp.source_ref,
-      ctp.is_active,
-      ctp.added_at,
-      ump.title,
-      ump.board_name,
-      ump.image_url,
-      COALESCE(ump.clean_domain, ump.domain, '') AS domain,
-      ump.destination_url,
-      ump.creator_username,
-      ump.save_count,
-      ump.repin_count,
-      ump.daily_save_velocity,
-      ump.daily_repin_velocity,
-      ump.delta_saves_24h,
-      ump.delta_repins_24h,
-      ump.gains_5d,
-      ump.gains_7d,
-      ump.gains_10d,
-      ump.gains_15d,
-      ump.created_at_pinterest,
-      ump.last_scraped_at
-    FROM campaign_tracked_pins ctp
-    LEFT JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
-    WHERE ctp.folder_id = ${fid}
-      AND ctp.workspace_id = ${wid}
-      AND ctp.is_active = TRUE
-      AND (${cleanSource}::text IS NULL OR ctp.source_type = ${cleanSource})
-    ORDER BY COALESCE(ump.daily_save_velocity, 0) DESC, ctp.added_at DESC
-    LIMIT ${lim} OFFSET ${off};
-  `;
+  let rows;
+  try {
+    rows = await sql`
+      SELECT
+        ctp.folder_id,
+        ctp.workspace_id,
+        ctp.pin_id,
+        ctp.source_type,
+        ctp.source_ref,
+        COALESCE(
+          NULLIF(TRIM(ctp.seed_query), ''),
+          NULLIF(TRIM(nda.seed_query), ''),
+          NULLIF(TRIM(nc.seed_query), '')
+        ) AS seed_query,
+        ctp.is_active,
+        ctp.added_at,
+        ump.title,
+        ump.board_name,
+        ump.image_url,
+        COALESCE(ump.clean_domain, ump.domain, '') AS domain,
+        ump.destination_url,
+        ump.creator_username,
+        ump.save_count,
+        ump.repin_count,
+        ump.daily_save_velocity,
+        ump.daily_repin_velocity,
+        ump.delta_saves_24h,
+        ump.delta_repins_24h,
+        ump.gains_5d,
+        ump.gains_7d,
+        ump.gains_10d,
+        ump.gains_15d,
+        ump.created_at_pinterest,
+        ump.last_scraped_at
+      FROM campaign_tracked_pins ctp
+      LEFT JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
+      LEFT JOIN newborn_daily_anchors nda ON nda.pin_id = ctp.pin_id
+      LEFT JOIN newborn_candidates nc ON nc.pin_id = ctp.pin_id
+      WHERE ctp.folder_id = ${fid}
+        AND ctp.workspace_id = ${wid}
+        AND ctp.is_active = TRUE
+        AND (${cleanSource}::text IS NULL OR ctp.source_type = ${cleanSource})
+      ORDER BY COALESCE(ump.daily_save_velocity, 0) DESC, ctp.added_at DESC
+      LIMIT ${lim} OFFSET ${off};
+    `;
+  } catch (err) {
+    const code = String(err?.code || '');
+    if (!['42703', '42P01'].includes(code)) throw err;
+    rows = await sql`
+      SELECT
+        ctp.folder_id,
+        ctp.workspace_id,
+        ctp.pin_id,
+        ctp.source_type,
+        ctp.source_ref,
+        NULL::text AS seed_query,
+        ctp.is_active,
+        ctp.added_at,
+        ump.title,
+        ump.board_name,
+        ump.image_url,
+        COALESCE(ump.clean_domain, ump.domain, '') AS domain,
+        ump.destination_url,
+        ump.creator_username,
+        ump.save_count,
+        ump.repin_count,
+        ump.daily_save_velocity,
+        ump.daily_repin_velocity,
+        ump.delta_saves_24h,
+        ump.delta_repins_24h,
+        ump.gains_5d,
+        ump.gains_7d,
+        ump.gains_10d,
+        ump.gains_15d,
+        ump.created_at_pinterest,
+        ump.last_scraped_at
+      FROM campaign_tracked_pins ctp
+      LEFT JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
+      WHERE ctp.folder_id = ${fid}
+        AND ctp.workspace_id = ${wid}
+        AND ctp.is_active = TRUE
+        AND (${cleanSource}::text IS NULL OR ctp.source_type = ${cleanSource})
+      ORDER BY COALESCE(ump.daily_save_velocity, 0) DESC, ctp.added_at DESC
+      LIMIT ${lim} OFFSET ${off};
+    `;
+  }
 
   return (Array.isArray(rows) ? rows : []).map((r) => ({
     ...r,

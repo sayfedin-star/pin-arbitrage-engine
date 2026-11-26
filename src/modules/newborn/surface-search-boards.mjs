@@ -591,7 +591,7 @@ export async function harvestBoardMoreIdeasSurface(
 
 /**
  * SURFACE 7: `/ideas/` Taxonomy Feeds.
- * Mandatory Step 1: Zero-cookie `InterestResource/get` verifying `is_interest !== false` & valid numeric `id`.
+ * Mandatory Step 1: Zero-cookie `InterestResource/get` verifying valid non-zero numeric `id`.
  * Step 2: `BestPinsFeedAltResource/get` (`_auth=1`), falling back to zero-cookie `/ideas/<slug>/<id>/` SSR `__PWS_INITIAL_PROPS__`.
  */
 export async function harvestIdeasHubSurface(
@@ -641,9 +641,10 @@ export async function harvestIdeasHubSurface(
     isOfficialInterest = Boolean(
       interestRes.ok &&
       interestData &&
-      interestData.is_interest !== false &&
+      typeof interestData === 'object' &&
+      !Array.isArray(interestData) &&
       /^\d+$/.test(interestId) &&
-      interestId !== '0'
+      !/^0+$/.test(interestId)
     );
   }
 

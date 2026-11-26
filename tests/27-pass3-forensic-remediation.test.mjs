@@ -22,12 +22,16 @@ import vm from 'node:vm';
 import { normalizeWordLemma } from '../src/domain/pin-intelligence.mjs';
 import { buildNewbornCrossoverMatrix } from '../src/modules/newborn/intelligence.mjs';
 import { normalizeCandidateForMasterIngest } from '../src/modules/newborn/promotions.mjs';
-import { addCampaignTrackedPins } from '../src/modules/workspaces/service.mjs';
+import { addCampaignTrackedPins, listCampaignTrackedPins } from '../src/modules/workspaces/service.mjs';
 import {
   hasSeedSemanticOverlap,
+  buildNewbornKeywordCluster,
   enrichClusterRemainingVolumes
 } from '../src/modules/newborn/cluster-builder.mjs';
-import { fetchPinterestInterestVolume } from '../src/modules/keywords/trends-service.mjs';
+import { NewbornCookieRouter } from '../src/modules/newborn/cookie-router.mjs';
+import { resolveIdeaPageIntelligence } from '../src/modules/newborn/surface-trends.mjs';
+import { harvestIdeasHubSurface } from '../src/modules/newborn/surface-search-boards.mjs';
+import { fetchPinterestInterestVolume, clearInterestVolumeCaches } from '../src/modules/keywords/trends-service.mjs';
 import {
   listNewbornCandidates,
   getNewbornCrossoverReport,
@@ -37,9 +41,11 @@ import {
 import { buildFolderCrossoverMatrix } from '../src/modules/keywords/folders-crossover-builders.mjs';
 import { getPinDossier } from '../src/modules/pins/dossier-reader.mjs';
 import { getCampaignFoldersPageHtml } from '../src/ui/folders/index.mjs';
+import { getFoldersClientAppScript } from '../src/ui/folders/folders-client-app.mjs';
 import { getNewbornClientAppScript } from '../src/ui/newborn/newborn-client-app.mjs';
 import { getPinDetailsClientAppScripts } from '../src/ui/pin-details/client-app.mjs';
 import { fetchCampaignTrackedPinsForWorker } from '../scripts/keyword-velocity-crawler.mjs';
+import { runKeywordFleetDispatch } from '../scripts/keyword-fleet.mjs';
 
 function makeJsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -596,4 +602,318 @@ test('Batch 4.4: fetchCampaignTrackedPinsForWorker supports optional folderId sc
   assert.equal(fakeSql.calls.length, 1);
   assert.ok(fakeSql.calls[0].query.includes('ctp.folder_id ='), 'Expected folder_id filter clause in SQL');
   assert.ok(fakeSql.calls[0].values.includes(5), 'Expected folderId=5 parameter binding');
+});
+
+// ---------------------------------------------------------------------------
+// Batch 5: Dual-Angle Forensic Audit Remediation (Bugs #1 - #7)
+// ---------------------------------------------------------------------------
+
+test('Batch 5.1 (Bug #1): Ideas Hub responses with is_interest=false + valid numeric id are accepted across all 4 engines', async () => {
+  clearInterestVolumeCaches();
+  const mockIdeaPayload = {
+    resource_response: {
+      status: 'success',
+      data: {
+        id: '922189954262',
+        is_interest: false,
+        key: 'green bean casserole',
+        url_name: 'green-bean-casserole',
+        internal_search_count: 857132,
+        seo_related_interests: [
+          {
+            name: 'cheesy green bean casserole',
+            origin_interest_id: '905473139309',
+            url: '/ideas/cheesy-green-bean-casserole/905473139309/'
+          }
+        ]
+      }
+    }
+  };
+
+  const mockFetch = async (url) => {
+    const u = String(url);
+    if (u.includes('InterestResource/get')) {
+      return makeJsonResponse(mockIdeaPayload);
+    }
+    if (u.includes('BestPinsFeedAltResource/get')) {
+      return makeJsonResponse({
+        resource_response: {
+          data: [{ id: '991122334455', type: 'pin', title: 'Best Green Bean Casserole', repin_count: 42 }]
+        }
+      });
+    }
+    return makeJsonResponse({}, 404);
+  };
+
+  // 1. trends-service.mjs
+  const volRes = await fetchPinterestInterestVolume('green bean casserole', { fetchImpl: mockFetch, force: true });
+  assert.ok(volRes, 'fetchPinterestInterestVolume must accept is_interest=false with valid 12-digit numeric id');
+  assert.equal(volRes.id, '922189954262');
+  assert.equal(volRes.internal_search_count, 857132);
+
+  // 2. surface-trends.mjs (resolveIdeaPageIntelligence via custom router)
+  const router = new NewbornCookieRouter({ rawCookie: '_auth=1; csrftoken=tok', fetchImpl: mockFetch });
+  const ideaRes = await resolveIdeaPageIntelligence('green bean casserole', { router, country: 'US' });
+  assert.equal(ideaRes.found, true);
+  assert.equal(ideaRes.id, '922189954262');
+  assert.equal(ideaRes.internal_search_count, 857132);
+
+  // 3. surface-search-boards.mjs (harvestIdeasHubSurface)
+  const hubRes = await harvestIdeasHubSurface(router, 'green bean casserole', { maxPages: 1 });
+  assert.equal(Boolean(hubRes.skipped_non_interest), false);
+  assert.equal(hubRes.ok, true);
+  assert.equal(hubRes.pins.length, 1);
+
+  // 4. cluster-builder.mjs (enrichClusterRemainingVolumes + Bug #3 stale zero-volume recovery)
+  const fakeSql = makeFakeSql((entry) => {
+    if (entry.query.includes('FROM newborn_keyword_clusters')) {
+      return [{
+        id: 77,
+        seed_keyword: 'green bean casserole',
+        country: 'US',
+        idea_page: { found: false },
+        keywords: [
+          {
+            keyword: 'green bean casserole',
+            has_taxonomy: false,
+            volume: null,
+            volume_enriched: true
+          }
+        ],
+        metadata: {}
+      }];
+    }
+    return [];
+  });
+
+  const enriched = await enrichClusterRemainingVolumes(fakeSql, 77, { router, batchLimit: 10 });
+  assert.equal(enriched.newly_enriched_count, 1);
+  assert.equal(enriched.keywords[0].has_taxonomy, true);
+  assert.equal(enriched.keywords[0].interest_id, '922189954262');
+  assert.equal(enriched.keywords[0].volume, 857132);
+  assert.equal(enriched.keywords[0].volume_rechecked_v2, true);
+  assert.equal(enriched.idea_page.found, true, 'Recovered seed row must also hydrate cluster idea_page');
+  assert.equal(enriched.idea_page.internal_search_count, 857132);
+});
+
+test('Batch 5.2 (Bug #2): cluster-builder preserves rel.url / origin_interest_id and retries slug-only when knownId returns 0 count', async () => {
+  const seenDataParams = [];
+  const mockFetch = async (url) => {
+    const u = String(url);
+    if (u.includes('latest_available_date')) return makeJsonResponse({ date: '2026-11-20' });
+    if (u.includes('top_trends_filtered')) return makeJsonResponse({ values: [] });
+    if (u.includes('AdvancedTypeaheadResource')) return makeJsonResponse({ resource_response: { data: { items: [] } } });
+    if (u.includes('trends.pinterest.com/metrics')) return makeJsonResponse({ metrics: {} });
+    if (u.includes('InterestResource/get')) {
+      const parsed = new URL(u);
+      const dataObj = JSON.parse(parsed.searchParams.get('data') || '{}');
+      const opts = dataObj.options || {};
+      seenDataParams.push(opts);
+      // Seed lookup returns related interest with url + origin_interest_id (no url_name)
+      if (opts.interest === 'green-bean-casserole') {
+        return makeJsonResponse({
+          resource_response: {
+            data: {
+              id: '922189954262',
+              is_interest: false,
+              key: 'green bean casserole',
+              url_name: 'green-bean-casserole',
+              internal_search_count: 857132,
+              seo_related_interests: [
+                {
+                  name: "campbell's green bean casserole",
+                  origin_interest_id: '958474844170',
+                  url: '/ideas/campbells-green-bean-casserole/958474844170/'
+                }
+              ]
+            }
+          }
+        });
+      }
+      // Combined interest_id lookup returns 200 with 0 search count -> must retry slug-only!
+      if (opts.interest_id === '958474844170') {
+        return makeJsonResponse({
+          resource_response: {
+            data: {
+              id: '958474844170',
+              is_interest: false,
+              internal_search_count: 0
+            }
+          }
+        });
+      }
+      // Slug-only retry returns real volume + nested related interest without url_name
+      if (opts.interest === 'campbells-green-bean-casserole' && !opts.interest_id) {
+        return makeJsonResponse({
+          resource_response: {
+            data: {
+              id: '958474844170',
+              is_interest: false,
+              url_name: 'campbells-green-bean-casserole',
+              internal_search_count: 10748,
+              seo_related_interests: [
+                {
+                  name: 'cheesy green bean casserole',
+                  origin_interest_id: '905473139309',
+                  url: '/ideas/cheesy-green-bean-casserole/905473139309/'
+                }
+              ]
+            }
+          }
+        });
+      }
+    }
+    return makeJsonResponse({}, 404);
+  };
+
+  const router = new NewbornCookieRouter({ rawCookie: '', fetchImpl: mockFetch });
+  const cluster = await buildNewbornKeywordCluster(null, {
+    seedKeyword: 'green bean casserole',
+    country: 'US',
+    router,
+    routerOptions: { fetchImpl: mockFetch }
+  });
+
+  const campbells = cluster.keywords.find((k) => k.keyword === "campbell's green bean casserole");
+  assert.ok(campbells, 'Expected campbells related interest in cluster');
+  assert.equal(campbells.volume, 10748, 'Slug-only retry must recover 10,748 volume when combined interest_id returns 0');
+  assert.equal(campbells.has_taxonomy, true);
+
+  const cheesy = cluster.keywords.find((k) => k.keyword === 'cheesy green bean casserole');
+  assert.ok(cheesy, 'Expected 2nd-hop related interest extracted from seo_related_interests');
+  assert.equal(cheesy.interest_id, '905473139309');
+  assert.equal(cheesy.idea_url, 'https://www.pinterest.com/ideas/cheesy-green-bean-casserole/905473139309/');
+  assert.ok(
+    seenDataParams.some((o) => o.interest === 'campbells-green-bean-casserole' && !o.interest_id),
+    'Must retry InterestResource/get with slug-only options when knownId call returns 0 count'
+  );
+});
+
+test('Batch 5.3 (Bugs #4, #5, #6): Room 1 seed_query/repins display, keyword filter matches newborn_seed_query, and Send to Campaign skips existing master pins', async () => {
+  // Bug #6: addCampaignTrackedPins with missing_in_master=false must NOT call ingestPinsBatch (universal_master_pins upsert)
+  const existingMasterSql = makeFakeSql((entry) => {
+    if (entry.query.includes('FROM keyword_folders')) return [{ id: 5, workspace_id: 1 }];
+    if (entry.query.includes('FROM newborn_candidates nc')) {
+      return [{ pin_id: '3333333333', save_count: 6808, repin_count: 100, seed_query: 'high protein', missing_in_master: false }];
+    }
+    if (entry.query.includes('INSERT INTO campaign_tracked_pins')) {
+      return [{ pin_id: '3333333333', source_type: 'newborn' }];
+    }
+    return [];
+  });
+
+  await addCampaignTrackedPins(existingMasterSql, {
+    folderId: 5,
+    pinIds: ['3333333333'],
+    sourceType: 'newborn',
+    sourceRef: 'high protein'
+  });
+
+  assert.equal(
+    existingMasterSql.calls.some((c) => c.query.includes('INSERT INTO universal_master_pins')),
+    false,
+    'Existing universal_master_pins rows must NOT be overwritten by stale newborn_candidates snapshot'
+  );
+  assert.equal(
+    existingMasterSql.calls.some((c) => c.query.includes('INSERT INTO newborn_daily_anchors')),
+    true,
+    'Newborn anchor must still be registered even when pin already exists in universal_master_pins'
+  );
+
+  // Bug #4: listCampaignTrackedPins queries COALESCE seed_query and /folders HTML renders Newborn seed + repins
+  const listSql = makeFakeSql((entry) => {
+    if (entry.query.includes('FROM keyword_folders')) return [{ id: 5, workspace_id: 1 }];
+    if (entry.query.includes('FROM campaign_tracked_pins ctp')) {
+      return [{
+        folder_id: 5,
+        workspace_id: 1,
+        pin_id: '3333333333',
+        source_type: 'newborn',
+        seed_query: 'high protein',
+        save_count: 6808,
+        repin_count: 240,
+        title: 'Protein Bowl'
+      }];
+    }
+    return [];
+  });
+
+  const tracked = await listCampaignTrackedPins(listSql, { folderId: 5, workspaceId: 1 });
+  assert.equal(tracked.length, 1);
+  assert.equal(tracked[0].seed_query, 'high protein');
+  assert.ok(
+    listSql.calls.some((c) => c.query.includes('NULLIF(TRIM(ctp.seed_query)') && c.query.includes('LEFT JOIN newborn_daily_anchors')),
+    'listCampaignTrackedPins must select coalesced seed_query from ctp/nda/nc'
+  );
+
+  const foldersHtml = getCampaignFoldersPageHtml({ initialFolderId: 5 });
+  assert.ok(foldersHtml.includes("🔥 Newborn"), 'Room 1 tracked pin card must render Newborn seed badge');
+  assert.ok(foldersHtml.includes("tp.repin_count || 0) + ' rp'"), 'Room 1 tracked pin card must render repin_count');
+
+  // Bug #5: folders-client-app.mjs scopeFilter keyword match retains Newborn pins by newborn_seed_query
+  const rawFoldersScript = getFoldersClientAppScript().trim();
+  const match = rawFoldersScript.match(/<script[^>]*>([\s\S]*?)<\/script>/i);
+  const foldersScript = match ? match[1] : rawFoldersScript;
+  const sandbox = {
+    window: {
+      location: { pathname: '/folders', search: '', href: 'http://localhost/folders' },
+      history: { replaceState() {}, pushState() {} },
+      localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+      addEventListener() {},
+      removeEventListener() {},
+      dispatchEvent() {}
+    },
+    document: { addEventListener() {}, querySelector: () => null },
+    localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    URL,
+    URLSearchParams,
+    console
+  };
+  sandbox.window.window = sandbox.window;
+  sandbox.globalThis = sandbox;
+  vm.runInNewContext(foldersScript, sandbox);
+
+  const foldersVm = sandbox.foldersApp(5);
+  foldersVm.crossoverData = {
+    all_pins: [
+      { pin_id: '101', title: 'SERP Pin', rankings: [{ keyword: 'high protein', rank_position: 1 }], is_newborn_tracked: false },
+      { pin_id: '202', title: 'Newborn Pin', rankings: [], is_newborn_tracked: true, newborn_seed_query: 'high protein' },
+      { pin_id: '303', title: 'Other Newborn Pin', rankings: [], is_newborn_tracked: true, newborn_seed_query: 'keto lunch' }
+    ]
+  };
+  foldersVm.scopeFilter = 'high protein';
+  const filtered = foldersVm.filteredPinsList();
+  assert.deepEqual(
+    filtered.map((p) => p.pin_id).sort(),
+    ['101', '202'],
+    'Keyword scopeFilter must retain Newborn pins whose newborn_seed_query matches the selected keyword'
+  );
+});
+
+test('Batch 5.4 (Bug #7): Mode C (--folder-id) disables enable_serp_harvest when campaign folder has 0 keywords', async () => {
+  const fakeSql = makeFakeSql((entry) => {
+    if (entry.query.includes('FROM keyword_folders')) {
+      return [{ id: 12, name: 'Newborn Only Campaign', metadata: { enable_serp_harvest: true } }];
+    }
+    if (entry.query.includes('FROM keyword_folder_items kfi')) {
+      return [];
+    }
+    return [];
+  });
+
+  const dispatch = await runKeywordFleetDispatch({
+    sql: fakeSql,
+    env: {
+      FOLDER_ID: '12',
+      ENABLE_SERP_HARVEST: 'true'
+    }
+  });
+
+  assert.equal(dispatch.mode, 'folder_pin_partition');
+  assert.ok(dispatch.matrixTasks.length > 0);
+  assert.equal(
+    dispatch.matrixTasks.every((t) => t.enable_serp_harvest === false),
+    true,
+    'Mode C must set enable_serp_harvest=false when folderKeywords.length === 0 to avoid unnecessary barrier sync'
+  );
 });

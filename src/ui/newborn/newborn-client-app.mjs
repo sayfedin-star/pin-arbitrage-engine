@@ -1010,7 +1010,10 @@ export function getNewbornClientAppScript() {
 
         getClusterPendingVolumeCount() {
           const list = Array.isArray(this.activeCluster?.keywords) ? this.activeCluster.keywords : [];
-          return list.filter((k) => !k.volume_enriched && !k.volume_error).length;
+          return list.filter((k) =>
+            (!k.volume_enriched && !k.volume_error) ||
+            (k.volume_enriched && (!k.volume || Number(k.volume) <= 0) && !k.volume_rechecked_v2)
+          ).length;
         },
 
         getClusterFailedVolumeCount() {

@@ -125,6 +125,7 @@ export function mergeClusterKeywordEntries(entries = [], { excludeTerms = [] } =
         is_predicted_peak_rising: false,
         l1_interest: null,
         volume_enriched: false,
+        volume_rechecked_v2: false,
         volume_error: false,
         volume_error_reason: null,
         trends_search_count: null,
@@ -204,6 +205,9 @@ export function mergeClusterKeywordEntries(entries = [], { excludeTerms = [] } =
     } else if (raw.volume_error === true && !entry.volume_enriched) {
       entry.volume_error = true;
       if (raw.volume_error_reason) entry.volume_error_reason = String(raw.volume_error_reason).slice(0, 120);
+    }
+    if (raw.volume_rechecked_v2 === true) {
+      entry.volume_rechecked_v2 = true;
     }
     if (raw.trends_search_count !== null && raw.trends_search_count !== undefined && Number.isFinite(Number(raw.trends_search_count))) {
       const tsc = Math.max(0, Math.round(Number(raw.trends_search_count)));
@@ -362,6 +366,7 @@ async function enrichKeywordsInterestVolumes(
       const { slug, interestId: knownId, sourceUrl } = resolveInterestLookupTarget(row);
       if (!slug && !knownId) {
         row.volume_enriched = true;
+        row.volume_rechecked_v2 = true;
         row.volume_error = false;
         row.volume_error_reason = null;
         row.has_taxonomy = false;
@@ -383,16 +388,22 @@ async function enrichKeywordsInterestVolumes(
       };
 
       // Prefer official interest_id when already known (from Related Interests / Idea Pivots),
-      // falling back to slug lookup if needed.
+      // falling back to slug-only lookup if the response fails, returns no data, or has 0 search count.
       let res = null;
       if (knownId) {
         res = await fetchByOptions(
           { interest: slug || knownId, interest_id: knownId },
           sourceUrl || `/ideas/${encodeURIComponent(slug || knownId)}/${encodeURIComponent(knownId)}/`
         );
-        // If Pinterest rejects combined interest_id parameter with 400/404 and we have a slug, retry with slug only
-        if (res && !res.ok && (res.status === 400 || res.status === 404) && slug) {
-          res = await fetchByOptions({ interest: slug }, `/ideas/${encodeURIComponent(slug)}/`);
+        const firstData = res?.data?.resource_response?.data || res?.data?.data || null;
+        const firstCount = Number(firstData?.internal_search_count ?? firstData?.search_count ?? 0);
+        if (slug && (!res || !res.ok || !firstData || !(Number.isFinite(firstCount) && firstCount > 0))) {
+          const slugOnlyRes = await fetchByOptions({ interest: slug }, `/ideas/${encodeURIComponent(slug)}/`);
+          const slugOnlyData = slugOnlyRes?.data?.resource_response?.data || slugOnlyRes?.data?.data || null;
+          const slugOnlyCount = Number(slugOnlyData?.internal_search_count ?? slugOnlyData?.search_count ?? 0);
+          if (slugOnlyRes?.ok && slugOnlyData && (slugOnlyCount > 0 || !firstData)) {
+            res = slugOnlyRes;
+          }
         }
       } else {
         res = await fetchByOptions({ interest: slug }, `/ideas/${encodeURIComponent(slug)}/`);
@@ -438,15 +449,16 @@ async function enrichKeywordsInterestVolumes(
       // Definitive response received (HTTP 200 or confirmed 404 non-taxonomy)
       const data = res?.data?.resource_response?.data || res?.data?.data || null;
       row.volume_enriched = true;
+      row.volume_rechecked_v2 = true;
       row.volume_error = false;
       row.volume_error_reason = null;
       enrichedCount++;
 
       const rawInterestId = String(data?.id || '').trim();
-      const hasValidResponseId = /^\d+$/.test(rawInterestId) && rawInterestId !== '0';
-      const hasKnownId = /^\d+$/.test(String(knownId || '').trim()) && String(knownId).trim() !== '0';
+      const hasValidResponseId = /^\d+$/.test(rawInterestId) && !/^0+$/.test(rawInterestId);
+      const hasKnownId = /^\d+$/.test(String(knownId || '').trim()) && !/^0+$/.test(String(knownId || '').trim());
 
-      if (!res?.ok || !data || data.is_interest === false || (!hasValidResponseId && !hasKnownId)) {
+      if (!res?.ok || !data || typeof data !== 'object' || Array.isArray(data) || (!hasValidResponseId && !hasKnownId)) {
         if (!hasKnownId) {
           row.has_taxonomy = false;
         }
@@ -495,14 +507,18 @@ async function enrichKeywordsInterestVolumes(
           const relName = normalizeClusterTerm(rel?.name || rel?.key || rel?.url_name?.replace(/-/g, ' '));
           if (!relName) continue;
           if (seedKeyword && !hasSeedSemanticOverlap(seedKeyword, relName)) continue;
-          const relId = String(rel?.id || '').trim() || null;
-          const relUrlName = String(rel?.url_name || '').trim();
+          const relId = String(rel?.id || rel?.origin_interest_id || '').trim() || null;
+          const rawRelUrl = String(rel?.url || '').trim();
+          const relUrlName = String(rel?.url_name || slugifyInterestTerm(rel?.key || rel?.name || relName) || '').trim();
+          const resolvedIdeaUrl = rawRelUrl
+            ? (rawRelUrl.startsWith('http') ? rawRelUrl : `https://www.pinterest.com${rawRelUrl.startsWith('/') ? rawRelUrl : `/${rawRelUrl}`}`)
+            : (relId && relUrlName ? `https://www.pinterest.com/ideas/${encodeURIComponent(relUrlName)}/${encodeURIComponent(relId)}/` : null);
           discoveredRelatedOut.push({
             keyword: relName,
             source: 'related_interest',
             is_related_interest: true,
             interest_id: relId,
-            idea_url: relId && relUrlName ? `https://www.pinterest.com/ideas/${encodeURIComponent(relUrlName)}/${encodeURIComponent(relId)}/` : null,
+            idea_url: resolvedIdeaUrl,
             has_taxonomy: Boolean(relId)
           });
         }
@@ -600,7 +616,8 @@ export async function buildNewbornKeywordCluster(sql, options = {}) {
       weekly_change: ideaPageRes?.weekly_change ?? null,
       monthly_change: ideaPageRes?.monthly_change ?? null,
       yearly_change: ideaPageRes?.yearly_change ?? null,
-      volume_enriched: Boolean(ideaPageRes?.found)
+      volume_enriched: Boolean(ideaPageRes?.found),
+      volume_rechecked_v2: Boolean(ideaPageRes?.found)
     }
   ];
 
@@ -714,7 +731,41 @@ export async function buildNewbornKeywordCluster(sql, options = {}) {
   const wid = Number.isInteger(Number(options.workspaceId)) && Number(options.workspaceId) > 0 ? Number(options.workspaceId) : 1;
   const fid = options.folderId !== null && options.folderId !== undefined && Number(options.folderId) > 0 ? Number(options.folderId) : null;
 
-  const cleanIdeaPage = sanitizeForJsonb(ideaPageRes || {});
+  let effectiveIdeaPage = ideaPageRes || {};
+  const enrichedSeedRow = mergedKeywords.find((k) => k.keyword === seedKeyword);
+  if ((!effectiveIdeaPage || !effectiveIdeaPage.found) && enrichedSeedRow && enrichedSeedRow.interest_id && enrichedSeedRow.has_taxonomy) {
+    const seedSlug = slugifyInterestTerm(seedKeyword);
+    const seedUrlMatch = String(enrichedSeedRow.idea_url || '').match(/\/ideas\/([^/?#]+)/i);
+    let seedUrlName = seedSlug;
+    if (seedUrlMatch?.[1]) {
+      try { seedUrlName = decodeURIComponent(seedUrlMatch[1]); } catch (_) { seedUrlName = seedUrlMatch[1]; }
+    }
+    const seedVol = Number(enrichedSeedRow.volume || 0);
+    effectiveIdeaPage = {
+      ...(effectiveIdeaPage && typeof effectiveIdeaPage === 'object' ? effectiveIdeaPage : {}),
+      found: true,
+      term: seedKeyword,
+      id: String(enrichedSeedRow.interest_id),
+      key: seedKeyword,
+      url_name: seedUrlName,
+      idea_url: enrichedSeedRow.idea_url || `https://www.pinterest.com/ideas/${encodeURIComponent(seedUrlName)}/${encodeURIComponent(enrichedSeedRow.interest_id)}/`,
+      internal_search_count: seedVol,
+      formatted_volume: seedVol > 0 ? seedVol.toLocaleString('en-US') : '0',
+      weekly_change: effectiveIdeaPage?.weekly_change ?? enrichedSeedRow.weekly_change ?? null,
+      monthly_change: effectiveIdeaPage?.monthly_change ?? enrichedSeedRow.monthly_change ?? null,
+      yearly_change: effectiveIdeaPage?.yearly_change ?? enrichedSeedRow.yearly_change ?? null,
+      related_interests: Array.isArray(effectiveIdeaPage?.related_interests) && effectiveIdeaPage.related_interests.length > 0
+        ? effectiveIdeaPage.related_interests
+        : discoveredRelatedFromTop.slice(0, 12).map((r) => ({
+            name: r.keyword,
+            key: r.keyword,
+            id: String(r.interest_id || ''),
+            url: r.idea_url || ''
+          }))
+    };
+  }
+
+  const cleanIdeaPage = sanitizeForJsonb(effectiveIdeaPage);
   let persistedId = null;
   let createdAt = new Date().toISOString();
 
@@ -888,15 +939,19 @@ export async function enrichClusterRemainingVolumes(sql, clusterId, options = {}
     }
   } else {
     // Prioritize never-attempted keywords first, then previously errored keywords,
-    // then official Taxonomy keywords still stuck at 0/null volume (so poisoned rows can recover).
+    // then official Taxonomy keywords stuck at 0/null volume,
+    // and finally legacy zero/null-volume rows not yet re-checked under the v2 taxonomy logic.
     const neverAttempted = currentKeywords.filter((k) => !k.volume_enriched && !k.volume_error);
     const errored = currentKeywords.filter((k) => !k.volume_enriched && k.volume_error);
     const zeroVolTaxonomy = currentKeywords.filter(
       (k) => k.volume_enriched && k.has_taxonomy === true && (!k.volume || Number(k.volume) <= 0)
     );
-    pending = [...neverAttempted, ...errored, ...zeroVolTaxonomy].slice(0, batchLimit);
+    const staleZeroVolUnchecked = currentKeywords.filter(
+      (k) => k.volume_enriched && k.has_taxonomy !== true && (!k.volume || Number(k.volume) <= 0) && !k.volume_rechecked_v2
+    );
+    pending = [...neverAttempted, ...errored, ...zeroVolTaxonomy, ...staleZeroVolUnchecked].slice(0, batchLimit);
     for (const row of pending) {
-      if (row.has_taxonomy === true && (!row.volume || Number(row.volume) <= 0)) {
+      if ((!row.volume || Number(row.volume) <= 0) && (row.has_taxonomy === true || !row.volume_rechecked_v2)) {
         row.volume_enriched = false;
       }
     }
@@ -919,6 +974,32 @@ export async function enrichClusterRemainingVolumes(sql, clusterId, options = {}
   const reMerged = mergeClusterKeywordEntries(currentKeywords, {
     excludeTerms: Array.isArray(existing.exclude_terms) ? existing.exclude_terms : []
   });
+  let updatedIdeaPage = existing.idea_page && typeof existing.idea_page === 'object' ? existing.idea_page : {};
+  const seedTerm = normalizeClusterTerm(existing.seed_keyword);
+  const reMergedSeed = seedTerm ? reMerged.find((k) => k.keyword === seedTerm) : null;
+  if ((!updatedIdeaPage || !updatedIdeaPage.found) && reMergedSeed && reMergedSeed.interest_id && reMergedSeed.has_taxonomy) {
+    const seedSlug = slugifyInterestTerm(seedTerm);
+    const seedUrlMatch = String(reMergedSeed.idea_url || '').match(/\/ideas\/([^/?#]+)/i);
+    let seedUrlName = seedSlug;
+    if (seedUrlMatch?.[1]) {
+      try { seedUrlName = decodeURIComponent(seedUrlMatch[1]); } catch (_) { seedUrlName = seedUrlMatch[1]; }
+    }
+    const seedVol = Number(reMergedSeed.volume || 0);
+    updatedIdeaPage = sanitizeForJsonb({
+      ...updatedIdeaPage,
+      found: true,
+      term: seedTerm,
+      id: String(reMergedSeed.interest_id),
+      key: seedTerm,
+      url_name: seedUrlName,
+      idea_url: reMergedSeed.idea_url || `https://www.pinterest.com/ideas/${encodeURIComponent(seedUrlName)}/${encodeURIComponent(reMergedSeed.interest_id)}/`,
+      internal_search_count: seedVol,
+      formatted_volume: seedVol > 0 ? seedVol.toLocaleString('en-US') : '0',
+      weekly_change: updatedIdeaPage?.weekly_change ?? reMergedSeed.weekly_change ?? null,
+      monthly_change: updatedIdeaPage?.monthly_change ?? reMergedSeed.monthly_change ?? null,
+      yearly_change: updatedIdeaPage?.yearly_change ?? reMergedSeed.yearly_change ?? null
+    });
+  }
   const enrichedCount = reMerged.filter((k) => k.volume_enriched).length;
   const failedVolumeCount = reMerged.filter((k) => k.volume_error && !k.volume_enriched).length;
   const remainingCount = Math.max(0, reMerged.length - enrichedCount);
@@ -937,6 +1018,7 @@ export async function enrichClusterRemainingVolumes(sql, clusterId, options = {}
       await sql`
         UPDATE newborn_keyword_clusters
         SET
+          idea_page = ${JSON.stringify(sanitizeForJsonb(updatedIdeaPage))}::jsonb,
           keywords = ${JSON.stringify(sanitizeForJsonb(reMerged))}::jsonb,
           keyword_count = ${reMerged.length},
           enriched_count = ${enrichedCount},
@@ -948,6 +1030,7 @@ export async function enrichClusterRemainingVolumes(sql, clusterId, options = {}
       await sql`
         UPDATE newborn_keyword_clusters
         SET
+          idea_page = ${JSON.stringify(sanitizeForJsonb(updatedIdeaPage))}::jsonb,
           keywords = ${JSON.stringify(sanitizeForJsonb(reMerged))}::jsonb,
           keyword_count = ${reMerged.length},
           enriched_count = ${enrichedCount},
@@ -966,6 +1049,7 @@ export async function enrichClusterRemainingVolumes(sql, clusterId, options = {}
     await sql`
       UPDATE newborn_keyword_clusters
       SET
+        idea_page = ${JSON.stringify(sanitizeForJsonb(updatedIdeaPage))}::jsonb,
         keywords = ${JSON.stringify(sanitizeForJsonb(reMerged))}::jsonb,
         keyword_count = ${reMerged.length},
         enriched_count = ${enrichedCount},
@@ -982,7 +1066,7 @@ export async function enrichClusterRemainingVolumes(sql, clusterId, options = {}
     l1_interest: existing.l1_interest,
     include_terms: existing.include_terms || [],
     exclude_terms: existing.exclude_terms || [],
-    idea_page: existing.idea_page || {},
+    idea_page: updatedIdeaPage,
     keywords: reMerged,
     discovered_accounts: existing.discovered_accounts || [],
     keyword_count: reMerged.length,

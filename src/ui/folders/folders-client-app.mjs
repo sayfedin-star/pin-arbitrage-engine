@@ -2054,7 +2054,10 @@ export function getFoldersClientAppScript() {
           // 1. Scope filter by individual keyword
           if (this.scopeFilter !== 'all' && this.scopeFilter !== 'super_only' && this.scopeFilter !== 'active_only' && this.scopeFilter !== 'vault_only' && this.scopeFilter !== 'newborn_only') {
             const kw = this.scopeFilter.toLowerCase().trim();
-            list = list.filter(p => (p.rankings || []).some(r => (r.keyword || '').toLowerCase().trim() === kw));
+            list = list.filter(p =>
+              (p.rankings || []).some(r => (r.keyword || '').toLowerCase().trim() === kw) ||
+              (p.newborn_seed_query || '').toLowerCase().trim() === kw
+            );
           }
 
           // 2. Entity filter (drill-down by domain or creator)

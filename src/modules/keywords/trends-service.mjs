@@ -147,9 +147,10 @@ export async function fetchPinterestInterestVolume(term, options = {}) {
         const rawInterestId = String(data?.id || '').trim();
         const isOfficialInterest = Boolean(
           data &&
-          data.is_interest !== false &&
+          typeof data === 'object' &&
+          !Array.isArray(data) &&
           /^\d+$/.test(rawInterestId) &&
-          rawInterestId !== '0'
+          !/^0+$/.test(rawInterestId)
         );
         if (!isOfficialInterest) {
           interestNegativeCache.set(slug, true, { ttlMs: INTEREST_NEGATIVE_TTL_MS });

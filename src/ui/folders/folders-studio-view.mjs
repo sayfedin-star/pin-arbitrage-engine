@@ -150,9 +150,10 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                 <div class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/70 dark:bg-[#18181B]/70 flex items-center justify-between gap-2">
                   <div class="min-w-0">
                     <a :href="'/pin/' + tp.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '')" class="text-xs font-semibold text-slate-900 dark:text-white hover:text-indigo-500 truncate block" x-text="tp.title || ('Pin #' + tp.pin_id)"></a>
-                    <div class="flex items-center gap-1.5 mt-0.5 text-[10px] font-mono tabular-nums">
-                      <span class="uppercase text-slate-500" x-text="tp.source_type"></span>
+                    <div class="flex items-center gap-1.5 flex-wrap mt-0.5 text-[10px] font-mono tabular-nums">
+                      <span class="uppercase" :class="tp.source_type === 'newborn' ? 'text-orange-600 dark:text-orange-400 font-semibold' : 'text-slate-500'" x-text="tp.source_type === 'newborn' ? ('🔥 Newborn' + (tp.seed_query ? ' · ' + tp.seed_query : '')) : tp.source_type"></span>
                       <span class="text-emerald-600 dark:text-emerald-400" x-text="formatNumber(tp.save_count || 0) + ' saves'"></span>
+                      <span class="text-sky-600 dark:text-sky-400" x-text="formatNumber(tp.repin_count || 0) + ' rp'"></span>
                       <span class="text-amber-600 dark:text-amber-400" x-text="formatPinWindowPrimary(tp)"></span>
                     </div>
                   </div>
