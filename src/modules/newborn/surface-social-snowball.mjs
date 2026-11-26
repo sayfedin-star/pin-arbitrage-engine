@@ -22,9 +22,9 @@ export async function harvestHomeFeedSurface(
 ) {
   const pSize = Math.max(10, Math.min(50, Number(pageSize) || 50));
   const pinTarget = targetPins !== null && targetPins !== undefined && Number(targetPins) > 0
-    ? Math.max(25, Math.min(2000, Math.round(Number(targetPins))))
+    ? Math.max(25, Math.min(5000, Math.round(Number(targetPins))))
     : null;
-  const maxP = Math.max(1, Math.min(50, pinTarget ? Math.ceil(pinTarget / Math.max(20, pSize)) + 2 : (Number(maxPages) || 5)));
+  const maxP = Math.max(1, Math.min(120, pinTarget ? Math.ceil(pinTarget / Math.max(20, pSize)) + 2 : (Number(maxPages) || 5)));
 
   const pinsMap = new Map();
   let bookmark = null;
@@ -165,9 +165,9 @@ export async function harvestRelatedPinSnowballSurface(
 
   const effectivePageSize = Math.max(10, Math.min(24, Number(pageSize) || 24));
   const pinTarget = targetPins !== null && targetPins !== undefined && Number(targetPins) > 0
-    ? Math.max(25, Math.min(1000, Math.round(Number(targetPins))))
+    ? Math.max(25, Math.min(2000, Math.round(Number(targetPins))))
     : null;
-  const maxP = Math.max(1, Math.min(50, pinTarget ? Math.ceil(pinTarget / Math.max(12, effectivePageSize)) + 2 : (Number(maxPages) || 10)));
+  const maxP = Math.max(1, Math.min(100, pinTarget ? Math.ceil(pinTarget / Math.max(12, effectivePageSize)) + 2 : (Number(maxPages) || 10)));
   const sourceUrl = `/pin/${cleanSeedId}/`;
 
   const pinsMap = new Map();

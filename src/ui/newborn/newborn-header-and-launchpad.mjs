@@ -338,16 +338,6 @@ export function getNewbornHeaderAndLaunchpadHtml({ folderId = '' } = {}) {
             </template>
             <span :class="estimateScrollBudget() > 3000 ? 'text-amber-600 dark:text-amber-400 font-semibold' : 'text-slate-500 dark:text-[#A1A1AA]'"
                   x-text="'Est. scroll budget: ' + formatNullableCount(estimateScrollBudget()) + ' pins' + (executionMode === 'auto' && estimateScrollBudget() > 3000 ? ' (Auto -> Fleet)' : '')"></span>
-            <label class="inline-flex items-center gap-1.5 text-slate-500 dark:text-[#A1A1AA]" title="Max PinResource/get hydrations per hunt (5 to 5,000)">
-              <span class="font-sans text-[11px]">Hydration cap:</span>
-              <input type="number"
-                     min="5"
-                     max="5000"
-                     step="50"
-                     x-model.number="huntFilters.maxPinHydrations"
-                     aria-label="Max Pin Hydrations per hunt"
-                     class="w-16 px-1.5 py-0.5 rounded-md border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-[11px] font-mono tabular-nums text-slate-800 dark:text-[#FAFAFA] focus:outline-none focus:ring-2 focus:ring-rose-500" />
-            </label>
           </div>
         </div>
 
@@ -589,7 +579,7 @@ export function getNewbornHeaderAndLaunchpadHtml({ folderId = '' } = {}) {
                 <div class="flex items-center gap-3 text-[11px]">
                   <button type="button"
                           x-show="launchpadTrends.length > 0"
-                          @click="addKeywordsToBasket(launchpadTrends.slice(0, 100).map((t) => t.term))"
+                          @click="addKeywordsToBasket(launchpadTrends.map((t) => t.term))"
                           class="font-semibold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer">
                     + Select All Visible
                   </button>
@@ -603,7 +593,7 @@ export function getNewbornHeaderAndLaunchpadHtml({ folderId = '' } = {}) {
               </template>
               <template x-if="launchpadTrends.length > 0">
                 <div class="flex flex-wrap gap-2 max-h-72 overflow-y-auto pr-1">
-                  <template x-for="tr in launchpadTrends.slice(0, 100)" :key="tr.term">
+                  <template x-for="tr in launchpadTrends" :key="tr.term">
                     <label class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition-colors cursor-pointer select-none"
                            :class="isInBasket(tr.term) ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-700 text-rose-700 dark:text-rose-200 font-semibold' : 'border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] hover:border-rose-300 dark:hover:border-rose-700 text-slate-800 dark:text-[#FAFAFA]'">
                       <input type="checkbox"

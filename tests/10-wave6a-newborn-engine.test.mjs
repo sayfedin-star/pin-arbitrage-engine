@@ -342,8 +342,9 @@ function createStatefulNewbornSqlMock() {
       return [];
     }
     if (/UPDATE newborn_candidates SET stage = 'promoted'/i.test(q)) {
-      const destinations = parseJsonArg(values[0]);
-      const ids = values[1] || [];
+      const destinationsArg = values.find((v) => typeof v === 'string' && v.trim().startsWith('['));
+      const destinations = parseJsonArg(destinationsArg || values[0]);
+      const ids = values[values.length - 1] || [];
       for (const pid of ids) {
         const cur = state.candidates.get(String(pid));
         if (cur) {
@@ -710,12 +711,17 @@ test('Wave 6A.1: Two-Zone Cookie Router enforces strict _auth=1 vs zero-cookie b
   assert.equal(observedCalls[1].headers.Cookie, undefined);
   assert.equal(observedCalls[1].headers['x-new-site'], 'true');
 
-  // RelatedModules returns 412 -> degrades session cleanly, zero circuit breaker failures!
+  // RelatedModules returns 412 -> requires 3 consecutive 412s before degrading session globally, zero circuit breaker failures!
   const relRes = await router.requestJson('https://www.pinterest.com/resource/RelatedModulesResource/get/?data={}', { endpointKey: 'related_modules' });
   assert.equal(relRes.ok, false);
   assert.equal(relRes.authRequiredFallback, true);
   assert.ok(observedCalls[2].headers.Cookie.includes('_auth=1'));
   assert.equal(breaker.getState().state, 'CLOSED');
+  assert.equal(breaker.getState().consecutiveFailures, 0);
+  assert.equal(router.effectiveMode, 'auth_two_zone');
+  await router.requestJson('https://www.pinterest.com/resource/RelatedModulesResource/get/?data={}', { endpointKey: 'related_modules' });
+  assert.equal(router.effectiveMode, 'auth_two_zone');
+  await router.requestJson('https://www.pinterest.com/resource/RelatedModulesResource/get/?data={}', { endpointKey: 'related_modules' });
   assert.equal(breaker.getState().consecutiveFailures, 0);
   assert.equal(router.effectiveMode, 'guest_fallback_412');
 

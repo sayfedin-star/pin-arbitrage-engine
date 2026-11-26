@@ -32,7 +32,7 @@ export function getNewbornClusterExplorerHtml() {
               <div>
                 <h2 class="text-sm font-bold text-slate-900 dark:text-[#FAFAFA]">Newborn Keyword Cluster Explorer</h2>
                 <p class="text-[11px] text-slate-500 dark:text-[#A1A1AA]">
-                  Combine 4 Trends tabs + Typeahead suggestions + Idea Page volumes, then hunt up to <span class="font-mono font-semibold" x-text="maxClusterSelectableKeywords()"></span> keywords across all surfaces at once (Auto-routes &gt;3 keywords to 20-Runner Fleet).
+                  Combine 4 Trends tabs + Typeahead suggestions + Idea Page volumes, then hunt all selected keywords across all surfaces at once (20-Runner Fleet default).
                 </p>
               </div>
             </div>
@@ -118,7 +118,7 @@ export function getNewbornClusterExplorerHtml() {
             </div>
             <h3 class="text-base font-bold text-slate-900 dark:text-[#FAFAFA]">Build a Keyword Cluster to hunt Newborn Pins at scale</h3>
             <p class="text-xs sm:text-sm text-slate-500 dark:text-[#A1A1AA] max-w-lg mx-auto">
-              Enter a seed keyword like <strong>soup</strong> to merge all 4 Pinterest Trends tabs, Typeahead long-tail expansions, Idea Page search volumes, and 90-day predicted peaks — then select up to <strong>100 keywords</strong> (25 Direct / 100 Fleet) for a unified multi-surface hunt.
+              Enter a seed keyword like <strong>soup</strong> to merge all 4 Pinterest Trends tabs, Typeahead long-tail expansions, Idea Page search volumes, and 90-day predicted peaks — then select any or all keywords for a unified multi-surface Fleet hunt.
             </p>
           </div>
         </template>
@@ -187,28 +187,54 @@ export function getNewbornClusterExplorerHtml() {
                   <span class="text-[11px] font-mono tabular-nums text-slate-500 dark:text-[#A1A1AA]"
                         x-text="selectedClusterKeywords.length > 0 ? ('Est. total: ' + formatNullableCount(estimateClusterTotalBudget()) + ' pins') : ''"></span>
 
-                  <template x-if="Number(activeCluster.remaining_unenriched_count || 0) > 0">
+                  <template x-if="!isEnrichingCluster && getClusterPendingVolumeCount() > 0">
                     <button type="button"
                             @click="enrichClusterVolumesNow()"
-                            :disabled="isEnrichingCluster"
-                            class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/70 dark:bg-indigo-950/30 hover:bg-indigo-100/70 disabled:opacity-60 text-xs font-semibold text-indigo-700 dark:text-indigo-300 cursor-pointer">
-                      <i data-lucide="bar-chart-2" class="w-3.5 h-3.5" :class="isEnrichingCluster ? 'animate-pulse' : ''" aria-hidden="true"></i>
-                      <span x-text="isEnrichingCluster ? 'Enriching Volumes...' : ('Enrich Remaining Volumes (' + activeCluster.remaining_unenriched_count + ')')"></span>
+                            class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/70 dark:bg-indigo-950/30 hover:bg-indigo-100/70 text-xs font-semibold text-indigo-700 dark:text-indigo-300 cursor-pointer">
+                      <i data-lucide="bar-chart-2" class="w-3.5 h-3.5" aria-hidden="true"></i>
+                      <span x-text="'Enrich Remaining Volumes (' + getClusterPendingVolumeCount() + ')'"></span>
+                    </button>
+                  </template>
+
+                  <template x-if="isEnrichingCluster">
+                    <div class="inline-flex items-center gap-1.5">
+                      <span class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/70 dark:bg-indigo-950/30 text-xs font-semibold font-mono tabular-nums text-indigo-700 dark:text-indigo-300">
+                        <i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin" aria-hidden="true"></i>
+                        <span x-text="'Enriching ' + enrichProgressDone + ' / ' + Math.max(enrichProgressTotal, enrichProgressDone) + '...'"></span>
+                      </span>
+                      <button type="button"
+                              @click="stopEnrichingCluster()"
+                              :disabled="enrichStopRequested"
+                              class="inline-flex items-center gap-1 px-2.5 py-2 rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 disabled:opacity-60 text-xs font-semibold text-rose-700 dark:text-rose-300 cursor-pointer">
+                        <i data-lucide="square" class="w-3 h-3" aria-hidden="true"></i>
+                        <span x-text="enrichStopRequested ? 'Stopping...' : 'Stop'"></span>
+                      </button>
+                    </div>
+                  </template>
+
+                  <template x-if="!isEnrichingCluster && getClusterFailedVolumeCount() > 0">
+                    <button type="button"
+                            @click="retryFailedClusterVolumes()"
+                            class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 hover:bg-amber-100 text-xs font-semibold text-amber-800 dark:text-amber-300 cursor-pointer">
+                      <i data-lucide="rotate-cw" class="w-3.5 h-3.5" aria-hidden="true"></i>
+                      <span x-text="'Retry Failed (' + getClusterFailedVolumeCount() + ')'"></span>
                     </button>
                   </template>
 
                   <div class="inline-flex items-center gap-1.5">
                     <select x-model="targetCampaignFolderId"
+                            @change="handleCampaignDropdownChange('target', $event.target.value)"
                             aria-label="Target campaign folder"
-                            class="px-2.5 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs font-medium text-slate-700 dark:text-[#FAFAFA] max-w-[170px] cursor-pointer">
+                            class="px-2.5 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs font-medium text-slate-700 dark:text-[#FAFAFA] max-w-[180px] cursor-pointer">
                       <option value="">Campaign...</option>
                       <template x-for="f in foldersList" :key="f.id">
                         <option :value="String(f.id)" x-text="f.name"></option>
                       </template>
+                      <option value="__create_new__">+ Create New Campaign...</option>
                     </select>
                     <button type="button"
                             @click="addClusterKeywordsToCampaign()"
-                            :disabled="isSendingToCampaign || !targetCampaignFolderId || selectedClusterKeywords.length === 0"
+                            :disabled="isSendingToCampaign || !targetCampaignFolderId || targetCampaignFolderId === '__create_new__' || selectedClusterKeywords.length === 0"
                             class="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer">
                       <i data-lucide="folder-plus" class="w-3.5 h-3.5" aria-hidden="true"></i>
                       <span x-text="isSendingToCampaign ? 'Adding...' : ('Add to Campaign (' + selectedClusterKeywords.length + ')')"></span>
@@ -220,7 +246,7 @@ export function getNewbornClusterExplorerHtml() {
                           :disabled="isLaunchingClusterHunt || selectedClusterKeywords.length === 0"
                           class="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
                     <i data-lucide="radar" class="w-3.5 h-3.5" :class="isLaunchingClusterHunt ? 'animate-spin' : ''" aria-hidden="true"></i>
-                    <span x-text="isLaunchingClusterHunt ? 'Launching Hunt...' : ('Hunt Selected (' + selectedClusterKeywords.length + '/' + maxClusterSelectableKeywords() + ')')"></span>
+                    <span x-text="isLaunchingClusterHunt ? 'Launching Hunt...' : ('Hunt Selected (' + selectedClusterKeywords.length + ')')"></span>
                   </button>
                 </div>
               </div>
@@ -297,12 +323,9 @@ export function getNewbornClusterExplorerHtml() {
                         x-text="getFilteredClusterKeywords().length + ' shown'"></span>
                   <button type="button" @click="selectTopClusterKeywords(10)" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] hover:border-rose-300 text-[11px] font-semibold text-slate-700 dark:text-[#E4E4E7] cursor-pointer">Top 10</button>
                   <button type="button" @click="selectTopClusterKeywords(25)" class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] hover:border-rose-300 text-[11px] font-semibold text-slate-700 dark:text-[#E4E4E7] cursor-pointer">Top 25</button>
-                  <template x-if="maxClusterSelectableKeywords() > 25">
-                    <button type="button" @click="selectTopClusterKeywords(50)" class="px-2.5 py-1 rounded-lg border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/30 hover:border-indigo-400 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 cursor-pointer">Top 50</button>
-                  </template>
-                  <template x-if="maxClusterSelectableKeywords() >= 100">
-                    <button type="button" @click="selectTopClusterKeywords(100)" class="px-2.5 py-1 rounded-lg border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/30 hover:border-indigo-400 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 cursor-pointer">Top 100</button>
-                  </template>
+                  <button type="button" @click="selectTopClusterKeywords(50)" class="px-2.5 py-1 rounded-lg border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/30 hover:border-indigo-400 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 cursor-pointer">Top 50</button>
+                  <button type="button" @click="selectTopClusterKeywords(100)" class="px-2.5 py-1 rounded-lg border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/30 hover:border-indigo-400 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 cursor-pointer">Top 100</button>
+                  <button type="button" @click="selectAllClusterKeywords()" class="px-2.5 py-1 rounded-lg border border-rose-200 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/30 hover:border-rose-400 text-[11px] font-semibold text-rose-700 dark:text-rose-300 cursor-pointer" x-text="'Select All (' + getFilteredClusterKeywords().length + ')'">Select All</button>
                   <template x-if="selectedClusterKeywords.length > 0">
                     <button type="button" @click="clearClusterSelection()" class="px-2 py-1 text-[11px] text-slate-500 hover:text-rose-600 cursor-pointer">Clear</button>
                   </template>
@@ -335,10 +358,9 @@ export function getNewbornClusterExplorerHtml() {
                       <td class="py-2.5 pl-4 pr-2">
                         <input type="checkbox"
                                :checked="selectedClusterKeywords.includes(kw.keyword)"
-                               :disabled="!selectedClusterKeywords.includes(kw.keyword) && selectedClusterKeywords.length >= maxClusterSelectableKeywords()"
                                @change="toggleClusterKeyword(kw.keyword)"
                                :aria-label="'Select keyword ' + kw.keyword"
-                               class="rounded text-rose-600 focus:ring-rose-500 cursor-pointer disabled:opacity-40" />
+                               class="rounded text-rose-600 focus:ring-rose-500 cursor-pointer" />
                       </td>
 
                       <td class="py-2.5 px-3">
@@ -362,8 +384,34 @@ export function getNewbornClusterExplorerHtml() {
                         <template x-if="kw.volume != null && Number(kw.volume) > 0">
                           <span class="font-bold text-slate-900 dark:text-[#FAFAFA]" x-text="formatNullableCount(kw.volume)"></span>
                         </template>
-                        <template x-if="kw.volume == null || Number(kw.volume) <= 0">
-                          <span class="text-[11px] text-slate-400" x-text="kw.volume_enriched ? '—' : 'Pending'"></span>
+                        <template x-if="(kw.volume == null || Number(kw.volume) <= 0) && kw.volume_error">
+                          <span class="inline-flex items-center justify-end gap-1">
+                            <span class="text-[10px] font-semibold text-amber-600 dark:text-amber-400" :title="kw.volume_error_reason || 'Temporary fetch error'">Failed</span>
+                            <button type="button"
+                                    @click="retryClusterVolume(kw.keyword)"
+                                    :disabled="retryingClusterKeyword === kw.keyword || isEnrichingCluster"
+                                    :aria-label="'Retry volume for ' + kw.keyword"
+                                    title="Retry volume fetch"
+                                    class="p-1 rounded border border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/40 disabled:opacity-50 cursor-pointer">
+                              <i data-lucide="rotate-cw" class="w-3 h-3" :class="retryingClusterKeyword === kw.keyword ? 'animate-spin' : ''" aria-hidden="true"></i>
+                            </button>
+                          </span>
+                        </template>
+                        <template x-if="(kw.volume == null || Number(kw.volume) <= 0) && !kw.volume_error && kw.volume_enriched">
+                          <span class="text-[11px] text-slate-400" title="No official Pinterest Taxonomy page">—</span>
+                        </template>
+                        <template x-if="(kw.volume == null || Number(kw.volume) <= 0) && !kw.volume_error && !kw.volume_enriched">
+                          <span class="inline-flex items-center justify-end gap-1">
+                            <span class="text-[11px] text-slate-400">Pending</span>
+                            <button type="button"
+                                    @click="retryClusterVolume(kw.keyword)"
+                                    :disabled="retryingClusterKeyword === kw.keyword || isEnrichingCluster"
+                                    :aria-label="'Fetch volume for ' + kw.keyword"
+                                    title="Fetch volume now"
+                                    class="p-0.5 rounded text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-300 disabled:opacity-40 cursor-pointer">
+                              <i data-lucide="rotate-cw" class="w-3 h-3" :class="retryingClusterKeyword === kw.keyword ? 'animate-spin' : ''" aria-hidden="true"></i>
+                            </button>
+                          </span>
                         </template>
                       </td>
 
@@ -416,10 +464,11 @@ export function getNewbornClusterExplorerHtml() {
                             <span x-text="kw.predicted_peak_date"></span>
                           </span>
                         </template>
-                        <template x-if="!kw.predicted_peak_date && kw.has_prediction">
-                          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-[#27272A] text-slate-600 dark:text-[#A1A1AA]">Forecast</span>
+                        <template x-if="!kw.predicted_peak_date && kw.predicted_90d_growth != null">
+                          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 font-semibold"
+                                x-text="(Number(kw.predicted_90d_growth) >= 0 ? '+' : '') + Math.round(kw.predicted_90d_growth) + '% (90d)'"></span>
                         </template>
-                        <template x-if="!kw.predicted_peak_date && !kw.has_prediction">
+                        <template x-if="!kw.predicted_peak_date && kw.predicted_90d_growth == null">
                           <span class="text-slate-300 dark:text-slate-600">—</span>
                         </template>
                       </td>

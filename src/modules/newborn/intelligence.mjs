@@ -315,7 +315,10 @@ export function scoreNewbornCandidate(candidate = {}, rawSettings = DEFAULT_NEWB
   outlierScore = Math.min(14, outlierScore);
 
   // 4. Multi-Surface & Annotations Richness (0..10)
-  const surfaceCount = Array.isArray(candidate.discovered_surfaces) ? candidate.discovered_surfaces.length : 1;
+  const realSurfaces = Array.isArray(candidate.discovered_surfaces)
+    ? candidate.discovered_surfaces.filter((s) => s && String(s).toLowerCase() !== 'pin_resource')
+    : [];
+  const surfaceCount = Math.max(1, realSurfaces.length);
   const annCount = Array.isArray(candidate.visual_annotations) ? candidate.visual_annotations.length : 0;
   const depthScore = Math.min(
     10,

@@ -220,6 +220,7 @@ export class NewbornCookieRouter {
     this.hasInitialAuthCookie = Boolean(this.authCookieHeader && this.authCookieHeader.includes('_auth=1'));
     this.authDegraded = false;
     this.degradedReason = null;
+    this.consecutive412Count = 0;
     this.discoveryBreaker = options.discoveryBreaker !== undefined
       ? options.discoveryBreaker
       : (options.circuitBreaker !== undefined ? options.circuitBreaker : globalPinterestCircuitBreaker);
@@ -432,10 +433,19 @@ export class NewbornCookieRouter {
 
     if (res.status === 412 || res.status === 401) {
       if (res.body && !res.bodyUsed) await res.body.cancel().catch(() => {});
-      this.authDegraded = true;
-      this.degradedReason = `HTTP_${res.status}`;
-      if (res.status === 412) this.telemetry.http412Fallbacks++;
-      else this.telemetry.http401Fallbacks++;
+      if (res.status === 401) {
+        this.authDegraded = true;
+        this.degradedReason = 'HTTP_401';
+        this.telemetry.http401Fallbacks++;
+      } else {
+        this.consecutive412Count = (this.consecutive412Count || 0) + 1;
+        this.telemetry.http412Fallbacks++;
+        // Require 3 consecutive HTTP 412 rejections before globally disabling _auth=1 for the entire run
+        if (this.consecutive412Count >= 3) {
+          this.authDegraded = true;
+          this.degradedReason = 'HTTP_412';
+        }
+      }
 
       if (rule.allowGuestRetry) {
         const retryGuestHeaders = stripAllCookiesFromHeaders(baseHeaders);
@@ -463,7 +473,7 @@ export class NewbornCookieRouter {
         usedAuthCookie: true,
         authRequiredFallback: true,
         data: null,
-        error: redactSecrets(`Session cookie rejected with HTTP ${res.status}; degraded to guest surfaces.`)
+        error: redactSecrets(`Session cookie rejected with HTTP ${res.status}${this.authDegraded ? '; degraded to guest surfaces.' : ' (transient).'}`)
       };
     }
 
@@ -479,6 +489,7 @@ export class NewbornCookieRouter {
       };
     }
 
+    this.consecutive412Count = 0;
     const data = isDocumentHtml ? await res.text() : await res.json();
     return {
       ok: true,

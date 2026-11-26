@@ -65,7 +65,20 @@ export function getNewbornSettingsAndModalsHtml() {
                 <!-- Metadata & Opt-In Account Reach -->
                 <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-[#18181B] border border-slate-200/80 dark:border-[#27272A] space-y-2 text-xs">
                   <div class="flex justify-between gap-2"><span class="text-slate-500" x-text="settingsDraft?.qualification?.resolve_root_pin ? 'Root Created (UTC)' : 'Pin Created (UTC)'">Pin Created (UTC)</span><span class="font-mono tabular-nums" x-text="formatShortTimestamp(dossierData.candidate.created_at_pinterest)"></span></div>
-                  <div class="flex justify-between gap-2"><span class="text-slate-500">Discovery Source</span><span class="font-semibold" x-text="formatSurfaceLabel(dossierData.candidate.run_surface || dossierData.candidate.first_surface)"></span></div>
+                  <div class="flex justify-between items-start gap-2">
+                    <span class="text-slate-500 shrink-0">Discovery Sources</span>
+                    <div class="flex items-center justify-end gap-1 flex-wrap">
+                      <template x-for="surf in getPinDisplaySurfaces(dossierData.candidate)" :key="surf">
+                        <span class="px-1.5 py-0.5 rounded bg-slate-200/80 dark:bg-[#27272A] text-slate-800 dark:text-[#FAFAFA] text-[10px] font-semibold" x-text="formatSurfaceLabel(surf)"></span>
+                      </template>
+                    </div>
+                  </div>
+                  <template x-if="dossierData.candidate.discovery_board_name">
+                    <div class="flex justify-between gap-2"><span class="text-slate-500">Discovery Board</span><a :href="formatBoardUrl(dossierData.candidate.discovery_board_url || dossierData.candidate.board_url) || '#'" target="_blank" rel="noopener noreferrer" class="font-medium text-indigo-600 dark:text-indigo-400 hover:underline truncate max-w-[240px]" x-text="dossierData.candidate.discovery_board_name"></a></div>
+                  </template>
+                  <template x-if="dossierData.candidate.pin_board_name">
+                    <div class="flex justify-between gap-2"><span class="text-slate-500">Pin Board</span><span class="font-medium truncate max-w-[240px]" x-text="dossierData.candidate.pin_board_name"></span></div>
+                  </template>
                   <div class="flex justify-between gap-2"><span class="text-slate-500">Destination</span><span class="font-medium truncate max-w-[240px]" x-text="dossierData.candidate.is_linkless ? 'No Link / Linkless' : (dossierData.candidate.clean_domain || '—')"></span></div>
                   <div class="flex justify-between gap-2"><span class="text-slate-500">Pin Shares</span><span class="font-mono tabular-nums" x-text="formatNullableCount(dossierData.candidate.share_count)"></span></div>
                   <div class="flex justify-between gap-2"><span class="text-slate-500">Creation Method</span><span class="font-medium" x-text="formatCreationMethodLabel(dossierData.candidate.raw_creation_method) || '—'"></span></div>
@@ -168,11 +181,14 @@ export function getNewbornSettingsAndModalsHtml() {
 
             <label class="block space-y-1">
               <span class="font-semibold text-slate-700 dark:text-[#E4E4E7]">Campaign Folder (Optional)</span>
-              <select x-model="promoteForm.folderId" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs">
+              <select x-model="promoteForm.folderId"
+                      @change="handleCampaignDropdownChange('promote', $event.target.value)"
+                      class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs">
                 <option value="">No specific folder</option>
                 <template x-for="f in foldersList" :key="f.id">
                   <option :value="String(f.id)" x-text="f.name"></option>
                 </template>
+                <option value="__create_new__">+ Create New Campaign...</option>
               </select>
             </label>
           </div>
@@ -420,6 +436,35 @@ export function getNewbornSettingsAndModalsHtml() {
                     :disabled="isSubmittingBasketCampaign"
                     class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white text-xs font-semibold cursor-pointer"
                     x-text="isSubmittingBasketCampaign ? 'Saving...' : 'Save Campaign &amp; Run'"></button>
+          </div>
+        </form>
+      </div>
+    </template>
+
+    <!-- ====================================================================== -->
+    <!-- 7. INSTANT CREATE NEW CAMPAIGN MODAL (z-[80])                          -->
+    <!-- ====================================================================== -->
+    <template x-if="quickCampaignModalOpen">
+      <div class="fixed inset-0 z-[80] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="quick-campaign-modal-title">
+        <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-[1px]" @click="closeQuickCampaignModal()"></div>
+        <form @submit.prevent="submitQuickCreateCampaign()" class="relative z-10 w-full max-w-sm bg-white dark:bg-[#18181B] rounded-2xl border border-slate-200 dark:border-[#27272A] shadow-2xl p-5 space-y-4">
+          <div class="flex items-center justify-between gap-2">
+            <h2 id="quick-campaign-modal-title" class="text-sm font-bold text-slate-900 dark:text-[#FAFAFA]">Create New Campaign</h2>
+            <button type="button" @click="closeQuickCampaignModal()" aria-label="Close new campaign dialog" class="p-1 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer">
+              <i data-lucide="x" class="w-4 h-4" aria-hidden="true"></i>
+            </button>
+          </div>
+          <label class="block space-y-1 text-xs">
+            <span class="font-semibold text-slate-700 dark:text-[#E4E4E7]">Campaign Name</span>
+            <input type="text"
+                   required
+                   x-model="quickCampaignName"
+                   placeholder="e.g. Fall Recipes 2026"
+                   class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-slate-900 dark:text-[#FAFAFA] focus:outline-none focus:ring-2 focus:ring-rose-500" />
+          </label>
+          <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-[#27272A]">
+            <button type="button" @click="closeQuickCampaignModal()" class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-[#27272A] text-xs font-semibold cursor-pointer">Cancel</button>
+            <button type="submit" :disabled="isCreatingQuickCampaign || !quickCampaignName.trim()" class="px-4 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white text-xs font-semibold cursor-pointer" x-text="isCreatingQuickCampaign ? 'Creating...' : 'Create &amp; Select'"></button>
           </div>
         </form>
       </div>

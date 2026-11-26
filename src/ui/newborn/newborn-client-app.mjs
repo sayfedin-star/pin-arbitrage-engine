@@ -86,15 +86,14 @@ export function getNewbornClientAppScript() {
         isLookingUpIdeaPage: false,
         _ideaLookupSeq: 0,
 
-        // Pure 3-Filter Qualification Controls + Hydration Cap
+        // Pure 3-Filter Qualification Controls
         huntOptionsExpanded: false,
         workspaceHuntDefaults: null,
         _autoRefreshedLaunchpadKeys: {},
         huntFilters: {
           maxAgeDays: 30,
           minRepins: 20,
-          minSaves: 0,
-          maxPinHydrations: 500
+          minSaves: 0
         },
 
         // Per-Path Deep-Scroll Extraction Controls (Boards = Find more ideas ONLY)
@@ -125,6 +124,10 @@ export function getNewbornClientAppScript() {
         },
         isBuildingCluster: false,
         isEnrichingCluster: false,
+        enrichStopRequested: false,
+        enrichProgressDone: 0,
+        enrichProgressTotal: 0,
+        retryingClusterKeyword: '',
         isLaunchingClusterHunt: false,
 
         // Full Pinterest Trends Panel (50-100 Trends + All 8 Filters)
@@ -160,9 +163,9 @@ export function getNewbornClientAppScript() {
           runNewbornDeepHunt: false
         },
 
-        // Wave 6F Execution Mode & Live Run Control State
-        executionMode: 'auto',
-        fleetShards: 8,
+        // Wave 6F Execution Mode & Live Run Control State (20-Runner Fleet default)
+        executionMode: 'fleet',
+        fleetShards: 20,
         pollReconnectingNotice: '',
         cancellingRun: false,
 
@@ -265,6 +268,11 @@ export function getNewbornClientAppScript() {
         isPromoting: false,
         targetCampaignFolderId: scopedFolderId || '',
         isSendingToCampaign: false,
+        quickCampaignModalOpen: false,
+        quickCampaignName: '',
+        quickCampaignTarget: 'target',
+        quickCampaignPrevValue: '',
+        isCreatingQuickCampaign: false,
 
         // Rule Profile Modal
         profileModalOpen: false,
@@ -431,6 +439,8 @@ export function getNewbornClientAppScript() {
         },
 
         handleEscapeKey() {
+          if (this.quickCampaignModalOpen) { this.closeQuickCampaignModal(); return; }
+          if (this.basketCampaignModalOpen) { this.basketCampaignModalOpen = false; return; }
           if (this.profileModalOpen) { this.profileModalOpen = false; return; }
           if (this.promoteModalOpen) { this.promoteModalOpen = false; return; }
           if (this.dossierOpen) { this.dossierOpen = false; return; }
@@ -442,18 +452,14 @@ export function getNewbornClientAppScript() {
         },
 
         maxClusterSelectableKeywords() {
-          return this.executionMode === 'direct' ? 25 : 100;
+          return Math.max((this.activeCluster?.keywords || []).length, 10000);
         },
 
         setExecutionMode(mode) {
           const m = ['auto', 'direct', 'fleet'].includes(String(mode || '').toLowerCase())
             ? String(mode).toLowerCase()
-            : 'auto';
+            : 'fleet';
           this.executionMode = m;
-          const cap = this.maxClusterSelectableKeywords();
-          if (this.selectedClusterKeywords.length > cap) {
-            this.selectedClusterKeywords = this.selectedClusterKeywords.slice(0, cap);
-          }
         },
 
         estimateScrollBudget() {
@@ -533,7 +539,6 @@ export function getNewbornClientAppScript() {
           this.huntFilters.maxAgeDays = Number(q.max_age_days || 30);
           this.huntFilters.minRepins = Number(q.min_repin_count ?? 20);
           this.huntFilters.minSaves = Number(q.min_save_count ?? 0);
-          this.huntFilters.maxPinHydrations = Number(d.hydration?.max_pin_hydrations_per_run ?? 500);
 
           if (s.pin_serp_capsules) {
             this.huntPaths.search.enabled = s.pin_serp_capsules.enabled !== false;
@@ -608,10 +613,6 @@ export function getNewbornClientAppScript() {
             if (rel && typeof rel === 'object' && rel.target_pins != null && Number.isFinite(Number(rel.target_pins))) {
               this.huntPaths.related.target_pins = Number(rel.target_pins);
             }
-            const hydCap = et.hydration?.max_pin_hydrations_per_run ?? et.max_pin_hydrations;
-            if (hydCap != null && Number.isFinite(Number(hydCap))) {
-              this.huntFilters.maxPinHydrations = Math.max(5, Math.min(5000, Number(hydCap)));
-            }
           }
         },
 
@@ -619,7 +620,7 @@ export function getNewbornClientAppScript() {
           return {
             huntFilters: cloneJson(this.huntFilters),
             huntPaths: cloneJson(this.huntPaths),
-            executionMode: String(this.executionMode || 'auto')
+            executionMode: String(this.executionMode || 'fleet')
           };
         },
 
@@ -632,7 +633,6 @@ export function getNewbornClientAppScript() {
             Number(f.maxAgeDays) !== Number(d.huntFilters.maxAgeDays) ||
             Number(f.minRepins) !== Number(d.huntFilters.minRepins) ||
             Number(f.minSaves) !== Number(d.huntFilters.minSaves) ||
-            Number(f.maxPinHydrations) !== Number(d.huntFilters.maxPinHydrations) ||
             Boolean(p.search.enabled) !== Boolean(d.huntPaths.search.enabled) ||
             Number(p.search.target_pins) !== Number(d.huntPaths.search.target_pins) ||
             Boolean(p.boards.enabled) !== Boolean(d.huntPaths.boards.enabled) ||
@@ -643,7 +643,7 @@ export function getNewbornClientAppScript() {
             Boolean(p.home_feed.enabled) !== Boolean(d.huntPaths.home_feed.enabled) ||
             Number(p.home_feed.target_pins) !== Number(d.huntPaths.home_feed.target_pins) ||
             Number(p.related.target_pins) !== Number(d.huntPaths.related.target_pins) ||
-            String(this.executionMode || 'auto') !== String(d.executionMode || 'auto')
+            String(this.executionMode || 'fleet') !== String(d.executionMode || 'fleet')
           );
         },
 
@@ -651,7 +651,7 @@ export function getNewbornClientAppScript() {
           if (!this.workspaceHuntDefaults) return;
           this.huntFilters = cloneJson(this.workspaceHuntDefaults.huntFilters);
           this.huntPaths = cloneJson(this.workspaceHuntDefaults.huntPaths);
-          this.executionMode = String(this.workspaceHuntDefaults.executionMode || 'auto');
+          this.executionMode = String(this.workspaceHuntDefaults.executionMode || 'fleet');
           this.refreshIcons();
         },
 
@@ -673,9 +673,6 @@ export function getNewbornClientAppScript() {
           if (Number(f.minSaves) !== Number(d.huntFilters.minSaves)) {
             const ms = Number(f.minSaves);
             filters.min_save_count = Number.isFinite(ms) ? Math.max(0, ms) : 0;
-          }
-          if (Number(f.maxPinHydrations) !== Number(d.huntFilters.maxPinHydrations)) {
-            filters.max_pin_hydrations_per_run = Math.max(5, Math.min(5000, Number(f.maxPinHydrations) || 500));
           }
           if (Object.keys(filters).length > 0) out.filters = filters;
 
@@ -802,6 +799,55 @@ export function getNewbornClientAppScript() {
           } catch (_) {}
         },
 
+        handleCampaignDropdownChange(target, value) {
+          if (value !== '__create_new__') return;
+          this.quickCampaignTarget = target === 'promote' ? 'promote' : 'target';
+          const fallbackId = this.foldersList.length > 0 ? String(this.foldersList[0].id) : '';
+          if (this.quickCampaignTarget === 'promote') {
+            this.quickCampaignPrevValue = this.promoteForm.folderId === '__create_new__' ? '' : (this.promoteForm.folderId || '');
+            this.promoteForm.folderId = this.quickCampaignPrevValue;
+          } else {
+            this.quickCampaignPrevValue = this.targetCampaignFolderId === '__create_new__' ? fallbackId : (this.targetCampaignFolderId || fallbackId);
+            this.targetCampaignFolderId = this.quickCampaignPrevValue;
+          }
+          this.quickCampaignName = '';
+          this.quickCampaignModalOpen = true;
+          this.refreshIcons();
+        },
+
+        closeQuickCampaignModal() {
+          this.quickCampaignModalOpen = false;
+          this.quickCampaignName = '';
+        },
+
+        async submitQuickCreateCampaign() {
+          const name = String(this.quickCampaignName || '').trim();
+          if (!name || this.isCreatingQuickCampaign) return;
+          this.isCreatingQuickCampaign = true;
+          try {
+            const { data } = await this.apiJson('/api/folders', {
+              method: 'POST',
+              body: JSON.stringify({ name })
+            });
+            const created = data?.folder || data;
+            const newId = created?.id ? String(created.id) : '';
+            await this.loadFoldersList();
+            if (newId) {
+              this.targetCampaignFolderId = newId;
+              if (this.quickCampaignTarget === 'promote' || this.promoteModalOpen) {
+                this.promoteForm.folderId = newId;
+              }
+            }
+            this.closeQuickCampaignModal();
+            this.toast('Created campaign "' + name + '"', 'success');
+          } catch (err) {
+            this.toast('Create campaign failed: ' + err.message, 'error');
+          } finally {
+            this.isCreatingQuickCampaign = false;
+            this.refreshIcons();
+          }
+        },
+
         async sendSelectedNewbornPinsToCampaign(pinIdsOverride = null) {
           const targetId = Number(this.targetCampaignFolderId || this.scopedFolderId || 0);
           if (!Number.isFinite(targetId) || targetId <= 0) {
@@ -869,16 +915,20 @@ export function getNewbornClientAppScript() {
         async switchView(view) {
           this._abortSlots('candidates', 'crossover', 'watchlist', 'anchors', 'clusters');
           this.activeView = view;
-          if (view === 'hunt') {
-            await Promise.all([this.loadCandidates(), this.loadCrossoverForActiveHunt()]);
-          } else if (view === 'cluster') {
-            await this.loadRecentClusters();
-          } else if (view === 'watchlist') {
-            await Promise.all([this.loadWatchlist(), this.loadDailyAnchors()]);
-          } else if (view === 'history') {
-            await this.loadOverviewAndRuns();
-          }
           this.refreshIcons();
+          try {
+            if (view === 'hunt') {
+              await Promise.all([this.loadCandidates(), this.loadCrossoverForActiveHunt()]);
+            } else if (view === 'cluster') {
+              await this.loadRecentClusters();
+            } else if (view === 'watchlist') {
+              await Promise.all([this.loadWatchlist(), this.loadDailyAnchors()]);
+            } else if (view === 'history') {
+              await this.loadOverviewAndRuns();
+            }
+          } finally {
+            this.refreshIcons();
+          }
         },
 
         // ---- Wave 6E Keyword Cluster Explorer Methods ----
@@ -954,26 +1004,153 @@ export function getNewbornClientAppScript() {
           }
         },
 
+        getClusterPendingVolumeCount() {
+          const list = Array.isArray(this.activeCluster?.keywords) ? this.activeCluster.keywords : [];
+          return list.filter((k) => !k.volume_enriched && !k.volume_error).length;
+        },
+
+        getClusterFailedVolumeCount() {
+          const list = Array.isArray(this.activeCluster?.keywords) ? this.activeCluster.keywords : [];
+          return list.filter((k) => Boolean(k.volume_error) && !k.volume_enriched).length;
+        },
+
+        stopEnrichingCluster() {
+          this.enrichStopRequested = true;
+        },
+
         async enrichClusterVolumesNow() {
-          if (!this.activeCluster || !this.activeCluster.id) return;
+          if (!this.activeCluster || !this.activeCluster.id || this.isEnrichingCluster) return;
+          const initialPending = this.getClusterPendingVolumeCount();
+          if (initialPending === 0) return;
+
           this.isEnrichingCluster = true;
+          this.enrichStopRequested = false;
+          this.enrichProgressDone = 0;
+          this.enrichProgressTotal = initialPending;
+
+          let totalEnriched = 0;
+          let stoppedReason = '';
+          try {
+            while (!this.enrichStopRequested) {
+              const pendingNow = this.getClusterPendingVolumeCount();
+              if (pendingNow <= 0) break;
+
+              const { data } = await this.apiJson('/api/newborn/cluster/enrich', {
+                method: 'POST',
+                body: JSON.stringify({
+                  cluster_id: this.activeCluster.id,
+                  batch_limit: 40
+                })
+              });
+              const updated = data?.cluster || data;
+              if (updated?.keywords) {
+                this.activeCluster = { ...this.activeCluster, ...updated };
+              }
+              const newlyProcessed = Number(updated?.newly_enriched_count || 0);
+              totalEnriched += newlyProcessed;
+              const remainingNow = this.getClusterPendingVolumeCount();
+              this.enrichProgressDone = Math.min(this.enrichProgressTotal, Math.max(this.enrichProgressDone + newlyProcessed, this.enrichProgressTotal - remainingNow));
+              this.refreshIcons();
+
+              if (updated?.rate_limited) {
+                stoppedReason = 'rate_limited';
+                break;
+              }
+              if (remainingNow >= pendingNow) {
+                break;
+              }
+            }
+
+            if (stoppedReason === 'rate_limited') {
+              this.toast('Paused on Pinterest rate limit after enriching ' + totalEnriched + ' keywords. Click Retry Failed when ready.', 'warning');
+            } else if (this.enrichStopRequested) {
+              this.toast('Stopped after enriching ' + totalEnriched + ' keywords.', 'info');
+            } else {
+              const failed = this.getClusterFailedVolumeCount();
+              this.toast(
+                'Finished enriching ' + totalEnriched + ' keyword volumes' + (failed > 0 ? (' (' + failed + ' failed — retry available)') : ''),
+                failed > 0 ? 'warning' : 'success'
+              );
+            }
+          } catch (err) {
+            this.toast('Volume enrichment stopped: ' + err.message, 'error');
+          } finally {
+            this.isEnrichingCluster = false;
+            this.enrichStopRequested = false;
+            this.refreshIcons();
+          }
+        },
+
+        async retryClusterVolume(keyword) {
+          const clean = String(keyword || '').trim();
+          if (!clean || !this.activeCluster || !this.activeCluster.id || this.isEnrichingCluster) return;
+          this.retryingClusterKeyword = clean;
           try {
             const { data } = await this.apiJson('/api/newborn/cluster/enrich', {
               method: 'POST',
               body: JSON.stringify({
                 cluster_id: this.activeCluster.id,
-                batch_limit: 25
+                retry_keywords: [clean],
+                batch_limit: 1
               })
             });
             const updated = data?.cluster || data;
             if (updated?.keywords) {
-              this.activeCluster = updated;
+              this.activeCluster = { ...this.activeCluster, ...updated };
             }
-            this.toast('Enriched ' + Number(updated?.newly_enriched_count || 0) + ' additional keyword volumes', 'success');
+            const row = (this.activeCluster?.keywords || []).find((k) => String(k.keyword || '').toLowerCase() === clean.toLowerCase());
+            if (row?.volume_error) {
+              this.toast('Retry failed for "' + clean + '": ' + (row.volume_error_reason || 'Network error'), 'warning');
+            } else {
+              this.toast('Refreshed volume for "' + clean + '"', 'success');
+            }
           } catch (err) {
-            this.toast('Volume enrichment failed: ' + err.message, 'error');
+            this.toast('Retry failed: ' + err.message, 'error');
+          } finally {
+            this.retryingClusterKeyword = '';
+            this.refreshIcons();
+          }
+        },
+
+        async retryFailedClusterVolumes() {
+          if (!this.activeCluster || !this.activeCluster.id || this.isEnrichingCluster) return;
+          const initialFailed = this.getClusterFailedVolumeCount();
+          if (initialFailed === 0) return;
+
+          this.isEnrichingCluster = true;
+          this.enrichStopRequested = false;
+          this.enrichProgressDone = 0;
+          this.enrichProgressTotal = initialFailed;
+
+          let recovered = 0;
+          try {
+            const failedTerms = (this.activeCluster.keywords || [])
+              .filter((k) => Boolean(k.volume_error) && !k.volume_enriched)
+              .map((k) => k.keyword);
+            for (let i = 0; i < failedTerms.length && !this.enrichStopRequested; i += 40) {
+              const chunk = failedTerms.slice(i, i + 40);
+              const { data } = await this.apiJson('/api/newborn/cluster/enrich', {
+                method: 'POST',
+                body: JSON.stringify({
+                  cluster_id: this.activeCluster.id,
+                  retry_keywords: chunk,
+                  batch_limit: chunk.length
+                })
+              });
+              const updated = data?.cluster || data;
+              if (updated?.keywords) {
+                this.activeCluster = { ...this.activeCluster, ...updated };
+              }
+              recovered += Number(updated?.newly_enriched_count || 0);
+              this.enrichProgressDone = Math.min(this.enrichProgressTotal, i + chunk.length);
+              if (updated?.rate_limited) break;
+            }
+            this.toast('Retried failed volumes — recovered ' + recovered + ' keyword(s)', recovered > 0 ? 'success' : 'warning');
+          } catch (err) {
+            this.toast('Retry failed volumes error: ' + err.message, 'error');
           } finally {
             this.isEnrichingCluster = false;
+            this.enrichStopRequested = false;
             this.refreshIcons();
           }
         },
@@ -1032,29 +1209,56 @@ export function getNewbornClientAppScript() {
         toggleClusterKeyword(term) {
           const clean = String(term || '').trim();
           if (!clean) return;
-          const cap = this.maxClusterSelectableKeywords();
-          if (this.selectedClusterKeywords.includes(clean)) {
-            this.selectedClusterKeywords = this.selectedClusterKeywords.filter((t) => t !== clean);
-            this.removeFromBasket(clean);
-          } else if (this.selectedClusterKeywords.length < cap) {
+          const lower = clean.toLowerCase();
+          if (this.selectedClusterKeywords.some((t) => String(t || '').toLowerCase() === lower)) {
+            this.selectedClusterKeywords = this.selectedClusterKeywords.filter((t) => String(t || '').toLowerCase() !== lower);
+            this.clusterBasket = (this.clusterBasket || []).filter((k) => String(k || '').trim().toLowerCase() !== lower);
+          } else {
             this.selectedClusterKeywords = [...this.selectedClusterKeywords, clean];
             this.addKeywordsToBasket([clean]);
           }
         },
 
+        _syncClusterSelectionToBasket(nextSelected) {
+          const activeClusterTermsLower = new Set(
+            (Array.isArray(this.activeCluster?.keywords) ? this.activeCluster.keywords : [])
+              .map((k) => String(k?.keyword || '').trim().toLowerCase())
+              .filter(Boolean)
+          );
+          const preservedExternal = (this.clusterBasket || []).filter(
+            (k) => !activeClusterTermsLower.has(String(k || '').trim().toLowerCase())
+          );
+          const merged = [];
+          const seen = new Set();
+          for (const item of [...preservedExternal, ...nextSelected]) {
+            const clean = String(item || '').trim();
+            if (!clean) continue;
+            const lower = clean.toLowerCase();
+            if (seen.has(lower)) continue;
+            seen.add(lower);
+            merged.push(clean);
+          }
+          this.selectedClusterKeywords = [...nextSelected];
+          this.clusterBasket = merged;
+          this.refreshIcons();
+        },
+
         selectTopClusterKeywords(n = 15) {
-          const maxCap = this.maxClusterSelectableKeywords();
-          const cap = Math.max(1, Math.min(maxCap, Number(n) || 15));
+          const cap = Math.max(1, Number(n) || 15);
           const picked = this.getFilteredClusterKeywords().slice(0, cap).map((k) => k.keyword);
-          this.selectedClusterKeywords = picked;
-          this.addKeywordsToBasket(picked);
+          this._syncClusterSelectionToBasket(picked);
+        },
+
+        selectAllClusterKeywords() {
+          const picked = this.getFilteredClusterKeywords().map((k) => k.keyword);
+          this._syncClusterSelectionToBasket(picked);
         },
 
         clearClusterSelection() {
-          this.selectedClusterKeywords = [];
+          this._syncClusterSelectionToBasket([]);
         },
 
-        // --- Cluster Basket Helpers (Trends + Related Interests + Build Cluster) ---
+        // --- Cluster Basket Helpers (Two-Way Synced with Cluster Explorer & Trends) ---
         isInBasket(term) {
           const norm = String(term || '').trim().toLowerCase();
           if (!norm) return false;
@@ -1075,26 +1279,40 @@ export function getNewbornClientAppScript() {
           const list = Array.isArray(terms) ? terms : [terms];
           const existingLower = new Set((this.clusterBasket || []).map((k) => String(k || '').trim().toLowerCase()));
           const next = [...(this.clusterBasket || [])];
+          const clusterMap = new Map(
+            (Array.isArray(this.activeCluster?.keywords) ? this.activeCluster.keywords : [])
+              .map((k) => [String(k?.keyword || '').trim().toLowerCase(), k.keyword])
+          );
+          const selectedLower = new Set((this.selectedClusterKeywords || []).map((k) => String(k || '').trim().toLowerCase()));
+          const nextSelected = [...(this.selectedClusterKeywords || [])];
+
           for (const raw of list) {
             const clean = String(raw || '').trim();
             if (!clean) continue;
             const lower = clean.toLowerCase();
-            if (existingLower.has(lower)) continue;
-            if (next.length >= 100) break;
-            existingLower.add(lower);
-            next.push(clean);
+            if (!existingLower.has(lower)) {
+              existingLower.add(lower);
+              next.push(clean);
+            }
+            if (clusterMap.has(lower) && !selectedLower.has(lower)) {
+              selectedLower.add(lower);
+              nextSelected.push(clusterMap.get(lower));
+            }
           }
           this.clusterBasket = next;
+          this.selectedClusterKeywords = nextSelected;
           this.refreshIcons();
         },
 
         removeFromBasket(term) {
           const norm = String(term || '').trim().toLowerCase();
           this.clusterBasket = (this.clusterBasket || []).filter((k) => String(k || '').trim().toLowerCase() !== norm);
+          this.selectedClusterKeywords = (this.selectedClusterKeywords || []).filter((k) => String(k || '').trim().toLowerCase() !== norm);
         },
 
         clearBasket() {
           this.clusterBasket = [];
+          this.selectedClusterKeywords = [];
         },
 
         addManualBasketKeyword() {
@@ -1122,12 +1340,12 @@ export function getNewbornClientAppScript() {
           if (!this.clusterBasket || this.clusterBasket.length === 0) return;
           this.isLaunchingBasketHunt = true;
           try {
-            const picked = this.clusterBasket.slice(0, 100);
+            const picked = Array.from(new Set(this.clusterBasket.map((k) => String(k || '').trim()).filter(Boolean)));
             const payload = {
               keywords: picked,
               folder_id: this.scopedFolderId || undefined,
-              execution_mode: this.executionMode || 'auto',
-              shards: this.fleetShards || 8,
+              execution_mode: this.executionMode || 'fleet',
+              shards: Math.max(1, Math.min(20, Number(this.fleetShards) || 20)),
               ...this.buildExplicitHuntOverrides()
             };
             const { data } = await this.apiJson('/api/newborn/cluster/hunt', {
@@ -1155,7 +1373,7 @@ export function getNewbornClientAppScript() {
             this.clusterBasket
               .map((kw) => String(kw || '').trim())
               .filter(Boolean)
-          )).slice(0, 100);
+          ));
           if (keywords.length === 0) {
             this.toast('Add at least one valid keyword to the Cluster Basket first.', 'warning');
             return;
@@ -1181,6 +1399,8 @@ export function getNewbornClientAppScript() {
               // Reuse newly created campaign if a subsequent step fails and user retries
               this.basketCampaignForm.mode = 'existing';
               this.basketCampaignForm.existingFolderId = String(targetFolderId);
+              await this.loadFoldersList();
+              this.targetCampaignFolderId = String(targetFolderId);
             } else {
               if (!targetFolderId) {
                 this.toast('Select an existing campaign.', 'warning');
@@ -1215,8 +1435,8 @@ export function getNewbornClientAppScript() {
                 body: JSON.stringify({
                   keywords,
                   folder_id: targetFolderId,
-                  execution_mode: this.executionMode || 'auto',
-                  shards: this.fleetShards || 8,
+                  execution_mode: this.executionMode || 'fleet',
+                  shards: Math.max(1, Math.min(20, Number(this.fleetShards) || 20)),
                   ...this.buildExplicitHuntOverrides()
                 })
               });
@@ -1230,6 +1450,7 @@ export function getNewbornClientAppScript() {
 
             this.basketCampaignModalOpen = false;
             this.clearBasket();
+            await this.loadFoldersList();
             this.toast('Saved ' + keywords.length + ' keywords to Campaign (Top ' + topN + ' Daily)', 'success');
           } catch (err) {
             this.toast('Campaign save failed: ' + err.message, 'error');
@@ -1248,8 +1469,7 @@ export function getNewbornClientAppScript() {
         },
 
         async launchClusterHunt() {
-          const cap = this.maxClusterSelectableKeywords();
-          const picked = this.selectedClusterKeywords.slice(0, cap);
+          const picked = Array.from(new Set((this.selectedClusterKeywords || []).map((k) => String(k || '').trim()).filter(Boolean)));
           if (picked.length === 0) return;
           const hasAnyPath = this.huntPaths.search.enabled || this.huntPaths.boards.enabled || this.huntPaths.idea_page.enabled || this.huntPaths.home_feed.enabled;
           if (!hasAnyPath) {
@@ -1262,8 +1482,8 @@ export function getNewbornClientAppScript() {
             const payload = {
               cluster_id: this.activeCluster?.id || null,
               keywords: picked,
-              execution_mode: this.executionMode || 'auto',
-              shards: Math.max(1, Math.min(20, Number(this.fleetShards) || 8)),
+              execution_mode: this.executionMode || 'fleet',
+              shards: Math.max(1, Math.min(20, Number(this.fleetShards) || 20)),
               profile_id: this.selectedProfileId || null,
               folder_id: this.scopedFolderId ? Number(this.scopedFolderId) : null,
               ...this.buildExplicitHuntOverrides()
@@ -1379,7 +1599,14 @@ export function getNewbornClientAppScript() {
 
         toggleFilterFlag(key) {
           this.filters[key] = !this.filters[key];
-          this.loadCandidates(true);
+          this.onCandidateFilterChange();
+        },
+
+        onCandidateFilterChange() {
+          return Promise.all([
+            this.loadCandidates(true),
+            this.loadCrossoverForActiveHunt()
+          ]);
         },
 
         selectAnnotationFilter(tag) {
@@ -1489,7 +1716,12 @@ export function getNewbornClientAppScript() {
           try {
             const params = new URLSearchParams({ limit: '30' });
             if (this.activeRunId) params.set('run_id', String(this.activeRunId));
-            if (this.scopedFolderId) params.set('folder_id', String(this.scopedFolderId));
+            if (this.scopedFolderId && !this.activeRunId) params.set('folder_id', String(this.scopedFolderId));
+            if (this.filters.linklessOnly) params.set('linkless_only', 'true');
+            if (this.filters.surface) params.set('surface', String(this.filters.surface));
+            if (this.filters.creationMethod) params.set('creation_method', String(this.filters.creationMethod));
+            if (this.filters.repinFilter) params.set('repin_filter', String(this.filters.repinFilter));
+            if (this.filters.search && this.filters.search.trim()) params.set('search', this.filters.search.trim());
             const { data } = await this.apiJson('/api/newborn/crossover?' + params.toString(), signal ? { signal } : {});
             if (signal && signal.aborted) return;
             this.crossoverClusters = Array.isArray(data?.clusters) ? data.clusters : [];
@@ -1503,7 +1735,7 @@ export function getNewbornClientAppScript() {
           if (Array.isArray(this.crossoverClusters) && this.crossoverClusters.length > 0) {
             return this.crossoverClusters;
           }
-          const totalPins = this.candidates.length;
+          const totalPins = Math.max(this.candidates.length, Number(this.candidatesTotal || 0));
           if (totalPins === 0) return [];
           const map = new Map();
           for (const pin of this.candidates) {
@@ -1532,7 +1764,7 @@ export function getNewbornClientAppScript() {
         },
 
         async checkAnnotationVolumes() {
-          const list = this.annotationsCrossoverList().slice(0, 10);
+          const list = this.annotationsCrossoverList().slice(0, 24);
           if (list.length === 0) return;
           this.isCheckingAnnotationVolumes = true;
           try {
@@ -1752,8 +1984,8 @@ export function getNewbornClientAppScript() {
           try {
             const payload = {
               query: rawSeed,
-              execution_mode: this.executionMode || 'auto',
-              shards: Math.max(1, Math.min(20, Number(this.fleetShards) || 8)),
+              execution_mode: this.executionMode || 'fleet',
+              shards: Math.max(1, Math.min(20, Number(this.fleetShards) || 20)),
               profile_id: this.selectedProfileId || null,
               folder_id: this.scopedFolderId ? Number(this.scopedFolderId) : null,
               ...this.buildExplicitHuntOverrides()
@@ -1814,7 +2046,6 @@ export function getNewbornClientAppScript() {
                   max_age_days: Math.max(1, Math.min(365, Number(this.huntFilters.maxAgeDays) || 30)),
                   min_repin_count: Math.max(0, Number(this.huntFilters.minRepins) || 0),
                   min_save_count: Math.max(0, Number(this.huntFilters.minSaves) || 0),
-                  max_pin_hydrations_per_run: Math.max(5, Math.min(5000, Number(this.huntFilters.maxPinHydrations) || 500)),
                   resolve_root_pin: Boolean(this.settingsDraft?.qualification?.resolve_root_pin)
                 },
                 profile_id: this.selectedProfileId || null,
@@ -2028,13 +2259,15 @@ export function getNewbornClientAppScript() {
             isLegacyRoot ? 'Root Created UTC' : 'Pin Created UTC',
             'Re-pins', 'Re-pins/day', 'Saves', 'Shares',
             'Creation Method', 'Is Repin',
-            'Pin Annotations', 'Discovery Source', 'Matched Queries', 'Board Name',
+            'Pin Annotations', 'Discovery Source', 'All Discovery Sources', 'Matched Queries', 'Discovery Board', 'Pin Board',
             'Account Username', 'Total Audience', 'Impressions'
           ];
           const rows = [headers.map((h) => this.sanitizeCsvCell(h)).join(',')];
           for (const p of list) {
             const tags = this.extractPinAnnotationNames(p).join('; ');
             const mq = Array.isArray(p.matched_queries) ? p.matched_queries.join('; ') : '';
+            const primarySurface = this.formatSurfaceLabel(p.run_surface || p.first_surface);
+            const surfLabels = this.getPinDisplaySurfaces(p).map((s) => this.formatSurfaceLabel(s)).join('; ');
             rows.push([
               p.pin_id,
               p.title || '',
@@ -2050,9 +2283,11 @@ export function getNewbornClientAppScript() {
               p.raw_creation_method || '',
               p.is_repin ? 'YES' : 'NO',
               tags,
-              this.formatSurfaceLabel(p.run_surface || p.first_surface),
+              primarySurface,
+              surfLabels,
               mq,
-              p.board_name || '',
+              p.discovery_board_name || '',
+              p.pin_board_name || p.board_name || '',
               p.effective_creator_username ? ('@' + p.effective_creator_username) : '',
               p.creator_monthly_reach != null ? p.creator_monthly_reach : '',
               p.creator_profile_views != null ? p.creator_profile_views : ''
@@ -2465,6 +2700,26 @@ export function getNewbornClientAppScript() {
           return out;
         },
 
+        getPinDisplaySurfaces(pin) {
+          if (!pin || typeof pin !== 'object') return [];
+          const candidates = [
+            ...(Array.isArray(pin.run_surfaces) ? pin.run_surfaces : []),
+            ...(Array.isArray(pin.discovered_surfaces) ? pin.discovered_surfaces : []),
+            ...(pin.run_surface ? [pin.run_surface] : []),
+            ...(pin.first_surface ? [pin.first_surface] : [])
+          ];
+          const out = [];
+          const seen = new Set();
+          for (const raw of candidates) {
+            const s = String(raw || '').trim();
+            const lower = s.toLowerCase();
+            if (!s || lower === 'pin_resource' || seen.has(lower)) continue;
+            seen.add(lower);
+            out.push(s);
+          }
+          return out.length > 0 ? out : ['unknown'];
+        },
+
         formatSurfaceLabel(surface) {
           const map = {
             pin_serp_capsules: 'Search',
@@ -2473,12 +2728,14 @@ export function getNewbornClientAppScript() {
             board_more_ideas: 'Find More Ideas',
             ideas_feeds: 'Idea Page',
             home_feed: 'Home Feed',
-            related_pin_snowball: 'Related',
+            related_pin_snowball: 'Related Pins',
             growing_trends: 'Trends',
             zero_query_popular: 'Popular'
           };
           const clean = String(surface || '').trim();
-          return map[clean.toLowerCase()] || (clean || 'Unknown');
+          const lower = clean.toLowerCase();
+          if (!clean || lower === 'pin_resource') return 'Unknown';
+          return map[lower] || clean;
         },
 
         formatCreationMethodLabel(method) {
@@ -2490,6 +2747,15 @@ export function getNewbornClientAppScript() {
             photos: 'Photos',
             pin_scheduling: 'Scheduled',
             uploaded: 'Uploaded',
+            pinterest_platform: 'Pinterest Platform',
+            organic_pin: 'Organic Pin',
+            in_app_browser: 'In-App Browser',
+            idea_pin: 'Idea Pin',
+            carousel: 'Carousel',
+            extension: 'Browser Extension',
+            instagram_api: 'Instagram',
+            shuffles_composer: 'Shuffles',
+            csv_importer: 'CSV Import',
             bookmarklet: 'Bookmarklet'
           };
           if (map[clean]) return map[clean];

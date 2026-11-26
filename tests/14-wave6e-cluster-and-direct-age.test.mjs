@@ -725,7 +725,7 @@ test('Wave 6E-7: HTTP routes (/api/newborn/cluster/*) + SSR /newborn HTML render
   assert.ok(html.includes('Enrich Remaining Volumes'), 'Phase 2 Volume enrichment button rendered');
   assert.ok(html.includes('Find more ideas only'), 'Boards path explicitly displays Find more ideas only');
   assert.ok(html.includes('max="10000"'), 'Custom numeric input up to 10,000 for Search rendered');
-  assert.ok(html.includes('Hydration cap:'), 'Separate Hydration cap control rendered');
+  assert.ok(!html.includes('Hydration cap:'), 'Hydration cap control must be removed per Directive 3');
   assert.ok(html.includes('discover-hunt-settings-bar') && html.includes('href="/settings"'), 'Collapsible hunt settings summary bar and Workspace Settings link rendered');
   assert.ok(html.includes('Cluster Hits (2x+)'), 'Cluster Hits sort option rendered');
 });

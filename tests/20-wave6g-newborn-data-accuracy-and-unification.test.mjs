@@ -39,6 +39,7 @@ import {
   upsertStagedCandidatesBatch
 } from '../src/modules/newborn/harvester.mjs';
 import { NewbornCookieRouter } from '../src/modules/newborn/cookie-router.mjs';
+import { PinterestCircuitBreaker } from '../src/core/pinterest/client.mjs';
 import { listNewbornCandidates, getNewbornCandidateDossier } from '../src/modules/newborn/queries.mjs';
 import { fetchNewbornCandidateAccounts } from '../src/modules/newborn/launchpad.mjs';
 import { buildHuntOverridesFromBody, handleNewbornRoutes } from '../src/routes/newborn.mjs';
@@ -533,7 +534,11 @@ test('Wave 6G [6B]: Pass 2 Winner Hydration hydrates qualified winners that miss
     seedQueries: ['winner tag'],
     nowMs,
     settingsOverrides: baseOverrides,
-    routerOptions: { rawCookie: '', fetchImpl: fetchWith429 }
+    routerOptions: {
+      rawCookie: '',
+      circuitBreaker: new PinterestCircuitBreaker({ failureThreshold: 3, cooldownMs: 60_000 }),
+      fetchImpl: fetchWith429
+    }
   });
 
   assert.equal(res429.status, 'partial_rate_limited');

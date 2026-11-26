@@ -1082,7 +1082,7 @@ export async function saveCompetitorRules(sql, competitorId, newRules = {}) {
  * Resolves local database surrogate ID from canonical immutable username or validates local numeric ID.
  * Guarantees zero cross-shard surrogate key mismatch.
  */
-export async function resolveLocalCompetitorId(sql, competitorIdentifier, { expectedUsername = '' } = {}) {
+export async function resolveLocalCompetitorId(sql, competitorIdentifier, { expectedUsername = '', throwOnError = false } = {}) {
   if (!competitorIdentifier || !sql) return null;
   if (typeof competitorIdentifier !== 'string' && typeof competitorIdentifier !== 'number') return null;
   if (expectedUsername && typeof expectedUsername !== 'string') return null;
@@ -1096,6 +1096,7 @@ export async function resolveLocalCompetitorId(sql, competitorIdentifier, { expe
       const [c] = await sql`SELECT id FROM competitor_profiles WHERE LOWER(username) = ${cleanExpected} LIMIT 1;`;
       if (c?.id) return c.id;
     } catch (err) {
+      if (throwOnError) throw err;
       console.warn(`[resolveLocalCompetitorId] Failed to resolve ID for expected @${cleanExpected}:`, err.message);
     }
   }
@@ -1109,6 +1110,7 @@ export async function resolveLocalCompetitorId(sql, competitorIdentifier, { expe
       `;
       return row?.id || null;
     } catch (err) {
+      if (throwOnError) throw err;
       console.warn(`[resolveLocalCompetitorId] Query error for @${cleanUser}:`, err.message);
       return null;
     }
@@ -1123,6 +1125,7 @@ export async function resolveLocalCompetitorId(sql, competitorIdentifier, { expe
     `;
     return verified?.id || null;
   } catch (err) {
+    if (throwOnError) throw err;
     console.warn(`[resolveLocalCompetitorId] Numeric check failed for ID ${numId}:`, err.message);
     return null;
   }

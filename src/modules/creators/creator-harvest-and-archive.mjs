@@ -1116,7 +1116,10 @@ export async function getPinDetailWithMetrics(sql, pinId, options = {}) {
     } catch (_) {}
   }
 
-  if (!universal && !paRow) {
+  if (!paRow && universal?.error === 'DB_UNAVAILABLE') {
+    return { _dbUnavailable: true, error: 'DB_UNAVAILABLE', message: universal.message };
+  }
+  if (!paRow && (!universal || universal.success === false)) {
     return null;
   }
 

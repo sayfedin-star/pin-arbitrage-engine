@@ -378,6 +378,8 @@ export async function harvestBoardFeedSurface(
           board_id: boardId || rawBoard.id || null,
           board_name: board.name || rawBoard.name || null,
           board_url: board.url || rawBoard.url || parsedPath.clean_path,
+          discovery_board_name: board.name || rawBoard.name || null,
+          discovery_board_url: board.url || rawBoard.url || parsedPath.clean_path,
           board_pin_count: board.pin_count ?? rawBoard.pin_count ?? null,
           board_follower_count: board.follower_count ?? rawBoard.follower_count ?? null,
           board_order_modified_at: board.board_order_modified_at || null
@@ -408,19 +410,57 @@ export async function harvestBoardMoreIdeasSurface(
   board = {},
   { maxPages = 4, pageSize = 25, targetPins = null, signal = null } = {}
 ) {
-  const boardId = String(board.board_id || board.id || '').trim();
+  let boardId = String(board.board_id || board.id || '').trim();
   const parsedPath = parseBoardPath(board.url || board.clean_path || '', board.owner_username || '');
-  if (!boardId || !parsedPath.owner_username || !parsedPath.board_slug) {
+  if (!parsedPath.owner_username || !parsedPath.board_slug) {
+    return { ok: false, surface: 'board_more_ideas', pins: [], skipped_auth_only: false, pages_fetched: 0 };
+  }
+
+  // Resolve missing board_id for pasted board URLs via BoardResource/get or Pidgets board metadata
+  let resolvedBoardName = board.name || null;
+  if (!boardId && !signal?.aborted) {
+    const metaOpts = {
+      username: parsedPath.owner_username,
+      slug: parsedPath.board_slug,
+      field_set_key: 'detailed'
+    };
+    const metaUrl = `https://www.pinterest.com/resource/BoardResource/get/?source_url=${encodeURIComponent(parsedPath.clean_path)}&data=${encodeURIComponent(JSON.stringify({ options: metaOpts, context: {} }))}`;
+    const metaRes = await router.requestJson(metaUrl, {
+      endpointKey: 'board_feed',
+      sourceUrl: parsedPath.clean_path,
+      handler: 'www/[username]/[slug].js',
+      signal
+    }).catch(() => ({ ok: false }));
+    const metaData = metaRes?.data?.resource_response?.data || metaRes?.data?.data || null;
+    if (metaData && (metaData.id || metaData.entity_id)) {
+      boardId = String(metaData.id || metaData.entity_id).trim();
+      if (metaData.name && !resolvedBoardName) resolvedBoardName = String(metaData.name).trim();
+    }
+    if (!boardId && !signal?.aborted) {
+      const pidMetaUrl = `https://widgets.pinterest.com/v3/pidgets/boards/${encodeURIComponent(parsedPath.owner_username)}/${encodeURIComponent(parsedPath.board_slug)}/pins/`;
+      const pidMeta = await router.requestJson(pidMetaUrl, {
+        endpointKey: 'pidgets',
+        referer: 'https://www.pinterest.com/',
+        signal
+      }).catch(() => ({ ok: false }));
+      const rawBoard = pidMeta?.data?.data?.board || null;
+      if (rawBoard?.id) {
+        boardId = String(rawBoard.id).trim();
+        if (rawBoard.name && !resolvedBoardName) resolvedBoardName = String(rawBoard.name).trim();
+      }
+    }
+  }
+  if (!boardId) {
     return { ok: false, surface: 'board_more_ideas', pins: [], skipped_auth_only: false, pages_fetched: 0 };
   }
 
   const moreIdeasSourceUrl = `/${parsedPath.owner_username}/${parsedPath.board_slug}/more_ideas/`;
   const pSize = Math.max(10, Math.min(50, Number(pageSize) || 25));
   const pinTarget = targetPins !== null && targetPins !== undefined && Number(targetPins) > 0
-    ? Math.max(25, Math.min(1000, Math.round(Number(targetPins))))
+    ? Math.max(25, Math.min(2000, Math.round(Number(targetPins))))
     : null;
   const derivedPages = pinTarget ? Math.ceil(pinTarget / Math.max(10, pSize)) : (Number(maxPages) || 4);
-  const maxP = Math.max(1, Math.min(40, derivedPages));
+  const maxP = Math.max(1, Math.min(80, derivedPages));
 
   const pinsMap = new Map();
   let bookmark = null;
@@ -444,10 +484,12 @@ export async function harvestBoardMoreIdeasSurface(
       if (pinTarget !== null && pinsMap.size >= pinTarget) break;
       const norm = normalizeSurfaceCandidatePin(raw, {
         surface: 'board_more_ideas',
-        seed_query: board.seed_query || board.name || null,
+        seed_query: board.seed_query || resolvedBoardName || null,
         board_id: boardId,
-        board_name: board.name || null,
+        board_name: resolvedBoardName || null,
         board_url: board.url || parsedPath.clean_path,
+        discovery_board_name: resolvedBoardName || null,
+        discovery_board_url: board.url || parsedPath.clean_path,
         board_pin_count: board.pin_count ?? null,
         board_follower_count: board.follower_count ?? null,
         board_order_modified_at: board.board_order_modified_at || null
@@ -620,9 +662,9 @@ export async function harvestIdeasHubSurface(
   const ideasSourceUrl = `/ideas/${urlName}/${interestId}/`;
   const pSize = Math.max(10, Math.min(50, Number(pageSize) || 50));
   const pinTarget = targetPins !== null && targetPins !== undefined && Number(targetPins) > 0
-    ? Math.max(25, Math.min(2000, Math.round(Number(targetPins))))
+    ? Math.max(25, Math.min(5000, Math.round(Number(targetPins))))
     : null;
-  const maxP = Math.max(1, Math.min(60, pinTarget ? Math.ceil(pinTarget / Math.max(20, pSize)) + 2 : (Number(maxPages) || 2)));
+  const maxP = Math.max(1, Math.min(120, pinTarget ? Math.ceil(pinTarget / Math.max(20, pSize)) + 2 : (Number(maxPages) || 2)));
 
   const pinsMap = new Map();
   let bookmark = null;

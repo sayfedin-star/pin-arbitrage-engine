@@ -51,6 +51,7 @@ export async function runNewbornDiscovery(sql, options = {}) {
     onAutoPromotePins: async (pinIds, settings) => {
       return await promoteNewbornCandidates(sql, {
         pinIds,
+        workspaceId: options.workspaceId ?? 1,
         destinations: settings.automation.pin_promotion_rules.destinations,
         source: 'auto_rule',
         env: options.env,
@@ -127,6 +128,7 @@ export async function pollNewbornWatchlist(sql, options = {}) {
     nowMs = Date.now(),
     autoPromote = null,
     signal = null,
+    onProgress = null,
     env = null,
     ctx = null
   } = options;
@@ -170,11 +172,17 @@ export async function pollNewbornWatchlist(sql, options = {}) {
     } catch (_) {}
   }
 
-  const updateRunProgress = async (stage, detail, pct) => {
+  const updateRunProgress = async (stage, detail, pct, extra = {}) => {
+    const clampedPct = Math.max(0, Math.min(100, Math.round(pct)));
+    if (typeof onProgress === 'function') {
+      try {
+        onProgress({ stage, detail, pct: clampedPct, ...extra });
+      } catch (_) {}
+    }
     if (runRowId === null) return;
     await sql`
       UPDATE newborn_runs
-      SET progress_stage = ${stage}, progress_detail = ${detail}, progress_pct = ${Math.max(0, Math.min(100, Math.round(pct)))}
+      SET progress_stage = ${stage}, progress_detail = ${detail}, progress_pct = ${clampedPct}
       WHERE id = ${runRowId};
     `.catch(() => {});
   };
@@ -321,6 +329,7 @@ export async function pollNewbornWatchlist(sql, options = {}) {
       if (winningPinIds.length > 0) {
         promotedPinsResult = await promoteNewbornCandidates(sql, {
           pinIds: winningPinIds,
+          workspaceId: workspaceId ?? 1,
           destinations: settings.automation.pin_promotion_rules.destinations,
           source: 'watchlist_auto_rule',
           env,
@@ -348,13 +357,31 @@ export async function pollNewbornWatchlist(sql, options = {}) {
     await stampAutomationRunTimestamp(sql, 'watchlist_poll', new Date(nowMs).toISOString()).catch(() => {});
 
     const totalAutoPromoted = Number(promotedPinsResult.promoted_count || 0) + Number(promotedRookiesResult.promoted_count || 0);
+    const completedDetail = `Polled ${persistedPins.length} watchlisted pin${persistedPins.length === 1 ? '' : 's'} (${totalAutoPromoted} auto-promoted).`;
+    if (typeof onProgress === 'function') {
+      try {
+        onProgress({
+          status: 'completed',
+          stage: 'completed',
+          detail: completedDetail,
+          pct: 100,
+          cookie_mode: 'zero_cookie',
+          counters: {
+            candidates_discovered: persistedPins.length,
+            candidates_qualified: persistedPins.filter((c) => c.qualified !== false).length,
+            golden_pins_count: persistedPins.filter((c) => c.is_golden_pin).length,
+            rookie_creators_count: persistedRookies.length
+          }
+        });
+      } catch (_) {}
+    }
     if (runRowId !== null) {
       await sql`
         UPDATE newborn_runs
         SET
           status = 'completed',
           progress_stage = 'completed',
-          progress_detail = ${`Polled ${persistedPins.length} watchlisted pin${persistedPins.length === 1 ? '' : 's'} (${totalAutoPromoted} auto-promoted).`},
+          progress_detail = ${completedDetail},
           progress_pct = 100,
           error_message = NULL,
           candidates_discovered = ${persistedPins.length},
@@ -432,6 +459,7 @@ export async function runNewbornAutoCycle(sql, options = {}) {
     existingRunId = null,
     routerOptions = {},
     signal = null,
+    onProgress = null,
     env = null,
     ctx = null
   } = options;
@@ -482,6 +510,7 @@ export async function runNewbornAutoCycle(sql, options = {}) {
       existingRunId: !runDisc ? numericRunId : null,
       routerOptions,
       signal,
+      onProgress: !runDisc ? onProgress : null,
       nowMs,
       env,
       ctx
@@ -499,6 +528,7 @@ export async function runNewbornAutoCycle(sql, options = {}) {
       routerOptions,
       runType: 'auto_cycle',
       signal,
+      onProgress,
       nowMs,
       env,
       ctx

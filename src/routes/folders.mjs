@@ -630,7 +630,7 @@ export async function handleFoldersRoutes({
             body.keywords
               .map((k) => String(typeof k === 'string' ? k : (k?.keyword || '')).trim())
               .filter(Boolean)
-          )).slice(0, 200);
+          ));
           if (cleanTerms.length === 0) {
             return jsonResponse({ success: false, error: 'keywords must contain at least one non-empty keyword' }, 400);
           }

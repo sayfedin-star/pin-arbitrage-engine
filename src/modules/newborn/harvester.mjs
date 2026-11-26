@@ -349,8 +349,12 @@ export async function upsertStagedCandidatesBatch(
       creator_pin_count: c.creator_pin_count != null ? Math.round(Number(c.creator_pin_count)) : null,
       is_repin: Boolean(c.is_repin),
       board_id: c.board_id || null,
-      board_name: c.board_name || null,
-      board_url: formatPinterestBoardUrl(c.board_url || ''),
+      board_name: c.discovery_board_name || c.board_name || c.pin_board_name || null,
+      board_url: formatPinterestBoardUrl(c.discovery_board_url || c.board_url || c.pin_board_url || ''),
+      discovery_board_name: c.discovery_board_name || null,
+      discovery_board_url: formatPinterestBoardUrl(c.discovery_board_url || ''),
+      pin_board_name: c.pin_board_name || null,
+      pin_board_url: formatPinterestBoardUrl(c.pin_board_url || ''),
       board_order_modified_at: c.board_order_modified_at || null,
       upload_provenance: c.upload_provenance || 'UNKNOWN',
       raw_creation_method: c.raw_creation_method || null,
@@ -427,6 +431,9 @@ export async function upsertStagedCandidatesBatch(
         seed_query: r.seed_query || null,
         matched_queries: Array.isArray(r.matched_queries) ? r.matched_queries : [],
         surface: r.first_surface || 'pin_serp_capsules',
+        surfaces: Array.isArray(r.discovered_surfaces)
+          ? r.discovered_surfaces.filter((s) => s && String(s).toLowerCase() !== 'pin_resource')
+          : [r.first_surface || 'pin_serp_capsules'],
         qualified_in_run: Boolean(r.qualified),
         golden_score_in_run: Number(r.golden_score ?? 0)
       }))
@@ -437,7 +444,7 @@ export async function upsertStagedCandidatesBatch(
   const runInTx = async (fn) => (typeof sql.begin === 'function' ? sql.begin(fn) : fn(sql));
 
   await runInTx(async (tx) => {
-    await tx`
+    const upsertCandidatesFull = async () => tx`
       INSERT INTO newborn_candidates (
         pin_id, stage, qualified, first_run_id, last_run_id, folder_id,
         first_surface, discovered_surfaces, seed_query,
@@ -447,7 +454,7 @@ export async function upsertStagedCandidatesBatch(
         origin_creator_username, origin_creator_full_name, origin_creator_followers,
         effective_creator_username, effective_creator_followers,
         creator_monthly_reach, creator_profile_views, creator_pin_count, is_repin,
-        board_id, board_name, board_url, board_order_modified_at,
+        board_id, board_name, board_url, discovery_board_name, discovery_board_url, pin_board_name, pin_board_url, board_order_modified_at,
         upload_provenance, raw_creation_method, has_ai_disclosure,
         is_video, is_carousel, is_product,
         created_at_pinterest, age_days,
@@ -468,7 +475,7 @@ export async function upsertStagedCandidatesBatch(
         u.origin_creator_username, u.origin_creator_full_name, u.origin_creator_followers,
         u.effective_creator_username, u.effective_creator_followers,
         u.creator_monthly_reach, u.creator_profile_views, u.creator_pin_count, u.is_repin,
-        u.board_id, u.board_name, u.board_url, NULLIF(u.board_order_modified_at, '')::timestamptz,
+        u.board_id, u.board_name, u.board_url, u.discovery_board_name, u.discovery_board_url, u.pin_board_name, u.pin_board_url, NULLIF(u.board_order_modified_at, '')::timestamptz,
         u.upload_provenance, u.raw_creation_method, u.has_ai_disclosure,
         u.is_video, u.is_carousel, u.is_product,
         NULLIF(u.created_at_pinterest, '')::timestamptz, u.age_days,
@@ -490,7 +497,7 @@ export async function upsertStagedCandidatesBatch(
         origin_creator_username text, origin_creator_full_name text, origin_creator_followers int,
         effective_creator_username text, effective_creator_followers int,
         creator_monthly_reach bigint, creator_profile_views bigint, creator_pin_count int, is_repin boolean,
-        board_id text, board_name text, board_url text, board_order_modified_at text,
+        board_id text, board_name text, board_url text, discovery_board_name text, discovery_board_url text, pin_board_name text, pin_board_url text, board_order_modified_at text,
         upload_provenance text, raw_creation_method text, has_ai_disclosure boolean,
         is_video boolean, is_carousel boolean, is_product boolean,
         created_at_pinterest text, age_days double precision,
@@ -518,6 +525,7 @@ export async function upsertStagedCandidatesBatch(
             UNION
             SELECT jsonb_array_elements(COALESCE(EXCLUDED.discovered_surfaces, '[]'::jsonb)) AS elem
           ) merged_surfaces
+          WHERE elem #>> '{}' <> 'pin_resource'
         ), '[]'::jsonb),
         seed_query = COALESCE(EXCLUDED.seed_query, newborn_candidates.seed_query),
         snowball_parent_pin_id = COALESCE(newborn_candidates.snowball_parent_pin_id, EXCLUDED.snowball_parent_pin_id),
@@ -527,11 +535,14 @@ export async function upsertStagedCandidatesBatch(
         image_url = COALESCE(NULLIF(EXCLUDED.image_url, ''), newborn_candidates.image_url),
         image_signature = COALESCE(NULLIF(EXCLUDED.image_signature, ''), newborn_candidates.image_signature),
         dominant_color = CASE WHEN EXCLUDED.dominant_color <> '#888888' THEN EXCLUDED.dominant_color ELSE newborn_candidates.dominant_color END,
-        destination_url = COALESCE(EXCLUDED.destination_url, newborn_candidates.destination_url),
-        clean_domain = COALESCE(EXCLUDED.clean_domain, newborn_candidates.clean_domain),
+        destination_url = COALESCE(NULLIF(EXCLUDED.destination_url, ''), newborn_candidates.destination_url),
+        clean_domain = COALESCE(NULLIF(EXCLUDED.clean_domain, ''), newborn_candidates.clean_domain),
         is_linkless = (
           COALESCE(EXCLUDED.destination_url, newborn_candidates.destination_url) IS NULL
-          AND COALESCE(EXCLUDED.clean_domain, newborn_candidates.clean_domain) IS NULL
+          OR btrim(COALESCE(EXCLUDED.destination_url, newborn_candidates.destination_url)) = ''
+          OR COALESCE(EXCLUDED.clean_domain, newborn_candidates.clean_domain) IS NULL
+          OR btrim(COALESCE(EXCLUDED.clean_domain, newborn_candidates.clean_domain)) = ''
+          OR lower(COALESCE(EXCLUDED.clean_domain, newborn_candidates.clean_domain, '')) ~ '(^|\.)(pinterest\.|pin\.it)'
         ),
         pinner_username = COALESCE(EXCLUDED.pinner_username, newborn_candidates.pinner_username),
         pinner_full_name = COALESCE(EXCLUDED.pinner_full_name, newborn_candidates.pinner_full_name),
@@ -546,8 +557,12 @@ export async function upsertStagedCandidatesBatch(
         creator_pin_count = COALESCE(EXCLUDED.creator_pin_count, newborn_candidates.creator_pin_count),
         is_repin = (newborn_candidates.is_repin OR EXCLUDED.is_repin),
         board_id = COALESCE(EXCLUDED.board_id, newborn_candidates.board_id),
-        board_name = COALESCE(EXCLUDED.board_name, newborn_candidates.board_name),
-        board_url = COALESCE(EXCLUDED.board_url, newborn_candidates.board_url),
+        discovery_board_name = COALESCE(newborn_candidates.discovery_board_name, EXCLUDED.discovery_board_name),
+        discovery_board_url = COALESCE(newborn_candidates.discovery_board_url, EXCLUDED.discovery_board_url),
+        pin_board_name = COALESCE(EXCLUDED.pin_board_name, newborn_candidates.pin_board_name),
+        pin_board_url = COALESCE(EXCLUDED.pin_board_url, newborn_candidates.pin_board_url),
+        board_name = COALESCE(newborn_candidates.discovery_board_name, EXCLUDED.discovery_board_name, EXCLUDED.board_name, newborn_candidates.board_name),
+        board_url = COALESCE(newborn_candidates.discovery_board_url, EXCLUDED.discovery_board_url, EXCLUDED.board_url, newborn_candidates.board_url),
         board_order_modified_at = COALESCE(EXCLUDED.board_order_modified_at, newborn_candidates.board_order_modified_at),
         upload_provenance = CASE WHEN EXCLUDED.upload_provenance <> 'UNKNOWN' THEN EXCLUDED.upload_provenance ELSE newborn_candidates.upload_provenance END,
         raw_creation_method = COALESCE(EXCLUDED.raw_creation_method, newborn_candidates.raw_creation_method),
@@ -586,7 +601,10 @@ export async function upsertStagedCandidatesBatch(
         visual_annotations = CASE WHEN jsonb_array_length(EXCLUDED.visual_annotations) > 0 THEN EXCLUDED.visual_annotations ELSE newborn_candidates.visual_annotations END,
         guided_capsules = CASE WHEN jsonb_array_length(EXCLUDED.guided_capsules) > 0 THEN EXCLUDED.guided_capsules ELSE newborn_candidates.guided_capsules END,
         crossover_blueprint = CASE WHEN EXCLUDED.crossover_blueprint <> '{}'::jsonb THEN EXCLUDED.crossover_blueprint ELSE newborn_candidates.crossover_blueprint END,
-        consecutive_qualifying_days = GREATEST(newborn_candidates.consecutive_qualifying_days, EXCLUDED.consecutive_qualifying_days),
+        consecutive_qualifying_days = CASE
+          WHEN EXCLUDED.qualified = TRUE THEN GREATEST(newborn_candidates.consecutive_qualifying_days, EXCLUDED.consecutive_qualifying_days)
+          ELSE 0
+        END,
         last_qualified_date = COALESCE(EXCLUDED.last_qualified_date, newborn_candidates.last_qualified_date),
         watchlist_added_at = COALESCE(newborn_candidates.watchlist_added_at, EXCLUDED.watchlist_added_at),
         last_polled_at = COALESCE(EXCLUDED.last_polled_at, newborn_candidates.last_polled_at),
@@ -603,6 +621,100 @@ export async function upsertStagedCandidatesBatch(
         last_seen_at = NOW(),
         updated_at = NOW();
     `;
+
+    try {
+      await upsertCandidatesFull();
+    } catch (err) {
+      if (String(err?.code || '') !== '42703') throw err;
+      // Legacy schema fallback before migration 016
+      await tx`
+        INSERT INTO newborn_candidates (
+          pin_id, stage, qualified, first_run_id, last_run_id, folder_id,
+          first_surface, discovered_surfaces, seed_query,
+          snowball_parent_pin_id, snowball_hop, title, description, alt_text,
+          image_url, image_signature, dominant_color, destination_url, clean_domain, is_linkless,
+          pinner_username, pinner_full_name, pinner_followers,
+          origin_creator_username, origin_creator_full_name, origin_creator_followers,
+          effective_creator_username, effective_creator_followers,
+          creator_monthly_reach, creator_profile_views, creator_pin_count, is_repin,
+          board_id, board_name, board_url, board_order_modified_at,
+          upload_provenance, raw_creation_method, has_ai_disclosure,
+          is_video, is_carousel, is_product,
+          created_at_pinterest, age_days,
+          save_count, repin_count, comment_count, share_count, reaction_count, is_hydrated,
+          repin_per_day, save_per_day, daily_repin_delta, daily_save_delta,
+          golden_score, is_golden_pin, is_rookie_outlier, outlier_ratio,
+          visual_annotations, guided_capsules, crossover_blueprint,
+          consecutive_qualifying_days, last_qualified_date,
+          watchlist_added_at, last_polled_at, profile_id, metadata,
+          first_seen_at, last_seen_at, updated_at
+        )
+        SELECT
+          u.pin_id, u.stage, u.qualified, u.first_run_id, u.last_run_id, u.folder_id,
+          u.first_surface, u.discovered_surfaces, u.seed_query,
+          u.snowball_parent_pin_id, u.snowball_hop, u.title, u.description, u.alt_text,
+          u.image_url, u.image_signature, u.dominant_color, u.destination_url, u.clean_domain, u.is_linkless,
+          u.pinner_username, u.pinner_full_name, u.pinner_followers,
+          u.origin_creator_username, u.origin_creator_full_name, u.origin_creator_followers,
+          u.effective_creator_username, u.effective_creator_followers,
+          u.creator_monthly_reach, u.creator_profile_views, u.creator_pin_count, u.is_repin,
+          u.board_id, u.board_name, u.board_url, NULLIF(u.board_order_modified_at, '')::timestamptz,
+          u.upload_provenance, u.raw_creation_method, u.has_ai_disclosure,
+          u.is_video, u.is_carousel, u.is_product,
+          NULLIF(u.created_at_pinterest, '')::timestamptz, u.age_days,
+          u.save_count, u.repin_count, u.comment_count, u.share_count, u.reaction_count, u.is_hydrated,
+          u.repin_per_day, u.save_per_day, u.daily_repin_delta, u.daily_save_delta,
+          u.golden_score, u.is_golden_pin, u.is_rookie_outlier, u.outlier_ratio,
+          u.visual_annotations, u.guided_capsules, u.crossover_blueprint,
+          u.consecutive_qualifying_days, NULLIF(u.last_qualified_date, '')::date,
+          NULLIF(u.watchlist_added_at, '')::timestamptz,
+          NULLIF(u.last_polled_at, '')::timestamptz,
+          u.profile_id, u.metadata,
+          NOW(), NOW(), NOW()
+        FROM jsonb_to_recordset(${candidatesJson}::jsonb) AS u(
+          pin_id text, stage text, qualified boolean, first_run_id bigint, last_run_id bigint, folder_id int,
+          first_surface text, discovered_surfaces jsonb, seed_query text,
+          snowball_parent_pin_id text, snowball_hop int, title text, description text, alt_text text,
+          image_url text, image_signature text, dominant_color text, destination_url text, clean_domain text, is_linkless boolean,
+          pinner_username text, pinner_full_name text, pinner_followers int,
+          origin_creator_username text, origin_creator_full_name text, origin_creator_followers int,
+          effective_creator_username text, effective_creator_followers int,
+          creator_monthly_reach bigint, creator_profile_views bigint, creator_pin_count int, is_repin boolean,
+          board_id text, board_name text, board_url text, board_order_modified_at text,
+          upload_provenance text, raw_creation_method text, has_ai_disclosure boolean,
+          is_video boolean, is_carousel boolean, is_product boolean,
+          created_at_pinterest text, age_days double precision,
+          save_count bigint, repin_count bigint, comment_count int, share_count int, reaction_count int, is_hydrated boolean,
+          repin_per_day double precision, save_per_day double precision, daily_repin_delta double precision, daily_save_delta double precision,
+          golden_score double precision, is_golden_pin boolean, is_rookie_outlier boolean, outlier_ratio double precision,
+          visual_annotations jsonb, guided_capsules jsonb, crossover_blueprint jsonb,
+          consecutive_qualifying_days int, last_qualified_date text,
+          watchlist_added_at text, last_polled_at text, profile_id int, metadata jsonb
+        )
+        ORDER BY u.pin_id ASC
+        ON CONFLICT (pin_id) DO UPDATE SET
+          stage = CASE WHEN newborn_candidates.stage IN ('promoted', 'discarded') THEN newborn_candidates.stage ELSE EXCLUDED.stage END,
+          qualified = EXCLUDED.qualified,
+          first_run_id = COALESCE(newborn_candidates.first_run_id, EXCLUDED.first_run_id),
+          last_run_id = COALESCE(EXCLUDED.last_run_id, newborn_candidates.last_run_id),
+          folder_id = COALESCE(EXCLUDED.folder_id, newborn_candidates.folder_id),
+          discovered_surfaces = COALESCE((
+            SELECT jsonb_agg(DISTINCT elem)
+            FROM (
+              SELECT jsonb_array_elements(COALESCE(newborn_candidates.discovered_surfaces, '[]'::jsonb)) AS elem
+              UNION
+              SELECT jsonb_array_elements(COALESCE(EXCLUDED.discovered_surfaces, '[]'::jsonb)) AS elem
+            ) merged_surfaces
+            WHERE elem #>> '{}' <> 'pin_resource'
+          ), '[]'::jsonb),
+          consecutive_qualifying_days = CASE
+            WHEN EXCLUDED.qualified = TRUE THEN GREATEST(newborn_candidates.consecutive_qualifying_days, EXCLUDED.consecutive_qualifying_days)
+            ELSE 0
+          END,
+          last_seen_at = NOW(),
+          updated_at = NOW();
+      `;
+    }
 
     await tx`
       INSERT INTO newborn_candidate_snapshots (
@@ -650,49 +762,108 @@ export async function upsertStagedCandidatesBatch(
     `;
 
     if (runCandidatesJson) {
-      await tx`
-        INSERT INTO newborn_run_candidates (
-          run_id, pin_id, seed_query, matched_queries, surface, qualified_in_run, golden_score_in_run, created_at
-        )
-        SELECT
-          r.run_id,
-          r.pin_id,
-          r.seed_query,
-          COALESCE(r.matched_queries, '[]'::jsonb),
-          r.surface,
-          r.qualified_in_run,
-          r.golden_score_in_run,
-          NOW()
-        FROM jsonb_to_recordset(${runCandidatesJson}::jsonb) AS r(
-          run_id bigint,
-          pin_id text,
-          seed_query text,
-          matched_queries jsonb,
-          surface text,
-          qualified_in_run boolean,
-          golden_score_in_run double precision
-        )
-        ORDER BY r.pin_id ASC
-        ON CONFLICT (run_id, pin_id) DO UPDATE SET
-          seed_query = COALESCE(EXCLUDED.seed_query, newborn_run_candidates.seed_query),
-          matched_queries = COALESCE((
-            SELECT jsonb_agg(DISTINCT elem)
-            FROM (
-              SELECT jsonb_array_elements(COALESCE(newborn_run_candidates.matched_queries, '[]'::jsonb)) AS elem
-              UNION
-              SELECT jsonb_array_elements(COALESCE(EXCLUDED.matched_queries, '[]'::jsonb)) AS elem
-            ) merged_queries
-          ), '[]'::jsonb),
-          surface = CASE
-            WHEN newborn_run_candidates.surface IS NOT NULL
-              AND newborn_run_candidates.surface <> ''
-              AND newborn_run_candidates.surface <> 'related_pin_snowball'
-            THEN newborn_run_candidates.surface
-            ELSE COALESCE(NULLIF(EXCLUDED.surface, ''), newborn_run_candidates.surface)
-          END,
-          qualified_in_run = (newborn_run_candidates.qualified_in_run OR EXCLUDED.qualified_in_run),
-          golden_score_in_run = GREATEST(COALESCE(newborn_run_candidates.golden_score_in_run, 0), COALESCE(EXCLUDED.golden_score_in_run, 0));
-      `;
+      try {
+        await tx`
+          INSERT INTO newborn_run_candidates (
+            run_id, pin_id, seed_query, matched_queries, surface, surfaces, qualified_in_run, golden_score_in_run, created_at
+          )
+          SELECT
+            r.run_id,
+            r.pin_id,
+            r.seed_query,
+            COALESCE(r.matched_queries, '[]'::jsonb),
+            r.surface,
+            COALESCE(r.surfaces, jsonb_build_array(r.surface)),
+            r.qualified_in_run,
+            r.golden_score_in_run,
+            NOW()
+          FROM jsonb_to_recordset(${runCandidatesJson}::jsonb) AS r(
+            run_id bigint,
+            pin_id text,
+            seed_query text,
+            matched_queries jsonb,
+            surface text,
+            surfaces jsonb,
+            qualified_in_run boolean,
+            golden_score_in_run double precision
+          )
+          ORDER BY r.pin_id ASC
+          ON CONFLICT (run_id, pin_id) DO UPDATE SET
+            seed_query = COALESCE(EXCLUDED.seed_query, newborn_run_candidates.seed_query),
+            matched_queries = COALESCE((
+              SELECT jsonb_agg(DISTINCT elem)
+              FROM (
+                SELECT jsonb_array_elements(COALESCE(newborn_run_candidates.matched_queries, '[]'::jsonb)) AS elem
+                UNION
+                SELECT jsonb_array_elements(COALESCE(EXCLUDED.matched_queries, '[]'::jsonb)) AS elem
+              ) merged_queries
+            ), '[]'::jsonb),
+            surfaces = COALESCE((
+              SELECT jsonb_agg(DISTINCT elem)
+              FROM (
+                SELECT jsonb_array_elements(COALESCE(newborn_run_candidates.surfaces, '[]'::jsonb)) AS elem
+                UNION
+                SELECT jsonb_array_elements(COALESCE(EXCLUDED.surfaces, '[]'::jsonb)) AS elem
+              ) merged_run_surfaces
+              WHERE elem #>> '{}' <> 'pin_resource'
+            ), '[]'::jsonb),
+            surface = CASE
+              WHEN newborn_run_candidates.surface IS NOT NULL
+                AND newborn_run_candidates.surface <> ''
+                AND newborn_run_candidates.surface <> 'related_pin_snowball'
+                AND newborn_run_candidates.surface <> 'pin_resource'
+              THEN newborn_run_candidates.surface
+              ELSE COALESCE(NULLIF(EXCLUDED.surface, ''), newborn_run_candidates.surface)
+            END,
+            qualified_in_run = (newborn_run_candidates.qualified_in_run OR EXCLUDED.qualified_in_run),
+            golden_score_in_run = GREATEST(COALESCE(newborn_run_candidates.golden_score_in_run, 0), COALESCE(EXCLUDED.golden_score_in_run, 0));
+        `;
+      } catch (err) {
+        if (String(err?.code || '') !== '42703') throw err;
+        await tx`
+          INSERT INTO newborn_run_candidates (
+            run_id, pin_id, seed_query, matched_queries, surface, qualified_in_run, golden_score_in_run, created_at
+          )
+          SELECT
+            r.run_id,
+            r.pin_id,
+            r.seed_query,
+            COALESCE(r.matched_queries, '[]'::jsonb),
+            r.surface,
+            r.qualified_in_run,
+            r.golden_score_in_run,
+            NOW()
+          FROM jsonb_to_recordset(${runCandidatesJson}::jsonb) AS r(
+            run_id bigint,
+            pin_id text,
+            seed_query text,
+            matched_queries jsonb,
+            surface text,
+            qualified_in_run boolean,
+            golden_score_in_run double precision
+          )
+          ORDER BY r.pin_id ASC
+          ON CONFLICT (run_id, pin_id) DO UPDATE SET
+            seed_query = COALESCE(EXCLUDED.seed_query, newborn_run_candidates.seed_query),
+            matched_queries = COALESCE((
+              SELECT jsonb_agg(DISTINCT elem)
+              FROM (
+                SELECT jsonb_array_elements(COALESCE(newborn_run_candidates.matched_queries, '[]'::jsonb)) AS elem
+                UNION
+                SELECT jsonb_array_elements(COALESCE(EXCLUDED.matched_queries, '[]'::jsonb)) AS elem
+              ) merged_queries
+            ), '[]'::jsonb),
+            surface = CASE
+              WHEN newborn_run_candidates.surface IS NOT NULL
+                AND newborn_run_candidates.surface <> ''
+                AND newborn_run_candidates.surface <> 'related_pin_snowball'
+              THEN newborn_run_candidates.surface
+              ELSE COALESCE(NULLIF(EXCLUDED.surface, ''), newborn_run_candidates.surface)
+            END,
+            qualified_in_run = (newborn_run_candidates.qualified_in_run OR EXCLUDED.qualified_in_run),
+            golden_score_in_run = GREATEST(COALESCE(newborn_run_candidates.golden_score_in_run, 0), COALESCE(EXCLUDED.golden_score_in_run, 0));
+        `;
+      }
     }
   });
 
@@ -1196,43 +1367,63 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
               );
             }
 
-            // Wave 6E/6F Primary Boards Path: "Find more ideas" (`board_more_ideas`) driven by `max_boards` + `target_pins_per_board`
-            if (surfacesCfg.board_more_ideas?.enabled && router.canUseAuthSession && !signal?.aborted && !discoveryHalted) {
-              surfacesExecuted.push('board_more_ideas');
+            // Wave 6E/6F Primary Boards Path: "Find more ideas" (`board_more_ideas`) driven by `max_boards` + `target_pins_per_board`.
+            // In Guest Mode (`!router.canUseAuthSession`), automatically fall back to zero-cookie `board_feed` so boards are never silently dropped!
+            if (surfacesCfg.board_more_ideas?.enabled && !signal?.aborted && !discoveryHalted) {
               const moreIdeasTargetPins = Number(
                 surfacesCfg.board_more_ideas.target_pins_per_board ??
                 surfacesCfg.fresh_boards?.target_pins_per_board ??
                 100
               ) || 100;
-              const moreIdeasPageSize = Math.max(10, Math.min(50, Number(surfacesCfg.board_more_ideas.page_size) || 25));
-              const moreIdeasMaxPages = Math.max(1, Math.min(40, Math.ceil(moreIdeasTargetPins / 25)));
-              let authSkippedMoreIdeas = false;
-              await Promise.all(
-                boardsToExpand.map((board) => boardSem.run(async () => {
-                  if (authSkippedMoreIdeas || signal?.aborted || discoveryHalted) return;
-                  const bmiRes = await harvestBoardMoreIdeasSurface(router, board, {
-                    maxPages: moreIdeasMaxPages,
-                    pageSize: moreIdeasPageSize,
-                    targetPins: moreIdeasTargetPins,
-                    signal
-                  });
-                  if (!surfacesCfg.board_feed?.enabled) {
+              if (router.canUseAuthSession) {
+                surfacesExecuted.push('board_more_ideas');
+                const moreIdeasPageSize = Math.max(10, Math.min(50, Number(surfacesCfg.board_more_ideas.page_size) || 25));
+                const moreIdeasMaxPages = Math.max(1, Math.min(80, Math.ceil(moreIdeasTargetPins / 25)));
+                let authSkippedMoreIdeas = false;
+                await Promise.all(
+                  boardsToExpand.map((board) => boardSem.run(async () => {
+                    if (authSkippedMoreIdeas || signal?.aborted || discoveryHalted) return;
+                    const bmiRes = await harvestBoardMoreIdeasSurface(router, board, {
+                      maxPages: moreIdeasMaxPages,
+                      pageSize: moreIdeasPageSize,
+                      targetPins: moreIdeasTargetPins,
+                      signal
+                    });
+                    if (!surfacesCfg.board_feed?.enabled) {
+                      funnel.boards_scanned++;
+                    }
+                    funnel.pages_scrolled += Number(bmiRes.pages_fetched || 0);
+                    for (const p of (bmiRes.pins || [])) ingestCandidate(p);
+                    if (bmiRes.skipped_auth_only) authSkippedMoreIdeas = true;
+                    if (!surfacesCfg.board_feed?.enabled && (funnel.boards_scanned % 3 === 0 || funnel.boards_scanned === boardsToExpand.length)) {
+                      funnel.scrolled_pins = candidateMap.size;
+                      await reportProgress(
+                        'harvesting',
+                        `1. Scanned Find more ideas on ${funnel.boards_scanned}/${boardsToExpand.length} boards (${candidateMap.size} total pins scrolled)…`,
+                        24,
+                        { scrolled_pins: candidateMap.size, candidates_discovered: candidateMap.size }
+                      );
+                    }
+                  }))
+                );
+              } else if (!surfacesCfg.board_feed?.enabled) {
+                // Guest-mode fallback: harvest zero-cookie board_feed / Pidgets board pins instead of skipping boards completely
+                surfacesExecuted.push('board_feed');
+                await Promise.all(
+                  boardsToExpand.map((board) => boardSem.run(async () => {
+                    if (signal?.aborted || discoveryHalted) return;
+                    const bfRes = await harvestBoardFeedSurface(router, board, {
+                      maxPages: Math.max(1, Math.min(20, Math.ceil(moreIdeasTargetPins / 25))),
+                      pageSize: 25,
+                      targetPins: moreIdeasTargetPins,
+                      signal
+                    });
                     funnel.boards_scanned++;
-                  }
-                  funnel.pages_scrolled += Number(bmiRes.pages_fetched || 0);
-                  for (const p of (bmiRes.pins || [])) ingestCandidate(p);
-                  if (bmiRes.skipped_auth_only) authSkippedMoreIdeas = true;
-                  if (!surfacesCfg.board_feed?.enabled && (funnel.boards_scanned % 3 === 0 || funnel.boards_scanned === boardsToExpand.length)) {
-                    funnel.scrolled_pins = candidateMap.size;
-                    await reportProgress(
-                      'harvesting',
-                      `1. Scanned Find more ideas on ${funnel.boards_scanned}/${boardsToExpand.length} boards (${candidateMap.size} total pins scrolled)…`,
-                      24,
-                      { scrolled_pins: candidateMap.size, candidates_discovered: candidateMap.size }
-                    );
-                  }
-                }))
-              );
+                    funnel.pages_scrolled += Number(bfRes.pages_fetched || 0);
+                    for (const p of (bfRes.pins || [])) ingestCandidate(p);
+                  }))
+                );
+              }
             }
           }));
         }
@@ -1319,8 +1510,8 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
 
     // Parallelized 50x Zero-Cookie Pidgets Pre-Triage (Semaphore 6) +
     // Min Re-pins (+ optional Min Saves) Pre-Filter +
-    // Zero-Cookie PinResource/get Root Age & Annotations Verification (with HALF_OPEN 1-pin probe guard)
-    let remainingPinHydrations = settings.discovery.hydration.max_pin_hydrations_per_run;
+    // DB Pre-Hydration Cache Reuse (`newborn_candidates` + `universal_master_pins`) +
+    // Uncapped Zero-Cookie PinResource/get Verification for ALL pins passing the Pidgets gate
     const minRepinsGate = Math.max(0, Number(settings.qualification?.min_repin_count ?? 0));
     const minSavesGate = Math.max(0, Number(settings.qualification?.min_save_count ?? 0));
     const minAge = Number(settings.qualification?.min_age_days ?? 0);
@@ -1328,6 +1519,103 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
     const matchedRepinPinIds = new Set();
     const attemptedHydrationPinIds = new Set();
     let hydrationRateLimitedGlobal = false;
+    let dbPreHydratedCount = 0;
+
+    // DB Pre-Hydration Helper: reuse already-verified `created_at_pinterest`, `visual_annotations`,
+    // `raw_creation_method`, `upload_provenance`, and `pin_board_name` from DB before hitting Pinterest!
+    const preHydrateCandidatesFromDb = async (pinIds = []) => {
+      if (!sql || typeof sql !== 'function' || !Array.isArray(pinIds) || pinIds.length === 0) return 0;
+      const cleanIds = Array.from(new Set(pinIds.filter((id) => candidateMap.has(id))));
+      if (cleanIds.length === 0) return 0;
+      let reused = 0;
+      try {
+        const [ncRows, umpRows] = await Promise.all([
+          sql`
+            SELECT pin_id, created_at_pinterest, visual_annotations, raw_creation_method, upload_provenance,
+                   share_count, comment_count, reaction_count, is_hydrated, is_repin, board_id, board_name, board_url, metadata
+            FROM newborn_candidates
+            WHERE pin_id = ANY(${cleanIds}::text[])
+              AND created_at_pinterest IS NOT NULL
+              AND is_hydrated = TRUE;
+          `.catch(() => []),
+          sql`
+            SELECT pin_id, created_at_pinterest, visual_annotations, creation_method,
+                   share_count, comment_count, reaction_count, is_hydrated, is_repin, board_id, board_name
+            FROM universal_master_pins
+            WHERE pin_id = ANY(${cleanIds}::text[])
+              AND created_at_pinterest IS NOT NULL;
+          `.catch(() => [])
+        ]);
+
+        const dbByPin = new Map();
+        for (const r of (umpRows || [])) {
+          if (!r?.pin_id || !r.created_at_pinterest) continue;
+          dbByPin.set(String(r.pin_id), {
+            created_at_pinterest: new Date(r.created_at_pinterest).toISOString(),
+            visual_annotations: Array.isArray(r.visual_annotations) ? r.visual_annotations : [],
+            raw_creation_method: r.creation_method || null,
+            upload_provenance: null,
+            share_count: r.share_count != null ? Number(r.share_count) : null,
+            comment_count: r.comment_count != null ? Number(r.comment_count) : null,
+            reaction_count: r.reaction_count != null ? Number(r.reaction_count) : null,
+            is_repin: Boolean(r.is_repin),
+            pin_board_name: r.board_name || null,
+            root_age_verified: !resolveRootPin
+          });
+        }
+        for (const r of (ncRows || [])) {
+          if (!r?.pin_id || !r.created_at_pinterest) continue;
+          const prev = dbByPin.get(String(r.pin_id));
+          const metaVerified = Boolean(r.metadata && typeof r.metadata === 'object' && r.metadata.root_age_verified === true);
+          const ncAnns = Array.isArray(r.visual_annotations) ? r.visual_annotations : [];
+          dbByPin.set(String(r.pin_id), {
+            created_at_pinterest: new Date(r.created_at_pinterest).toISOString(),
+            visual_annotations: ncAnns.length > 0 ? ncAnns : (prev?.visual_annotations || []),
+            raw_creation_method: r.raw_creation_method || prev?.raw_creation_method || null,
+            upload_provenance: r.upload_provenance || prev?.upload_provenance || null,
+            share_count: r.share_count != null ? Number(r.share_count) : (prev?.share_count ?? null),
+            comment_count: r.comment_count != null ? Number(r.comment_count) : (prev?.comment_count ?? null),
+            reaction_count: r.reaction_count != null ? Number(r.reaction_count) : (prev?.reaction_count ?? null),
+            is_repin: Boolean(r.is_repin || prev?.is_repin),
+            pin_board_name: r.board_name || prev?.pin_board_name || null,
+            root_age_verified: resolveRootPin ? metaVerified : true
+          });
+        }
+
+        for (const [pid, cached] of dbByPin.entries()) {
+          const cur = candidateMap.get(pid);
+          if (!cur) continue;
+          const hasAnns = Array.isArray(cached.visual_annotations) && cached.visual_annotations.length > 0;
+          if (!cached.created_at_pinterest) continue;
+          if (resolveRootPin && !cached.root_age_verified) continue;
+
+          const createdMs = Date.parse(cached.created_at_pinterest);
+          const ageDays = Number.isFinite(createdMs) ? Math.max(0.05, Math.round(((nowMs - createdMs) / 86_400_000) * 10) / 10) : null;
+          ingestCandidate({
+            pin_id: pid,
+            first_surface: null,
+            discovered_surfaces: [],
+            created_at_pinterest: cached.created_at_pinterest,
+            age_days: ageDays,
+            root_age_verified: cached.root_age_verified,
+            visual_annotations: cached.visual_annotations,
+            raw_creation_method: cached.raw_creation_method,
+            upload_provenance: cached.upload_provenance,
+            share_count: cached.share_count,
+            comment_count: cached.comment_count,
+            reaction_count: cached.reaction_count,
+            is_repin: cached.is_repin,
+            pin_board_name: cached.pin_board_name,
+            is_hydrated: hasAnns
+          });
+          if (hasAnns) {
+            reused++;
+            dbPreHydratedCount++;
+          }
+        }
+      } catch (_) {}
+      return reused;
+    };
 
     const computeKnownAgeDays = (cand) => {
       if (!cand) return null;
@@ -1347,7 +1635,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       batchPins = [],
       {
         progressPrefix = '2. Verifying root ages & annotations',
-        maxConcurrency = isShardMode ? 6 : 8,
+        maxConcurrency = 4,
         startPct = 48,
         spanPct = 34
       } = {}
@@ -1579,9 +1867,16 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       }
       funnel.matched_repins = matchedRepinPinIds.size;
 
-      // WAVE 6G PRE-AGE GATE: Skip pins whose known created_at_pinterest is already outside [minAge, maxAge]
-      // before consuming PinResource/get hydration budget, and prioritize in-window pins first.
+      // Pre-hydrate matching candidates from DB cache (newborn_candidates + universal_master_pins)
+      // to skip redundant Pinterest PinResource/get requests!
+      await preHydrateCandidatesFromDb(matchingPreGate.map((c) => c.pin_id));
+
+      // UNCAPPED HYDRATION (Directive 3): Hydrate ALL pins that passed the Min Re-pins / Min Saves gate
+      // (skipping only those already hydrated from DB or whose known age is already outside [minAge, maxAge]).
+      // Sort cleanly by Re-pins DESC so highest-traction pins from ALL surfaces (Search, Boards, Idea Page,
+      // Related Pins) are verified first without starving board_more_ideas or Path 5 Related Pins!
       const orderedForHydration = matchingPreGate
+        .map((c) => candidateMap.get(c.pin_id) || c)
         .filter((c) => {
           const needsHydration = !c.is_hydrated || !c.created_at_pinterest || c.root_age_verified === null || !Array.isArray(c.visual_annotations) || c.visual_annotations.length === 0;
           if (!needsHydration) return false;
@@ -1593,21 +1888,13 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
           return true;
         })
         .sort((a, b) => {
-          const ageA = computeKnownAgeDays(a);
-          const ageB = computeKnownAgeDays(b);
-          const aInWindow = ageA !== null && ageA >= minAge && ageA <= maxAge ? 1 : 0;
-          const bInWindow = ageB !== null && ageB >= minAge && ageB <= maxAge ? 1 : 0;
-          if (bInWindow !== aInWindow) return bInWindow - aInWindow;
           const aDirect = Number(a.repin_count ?? 0) >= minRepinsGate ? 1 : 0;
           const bDirect = Number(b.repin_count ?? 0) >= minRepinsGate ? 1 : 0;
           if (bDirect !== aDirect) return bDirect - aDirect;
           const aSig = Math.max(Number(a.repin_count ?? 0), Number(a.save_count ?? 0));
           const bSig = Math.max(Number(b.repin_count ?? 0), Number(b.save_count ?? 0));
           return (bSig - aSig) || (Number(b.repin_count ?? 0) - Number(a.repin_count ?? 0));
-        })
-        .slice(0, Math.max(0, remainingPinHydrations));
-
-      remainingPinHydrations = Math.max(0, remainingPinHydrations - orderedForHydration.length);
+        });
 
       const { unwrappedIds } = await runPinHydrationBatch(orderedForHydration, {
         progressPrefix: progressLabelPrefix,
@@ -1859,11 +2146,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       !salvageTriggered &&
       !hydrationRateLimitedGlobal
     ) {
-      const winnerPassCap = Math.min(
-        isShardMode ? 120 : 250,
-        Math.max(remainingPinHydrations, isShardMode ? 80 : 150)
-      );
-      const winnerBatch = unhydratedWinners.slice(0, winnerPassCap);
+      const winnerBatch = unhydratedWinners;
       if (winnerBatch.length > 0) {
         const winnerPassRes = await runPinHydrationBatch(winnerBatch, {
           progressPrefix: '3. Hydrating verified Golden Pin annotations',
@@ -2168,10 +2451,11 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       surfaces_executed: uniqueSurfacesExecuted,
       snowball_hops_executed: snowballHopsExecuted,
       idea_page: runIdeaPage,
-      funnel: { ...funnel, verified_winners: qualifiedCount },
+      funnel: { ...funnel, db_pre_hydrated: dbPreHydratedCount, verified_winners: qualifiedCount },
       stats: {
         scrolled_pins: funnel.scrolled_pins,
         matched_repins: funnel.matched_repins,
+        db_pre_hydrated: dbPreHydratedCount,
         candidates_scanned: funnel.scrolled_pins,
         candidates_discarded_in_memory: discardedInMemoryCount,
         candidates_discovered: funnel.scrolled_pins,

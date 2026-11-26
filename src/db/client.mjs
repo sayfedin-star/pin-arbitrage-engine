@@ -303,8 +303,13 @@ export function isReadOnlyQuery(queryInput, interpolatedValues = []) {
     return false;
   }
 
-  // Reject side-effecting PostgreSQL sequence, advisory-lock, session, or LO functions
-  if (/"?\b(?:nextval|setval|pg_advisory_(?:xact_)?lock(?:_shared)?|pg_try_advisory_(?:xact_)?lock(?:_shared)?|pg_advisory_unlock(?:_shared|_all)?|pg_terminate_backend|pg_cancel_backend|lo_create|lo_unlink|lo_import|lo_export)\b"?\s*\(/i.test(cleaned)) {
+  // Reject side-effecting PostgreSQL sequence, advisory-lock, session, admin, or LO functions
+  if (/"?\b(?:nextval|setval|pg_advisory_(?:xact_)?lock(?:_shared)?|pg_try_advisory_(?:xact_)?lock(?:_shared)?|pg_advisory_unlock(?:_shared|_all)?|pg_terminate_backend|pg_cancel_backend|pg_reload_conf|pg_rotate_logfile|lo_create|lo_unlink|lo_import|lo_export)\b"?\s*\(/i.test(cleaned)) {
+    return false;
+  }
+
+  // Reject PostgreSQL SELECT ... INTO [TEMP/UNLOGGED] table_name creation (including inside CTEs)
+  if (/\bSELECT\b[\s\S]*?(?<!\bAS\s)\bINTO\b\s+(?:TEMPORARY\s+|TEMP\s+|UNLOGGED\s+)?(?:[A-Za-z_][A-Za-z0-9_$]*|"[^"]+")/i.test(cleaned)) {
     return false;
   }
 

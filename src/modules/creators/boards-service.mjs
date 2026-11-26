@@ -42,8 +42,14 @@ export async function getCompetitorBoards(sql, competitorId, { username = '' } =
   }
 
   // Resolve local shard numeric ID prioritizing canonical username:
-  numericId = await resolveLocalCompetitorId(sql, cleanUser || competitorId, { expectedUsername: cleanUser });
+  numericId = await resolveLocalCompetitorId(sql, cleanUser || competitorId, { expectedUsername: cleanUser, throwOnError: true });
   if (!numericId || isNaN(numericId)) return [];
+
+  const isSchemaMissingError = (err) => (
+    err?.code === '42P01' ||
+    err?.code === '42703' ||
+    /does not exist/i.test(String(err?.message || ''))
+  );
 
   let boards = [];
   try {
@@ -62,6 +68,7 @@ export async function getCompetitorBoards(sql, competitorId, { username = '' } =
       ORDER BY pin_count DESC;
     `;
   } catch (err) {
+    if (!isSchemaMissingError(err)) throw err;
     console.warn(`[getCompetitorBoards] Boards query error for ID ${numericId}:`, err.message);
   }
 
@@ -100,6 +107,7 @@ export async function getCompetitorBoards(sql, competitorId, { username = '' } =
       }
     }
   } catch (err) {
+    if (!isSchemaMissingError(err)) throw err;
     console.warn(`[getCompetitorBoards] Pin board discovery aggregation error for ID ${numericId}:`, err.message);
   }
 

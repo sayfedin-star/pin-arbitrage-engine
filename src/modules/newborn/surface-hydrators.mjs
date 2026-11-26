@@ -116,7 +116,10 @@ export async function pretriageCandidatesWithPidgets(
             : null,
           origin_creator_username: nativeCreatorUsername || null,
           effective_creator_username: effectiveCreator,
-          effective_creator_followers: p.pinner?.follower_count !== undefined && p.pinner?.follower_count !== null
+          effective_creator_followers: (
+            (!nativeCreatorUsername || nativeCreatorUsername.toLowerCase() === (pinnerUsername || '').toLowerCase()) &&
+            p.pinner?.follower_count !== undefined && p.pinner?.follower_count !== null
+          )
             ? parseCleanMetric(p.pinner.follower_count, null, { preserveCeiling: true, cap: 0 })
             : null,
           is_repin: Boolean(
@@ -126,6 +129,8 @@ export async function pretriageCandidatesWithPidgets(
           board_id: safeString(p.board?.id || '') || null,
           board_name: safeString(p.board?.name || '') || null,
           board_url: formatPinterestBoardUrl(p.board?.url || ''),
+          pin_board_name: safeString(p.board?.name || '') || null,
+          pin_board_url: formatPinterestBoardUrl(p.board?.url || ''),
           board_pin_count: p.board?.pin_count !== undefined && p.board?.pin_count !== null
             ? parseCleanMetric(p.board.pin_count, null, { preserveCeiling: true, cap: 0 })
             : null,
@@ -211,7 +216,7 @@ export async function hydratePinZeroCookie(
 
   const normalized = normalizeSurfaceCandidatePin(
     { ...rawPin, id: cleanId },
-    { surface: 'pin_resource', is_hydrated: true }
+    { surface: null, is_hydration_overlay: true, is_hydrated: true }
   );
 
   if (!normalized) {

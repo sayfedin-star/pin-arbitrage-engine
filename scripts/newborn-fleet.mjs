@@ -127,6 +127,7 @@ export function parseNewbornFleetArgs(argv = process.argv.slice(2), env = proces
   const force = parseBoolFlag(flags.force ?? env?.NEWBORN_FORCE, false);
   const runId = parsePositiveInt(flags['run-id'] ?? flags.run_id ?? env?.NEWBORN_RUN_ID ?? env?.RUN_ID);
   const clusterId = parsePositiveInt(flags['cluster-id'] ?? flags.cluster_id ?? env?.NEWBORN_CLUSTER_ID ?? env?.CLUSTER_ID);
+  const workspaceId = parsePositiveInt(flags['workspace-id'] ?? flags.workspace_id ?? env?.NEWBORN_WORKSPACE_ID ?? env?.WORKSPACE_ID) || 1;
 
   const rawShards = flags.shards ?? flags['worker-total'] ?? env?.NEWBORN_SHARDS ?? '';
   let shards = null;
@@ -219,6 +220,7 @@ export function parseNewbornFleetArgs(argv = process.argv.slice(2), env = proces
     profileId,
     runId,
     clusterId,
+    workspaceId,
     seedQueries,
     seedPinIds,
     seedBoards,
@@ -517,6 +519,7 @@ export async function runNewbornFleetWorker({
     profileId,
     runId,
     clusterId,
+    workspaceId = 1,
     seedQueries,
     seedPinIds,
     seedBoards,
@@ -656,6 +659,7 @@ export async function runNewbornFleetWorker({
   if (mode === 'watchlist_poll') {
     return await pollNewbornWatchlist(sql, {
       profileId,
+      workspaceId,
       workerIndex,
       workerTotal,
       routerOptions: effectiveRouterOpts,
@@ -668,6 +672,7 @@ export async function runNewbornFleetWorker({
     return await runNewbornSnowball(sql, {
       seedPinIds,
       profileId,
+      workspaceId,
       routerOptions: effectiveRouterOpts,
       nowMs,
       env
@@ -682,6 +687,7 @@ export async function runNewbornFleetWorker({
       seedPinIds,
       seedBoards,
       profileId,
+      workspaceId,
       routerOptions: effectiveRouterOpts,
       nowMs,
       env
@@ -692,6 +698,7 @@ export async function runNewbornFleetWorker({
     force,
     seedQueries,
     profileId,
+    workspaceId,
     routerOptions: effectiveRouterOpts,
     nowMs,
     env

@@ -485,8 +485,9 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
     const hydratedShareCount = row.share_count != null ? Math.round(Number(row.share_count)) : null;
 
     if (!u) {
+      const rescoredNoUser = row._newly_hydrated ? scoreNewbornCandidate(row, settings, { nowMs }) : row;
       const resolvedProv = row._newly_hydrated
-        ? (classifyPinProvenance(row)?.upload_provenance || row.upload_provenance || null)
+        ? (rescoredNoUser.upload_provenance || classifyPinProvenance(row)?.upload_provenance || row.upload_provenance || null)
         : (row.upload_provenance || null);
       if (row._newly_hydrated) {
         updatesToPersist.push({
@@ -496,11 +497,22 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
           creator_monthly_reach: row.creator_monthly_reach ?? null,
           creator_profile_views: row.creator_profile_views ?? null,
           creator_pin_count: row.creator_pin_count ?? null,
-          is_rookie_outlier: Boolean(row.is_rookie_outlier),
-          outlier_ratio: row.outlier_ratio != null ? Number(row.outlier_ratio) : null,
+          is_rookie_outlier: Boolean(rescoredNoUser.is_rookie_outlier),
+          outlier_ratio: rescoredNoUser.outlier_ratio != null ? Number(rescoredNoUser.outlier_ratio) : null,
+          golden_score: rescoredNoUser.golden_score != null ? Number(rescoredNoUser.golden_score) : null,
+          is_golden_pin: Boolean(rescoredNoUser.is_golden_pin),
+          qualified: Boolean(rescoredNoUser.qualified),
+          repin_count: rescoredNoUser.repin_count != null ? Number(rescoredNoUser.repin_count) : null,
+          save_count: rescoredNoUser.save_count != null ? Number(rescoredNoUser.save_count) : null,
+          repin_per_day: rescoredNoUser.repin_per_day != null ? Number(rescoredNoUser.repin_per_day) : null,
+          save_per_day: rescoredNoUser.save_per_day != null ? Number(rescoredNoUser.save_per_day) : null,
+          created_at_pinterest: rescoredNoUser.created_at_pinterest || null,
+          age_days: rescoredNoUser.age_days != null ? Number(rescoredNoUser.age_days) : null,
           title: row.title || null,
           board_name: row.board_name || null,
           board_url: row.board_url || null,
+          pin_board_name: row.pin_board_name || row.board_name || null,
+          pin_board_url: row.pin_board_url || row.board_url || null,
           share_count: hydratedShareCount,
           raw_creation_method: row.raw_creation_method || null,
           upload_provenance: resolvedProv,
@@ -517,6 +529,9 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
         creator_monthly_reach: row.creator_monthly_reach ?? null,
         creator_profile_views: row.creator_profile_views ?? null,
         creator_pin_count: row.creator_pin_count ?? null,
+        golden_score: rescoredNoUser.golden_score ?? null,
+        is_golden_pin: Boolean(rescoredNoUser.is_golden_pin),
+        qualified: Boolean(rescoredNoUser.qualified),
         title: row.title || null,
         board_name: row.board_name || null,
         share_count: hydratedShareCount,
@@ -549,9 +564,20 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
       creator_pin_count: enriched.creator_pin_count,
       is_rookie_outlier: Boolean(rescored.is_rookie_outlier),
       outlier_ratio: rescored.outlier_ratio != null ? Number(rescored.outlier_ratio) : null,
+      golden_score: rescored.golden_score != null ? Number(rescored.golden_score) : null,
+      is_golden_pin: Boolean(rescored.is_golden_pin),
+      qualified: Boolean(rescored.qualified),
+      repin_count: rescored.repin_count != null ? Number(rescored.repin_count) : null,
+      save_count: rescored.save_count != null ? Number(rescored.save_count) : null,
+      repin_per_day: rescored.repin_per_day != null ? Number(rescored.repin_per_day) : null,
+      save_per_day: rescored.save_per_day != null ? Number(rescored.save_per_day) : null,
+      created_at_pinterest: rescored.created_at_pinterest || null,
+      age_days: rescored.age_days != null ? Number(rescored.age_days) : null,
       title: enriched.title || null,
       board_name: enriched.board_name || null,
       board_url: enriched.board_url || null,
+      pin_board_name: enriched.pin_board_name || enriched.board_name || null,
+      pin_board_url: enriched.pin_board_url || enriched.board_url || null,
       share_count: hydratedShareCount,
       raw_creation_method: enriched.raw_creation_method || null,
       upload_provenance: resolvedUploadProvenance,
@@ -574,6 +600,9 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
       board_count: u.board_count ?? null,
       is_rookie_outlier: Boolean(rescored.is_rookie_outlier),
       outlier_ratio: rescored.outlier_ratio ?? null,
+      golden_score: rescored.golden_score ?? null,
+      is_golden_pin: Boolean(rescored.is_golden_pin),
+      qualified: Boolean(rescored.qualified),
       title: enriched.title || null,
       board_name: enriched.board_name || null,
       share_count: hydratedShareCount,
@@ -587,59 +616,167 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
 
   if (updatesToPersist.length > 0) {
     updatesToPersist.sort((a, b) => a.pin_id.localeCompare(b.pin_id));
-    await sql`
-      UPDATE newborn_candidates AS nc
-      SET
-        effective_creator_username = COALESCE(NULLIF(u.effective_creator_username, ''), nc.effective_creator_username),
-        effective_creator_followers = COALESCE(u.effective_creator_followers, nc.effective_creator_followers),
-        creator_monthly_reach = COALESCE(u.creator_monthly_reach, nc.creator_monthly_reach),
-        creator_profile_views = COALESCE(u.creator_profile_views, nc.creator_profile_views),
-        creator_pin_count = COALESCE(u.creator_pin_count, nc.creator_pin_count),
-        is_rookie_outlier = u.is_rookie_outlier,
-        outlier_ratio = u.outlier_ratio,
-        title = COALESCE(NULLIF(u.title, ''), nc.title),
-        board_name = COALESCE(NULLIF(u.board_name, ''), nc.board_name),
-        board_url = COALESCE(NULLIF(u.board_url, ''), nc.board_url),
-        share_count = CASE
-          WHEN u.share_count IS NULL THEN nc.share_count
-          WHEN nc.share_count IS NULL THEN u.share_count
-          ELSE GREATEST(nc.share_count, u.share_count)
-        END,
-        raw_creation_method = COALESCE(NULLIF(u.raw_creation_method, ''), nc.raw_creation_method),
-        upload_provenance = CASE
-          WHEN u.upload_provenance IS NOT NULL AND u.upload_provenance <> '' AND u.upload_provenance <> 'UNKNOWN'
-          THEN u.upload_provenance
-          ELSE nc.upload_provenance
-        END,
-        is_repin = (nc.is_repin OR u.is_repin),
-        is_hydrated = (nc.is_hydrated OR u.is_hydrated),
-        visual_annotations = CASE
-          WHEN jsonb_array_length(COALESCE(u.visual_annotations, '[]'::jsonb)) > 0
-          THEN u.visual_annotations
-          ELSE nc.visual_annotations
-        END,
-        updated_at = NOW()
-      FROM jsonb_to_recordset(${JSON.stringify(sanitizeForJsonb(updatesToPersist))}::jsonb) AS u(
-        pin_id text,
-        effective_creator_username text,
-        effective_creator_followers int,
-        creator_monthly_reach bigint,
-        creator_profile_views bigint,
-        creator_pin_count int,
-        is_rookie_outlier boolean,
-        outlier_ratio double precision,
-        title text,
-        board_name text,
-        board_url text,
-        share_count int,
-        raw_creation_method text,
-        upload_provenance text,
-        is_repin boolean,
-        is_hydrated boolean,
-        visual_annotations jsonb
-      )
-      WHERE nc.pin_id = u.pin_id;
-    `;
+    const updatesJson = JSON.stringify(sanitizeForJsonb(updatesToPersist));
+    try {
+      await sql`
+        UPDATE newborn_candidates AS nc
+        SET
+          effective_creator_username = COALESCE(NULLIF(u.effective_creator_username, ''), nc.effective_creator_username),
+          effective_creator_followers = COALESCE(u.effective_creator_followers, nc.effective_creator_followers),
+          creator_monthly_reach = COALESCE(u.creator_monthly_reach, nc.creator_monthly_reach),
+          creator_profile_views = COALESCE(u.creator_profile_views, nc.creator_profile_views),
+          creator_pin_count = COALESCE(u.creator_pin_count, nc.creator_pin_count),
+          is_rookie_outlier = u.is_rookie_outlier,
+          outlier_ratio = u.outlier_ratio,
+          golden_score = COALESCE(u.golden_score, nc.golden_score),
+          is_golden_pin = COALESCE(u.is_golden_pin, nc.is_golden_pin),
+          qualified = COALESCE(u.qualified, nc.qualified),
+          repin_count = CASE
+            WHEN u.repin_count IS NULL THEN nc.repin_count
+            WHEN nc.repin_count IS NULL THEN u.repin_count
+            ELSE GREATEST(nc.repin_count, u.repin_count)
+          END,
+          save_count = CASE
+            WHEN u.save_count IS NULL THEN nc.save_count
+            WHEN nc.save_count IS NULL THEN u.save_count
+            ELSE GREATEST(nc.save_count, u.save_count)
+          END,
+          repin_per_day = COALESCE(u.repin_per_day, nc.repin_per_day),
+          save_per_day = COALESCE(u.save_per_day, nc.save_per_day),
+          created_at_pinterest = COALESCE(NULLIF(u.created_at_pinterest, '')::timestamptz, nc.created_at_pinterest),
+          age_days = COALESCE(u.age_days, nc.age_days),
+          title = COALESCE(NULLIF(u.title, ''), nc.title),
+          pin_board_name = COALESCE(NULLIF(u.pin_board_name, ''), nc.pin_board_name),
+          pin_board_url = COALESCE(NULLIF(u.pin_board_url, ''), nc.pin_board_url),
+          board_name = COALESCE(nc.discovery_board_name, NULLIF(u.board_name, ''), nc.board_name),
+          board_url = COALESCE(nc.discovery_board_url, NULLIF(u.board_url, ''), nc.board_url),
+          share_count = CASE
+            WHEN u.share_count IS NULL THEN nc.share_count
+            WHEN nc.share_count IS NULL THEN u.share_count
+            ELSE GREATEST(nc.share_count, u.share_count)
+          END,
+          raw_creation_method = COALESCE(NULLIF(u.raw_creation_method, ''), nc.raw_creation_method),
+          upload_provenance = CASE
+            WHEN u.upload_provenance IS NOT NULL AND u.upload_provenance <> '' AND u.upload_provenance <> 'UNKNOWN'
+            THEN u.upload_provenance
+            ELSE nc.upload_provenance
+          END,
+          is_repin = (nc.is_repin OR u.is_repin),
+          is_hydrated = (nc.is_hydrated OR u.is_hydrated),
+          visual_annotations = CASE
+            WHEN jsonb_array_length(COALESCE(u.visual_annotations, '[]'::jsonb)) > 0
+            THEN u.visual_annotations
+            ELSE nc.visual_annotations
+          END,
+          updated_at = NOW()
+        FROM jsonb_to_recordset(${updatesJson}::jsonb) AS u(
+          pin_id text,
+          effective_creator_username text,
+          effective_creator_followers int,
+          creator_monthly_reach bigint,
+          creator_profile_views bigint,
+          creator_pin_count int,
+          is_rookie_outlier boolean,
+          outlier_ratio double precision,
+          golden_score double precision,
+          is_golden_pin boolean,
+          qualified boolean,
+          repin_count bigint,
+          save_count bigint,
+          repin_per_day double precision,
+          save_per_day double precision,
+          created_at_pinterest text,
+          age_days double precision,
+          title text,
+          board_name text,
+          board_url text,
+          pin_board_name text,
+          pin_board_url text,
+          share_count int,
+          raw_creation_method text,
+          upload_provenance text,
+          is_repin boolean,
+          is_hydrated boolean,
+          visual_annotations jsonb
+        )
+        WHERE nc.pin_id = u.pin_id;
+      `;
+    } catch (err) {
+      if (String(err?.code || '') !== '42703') throw err;
+      await sql`
+        UPDATE newborn_candidates AS nc
+        SET
+          effective_creator_username = COALESCE(NULLIF(u.effective_creator_username, ''), nc.effective_creator_username),
+          effective_creator_followers = COALESCE(u.effective_creator_followers, nc.effective_creator_followers),
+          creator_monthly_reach = COALESCE(u.creator_monthly_reach, nc.creator_monthly_reach),
+          creator_profile_views = COALESCE(u.creator_profile_views, nc.creator_profile_views),
+          creator_pin_count = COALESCE(u.creator_pin_count, nc.creator_pin_count),
+          is_rookie_outlier = u.is_rookie_outlier,
+          outlier_ratio = u.outlier_ratio,
+          golden_score = COALESCE(u.golden_score, nc.golden_score),
+          is_golden_pin = COALESCE(u.is_golden_pin, nc.is_golden_pin),
+          qualified = COALESCE(u.qualified, nc.qualified),
+          repin_count = COALESCE(u.repin_count, nc.repin_count),
+          save_count = COALESCE(u.save_count, nc.save_count),
+          repin_per_day = COALESCE(u.repin_per_day, nc.repin_per_day),
+          save_per_day = COALESCE(u.save_per_day, nc.save_per_day),
+          created_at_pinterest = COALESCE(NULLIF(u.created_at_pinterest, '')::timestamptz, nc.created_at_pinterest),
+          age_days = COALESCE(u.age_days, nc.age_days),
+          title = COALESCE(NULLIF(u.title, ''), nc.title),
+          board_name = COALESCE(NULLIF(u.board_name, ''), nc.board_name),
+          board_url = COALESCE(NULLIF(u.board_url, ''), nc.board_url),
+          share_count = CASE
+            WHEN u.share_count IS NULL THEN nc.share_count
+            WHEN nc.share_count IS NULL THEN u.share_count
+            ELSE GREATEST(nc.share_count, u.share_count)
+          END,
+          raw_creation_method = COALESCE(NULLIF(u.raw_creation_method, ''), nc.raw_creation_method),
+          upload_provenance = CASE
+            WHEN u.upload_provenance IS NOT NULL AND u.upload_provenance <> '' AND u.upload_provenance <> 'UNKNOWN'
+            THEN u.upload_provenance
+            ELSE nc.upload_provenance
+          END,
+          is_repin = (nc.is_repin OR u.is_repin),
+          is_hydrated = (nc.is_hydrated OR u.is_hydrated),
+          visual_annotations = CASE
+            WHEN jsonb_array_length(COALESCE(u.visual_annotations, '[]'::jsonb)) > 0
+            THEN u.visual_annotations
+            ELSE nc.visual_annotations
+          END,
+          updated_at = NOW()
+        FROM jsonb_to_recordset(${updatesJson}::jsonb) AS u(
+          pin_id text,
+          effective_creator_username text,
+          effective_creator_followers int,
+          creator_monthly_reach bigint,
+          creator_profile_views bigint,
+          creator_pin_count int,
+          is_rookie_outlier boolean,
+          outlier_ratio double precision,
+          golden_score double precision,
+          is_golden_pin boolean,
+          qualified boolean,
+          repin_count bigint,
+          save_count bigint,
+          repin_per_day double precision,
+          save_per_day double precision,
+          created_at_pinterest text,
+          age_days double precision,
+          title text,
+          board_name text,
+          board_url text,
+          pin_board_name text,
+          pin_board_url text,
+          share_count int,
+          raw_creation_method text,
+          upload_provenance text,
+          is_repin boolean,
+          is_hydrated boolean,
+          visual_annotations jsonb
+        )
+        WHERE nc.pin_id = u.pin_id;
+      `;
+    }
   }
 
   const workingRowsByUser = new Map();

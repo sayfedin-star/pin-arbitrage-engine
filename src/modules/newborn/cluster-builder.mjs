@@ -21,6 +21,7 @@
 import { Semaphore, sanitizeForJsonb } from '../../utils.mjs';
 import { NewbornCookieRouter } from './cookie-router.mjs';
 import { fetchKeywordTypeahead } from '../keywords/typeahead.mjs';
+import { slugifyInterestTerm } from '../keywords/trends-service.mjs';
 import {
   resolveTrendsLatestAvailableDate,
   harvestGrowingTrendsSurface,
@@ -93,6 +94,9 @@ export function mergeClusterKeywordEntries(entries = [], { excludeTerms = [] } =
         is_predicted_peak_rising: false,
         l1_interest: null,
         volume_enriched: false,
+        volume_error: false,
+        volume_error_reason: null,
+        trends_search_count: null,
         cluster_score: 0
       };
       byTerm.set(term, entry);
@@ -164,6 +168,15 @@ export function mergeClusterKeywordEntries(entries = [], { excludeTerms = [] } =
     }
     if (raw.volume_enriched === true) {
       entry.volume_enriched = true;
+      entry.volume_error = false;
+      entry.volume_error_reason = null;
+    } else if (raw.volume_error === true && !entry.volume_enriched) {
+      entry.volume_error = true;
+      if (raw.volume_error_reason) entry.volume_error_reason = String(raw.volume_error_reason).slice(0, 120);
+    }
+    if (raw.trends_search_count !== null && raw.trends_search_count !== undefined && Number.isFinite(Number(raw.trends_search_count))) {
+      const tsc = Math.max(0, Math.round(Number(raw.trends_search_count)));
+      entry.trends_search_count = entry.trends_search_count !== null ? Math.max(entry.trends_search_count, tsc) : tsc;
     }
     if (Number.isFinite(Number(raw._ta_rank)) && Number(raw._ta_rank) > 0) {
       const r = Number(raw._ta_rank);
@@ -202,7 +215,7 @@ export function mergeClusterKeywordEntries(entries = [], { excludeTerms = [] } =
  * Fetches 90-day predicted peaks in batches of up to 12 terms (strict zero-cookie Trends API).
  */
 async function enrichPredictedPeaksBatch(router, keywords = [], country = 'US') {
-  const targetTerms = keywords.slice(0, 24).map((k) => k.keyword);
+  const targetTerms = keywords.slice(0, 60).map((k) => k.keyword);
   if (targetTerms.length === 0) return;
 
   const byKey = new Map(keywords.map((k) => [k.keyword, k]));
@@ -261,41 +274,145 @@ async function enrichPredictedPeaksBatch(router, keywords = [], country = 'US') 
 }
 
 /**
- * Enriches a bounded slice of cluster keywords via Zero-Cookie `InterestResource/get` (`Semaphore(5)`).
+ * Extracts official Pinterest interest slug + ID from an existing row's `idea_url` / `interest_id`,
+ * falling back to Unicode-safe `slugifyInterestTerm(row.keyword)`.
+ */
+export function resolveInterestLookupTarget(row) {
+  const rawIdeaUrl = String(row?.idea_url || '').trim();
+  const explicitId = String(row?.interest_id || '').trim();
+  let urlSlug = '';
+  let urlId = '';
+
+  if (rawIdeaUrl) {
+    const match = rawIdeaUrl.match(/\/ideas\/([^/?#]+)(?:\/(\d+))?/i);
+    if (match) {
+      try {
+        urlSlug = decodeURIComponent(match[1] || '').trim();
+      } catch (_) {
+        urlSlug = String(match[1] || '').trim();
+      }
+      urlId = String(match[2] || '').trim();
+    }
+  }
+
+  const interestId = (explicitId && explicitId !== '0') ? explicitId : (urlId && urlId !== '0' ? urlId : '');
+  const slug = urlSlug || slugifyInterestTerm(row?.keyword || '');
+  const sourceUrl = interestId && slug
+    ? `/ideas/${encodeURIComponent(slug)}/${encodeURIComponent(interestId)}/`
+    : (slug ? `/ideas/${encodeURIComponent(slug)}/` : '');
+
+  return { slug, interestId, sourceUrl };
+}
+
+/**
+ * Enriches a bounded slice of cluster keywords via Zero-Cookie `InterestResource/get` (`Semaphore(4)`).
+ * - Uses official `row.interest_id` / `row.idea_url` first, then `slugifyInterestTerm`.
+ * - ONLY marks `volume_enriched = true` when the network call actually returns a definitive response
+ *   (HTTP 200 with payload, or HTTP 404 confirming no official Taxonomy page).
+ * - On transient network error / HTTP 429 / 5xx / circuit breaker open, keeps `volume_enriched = false`
+ *   and sets `volume_error = true` + `volume_error_reason` so the operator can retry cleanly!
  */
 async function enrichKeywordsInterestVolumes(router, rowsToEnrich = [], { discoveredRelatedOut = null } = {}) {
-  if (!Array.isArray(rowsToEnrich) || rowsToEnrich.length === 0) return 0;
+  if (!Array.isArray(rowsToEnrich) || rowsToEnrich.length === 0) {
+    return { enrichedCount: 0, failedCount: 0, rateLimited: false };
+  }
 
-  const sem = new Semaphore(5);
+  const sem = new Semaphore(4);
   let enrichedCount = 0;
+  let failedCount = 0;
+  let rateLimited = false;
 
   await Promise.all(
     rowsToEnrich.map((row) => sem.run(async () => {
-      const slug = row.keyword.replace(/[^a-z0-9\s-]/gi, ' ').trim().replace(/[\s_]+/g, '-');
-      if (!slug) {
+      const { slug, interestId: knownId, sourceUrl } = resolveInterestLookupTarget(row);
+      if (!slug && !knownId) {
         row.volume_enriched = true;
+        row.volume_error = false;
+        row.volume_error_reason = null;
+        row.has_taxonomy = false;
+        enrichedCount++;
         return;
       }
 
-      const dataParam = encodeURIComponent(JSON.stringify({
-        options: { interest: slug, field_set_key: 'ideas_hub' },
-        context: {}
-      }));
-      const url = `https://www.pinterest.com/resource/InterestResource/get/?source_url=${encodeURIComponent(`/ideas/${slug}/`)}&data=${dataParam}`;
+      const fetchByOptions = async (opts, srcUrl) => {
+        const dataParam = encodeURIComponent(JSON.stringify({
+          options: { ...opts, field_set_key: 'ideas_hub' },
+          context: {}
+        }));
+        const url = `https://www.pinterest.com/resource/InterestResource/get/?source_url=${encodeURIComponent(srcUrl)}&data=${dataParam}`;
+        return await router.requestJson(url, {
+          endpointKey: 'interest_resource',
+          sourceUrl: srcUrl,
+          handler: 'www/ideas/[interest_url_name]/[interest_id].js'
+        }).catch((err) => ({ ok: false, status: 0, error: err?.message || 'network_error' }));
+      };
 
-      const res = await router.requestJson(url, {
-        endpointKey: 'interest_resource',
-        sourceUrl: `/ideas/${slug}/`,
-        handler: 'www/ideas/[interest_url_name]/[interest_id].js'
-      }).catch(() => ({ ok: false }));
+      // Prefer official interest_id when already known (from Related Interests / Idea Pivots),
+      // falling back to slug lookup if needed.
+      let res = null;
+      if (knownId) {
+        res = await fetchByOptions(
+          { interest: slug || knownId, interest_id: knownId },
+          sourceUrl || `/ideas/${encodeURIComponent(slug || knownId)}/${encodeURIComponent(knownId)}/`
+        );
+        // If Pinterest rejects combined interest_id parameter with 400/404 and we have a slug, retry with slug only
+        if (res && !res.ok && (res.status === 400 || res.status === 404) && slug) {
+          res = await fetchByOptions({ interest: slug }, `/ideas/${encodeURIComponent(slug)}/`);
+        }
+      } else {
+        res = await fetchByOptions({ interest: slug }, `/ideas/${encodeURIComponent(slug)}/`);
+      }
 
+      // Retry once on transient network/5xx error (never on 429 or explicit 404)
+      const status = Number(res?.status || 0);
+      if (!res?.ok && (status === 0 || status >= 500) && !String(res?.error || '').toLowerCase().includes('circuit')) {
+        await new Promise((r) => setTimeout(r, 250));
+        res = knownId
+          ? await fetchByOptions({ interest: slug || knownId, interest_id: knownId }, sourceUrl || `/ideas/${encodeURIComponent(slug || knownId)}/`)
+          : await fetchByOptions({ interest: slug }, `/ideas/${encodeURIComponent(slug)}/`);
+      }
+
+      const finalStatus = Number(res?.status || 0);
+      const errMsg = String(res?.error || '').trim();
+      const isTransientFailure = Boolean(
+        !res?.ok && (
+          finalStatus === 429 ||
+          finalStatus === 0 ||
+          finalStatus >= 500 ||
+          finalStatus === 403 ||
+          errMsg.toLowerCase().includes('circuit') ||
+          errMsg.toLowerCase().includes('timeout') ||
+          errMsg.toLowerCase().includes('abort') ||
+          errMsg.toLowerCase().includes('network')
+        )
+      );
+
+      if (isTransientFailure) {
+        if (finalStatus === 429 || errMsg.toLowerCase().includes('circuit')) {
+          rateLimited = true;
+        }
+        row.volume_enriched = false;
+        row.volume_error = true;
+        row.volume_error_reason = finalStatus === 429
+          ? 'HTTP_429_RATE_LIMIT'
+          : (errMsg || (finalStatus ? `HTTP_${finalStatus}` : 'NETWORK_ERROR')).slice(0, 120);
+        failedCount++;
+        return;
+      }
+
+      // Definitive response received (HTTP 200 or confirmed 404 non-taxonomy)
+      const data = res?.data?.resource_response?.data || res?.data?.data || null;
       row.volume_enriched = true;
+      row.volume_error = false;
+      row.volume_error_reason = null;
       enrichedCount++;
 
-      const data = res?.data?.resource_response?.data || res?.data?.data || null;
-      if (!res?.ok || !data || data.is_interest === false) return;
+      if (!res?.ok || !data || data.is_interest === false) {
+        if (!row.interest_id) row.has_taxonomy = false;
+        return;
+      }
 
-      const interestId = String(data.id || '').trim();
+      const interestId = String(data.id || knownId || '').trim();
       const searchCount = Number(data.internal_search_count ?? data.search_count ?? 0);
       const urlName = String(data.url_name || slug).trim();
 
@@ -332,7 +449,7 @@ async function enrichKeywordsInterestVolumes(router, rowsToEnrich = [], { discov
     }))
   );
 
-  return enrichedCount;
+  return { enrichedCount, failedCount, rateLimited };
 }
 
 /**
@@ -441,8 +558,10 @@ export async function buildNewbornKeywordCluster(sql, options = {}) {
         weekly_change: tr.weekly_change,
         monthly_change: tr.monthly_change,
         yearly_change: tr.yearly_change,
+        trends_search_count: Number.isFinite(Number(tr.search_count)) && Number(tr.search_count) > 0 ? Math.round(Number(tr.search_count)) : null,
         has_prediction: Boolean(tr.has_prediction),
         predicted_peak_date: tr.predicted_peak_date || null,
+        predicted_90d_growth: tr.predicted_90d_growth ?? null,
         is_predicted_peak_rising: Boolean(tr.is_predicted_peak_rising)
       });
     }
@@ -502,8 +621,8 @@ export async function buildNewbornKeywordCluster(sql, options = {}) {
     .slice(0, enrichLimit);
 
   const discoveredRelatedFromTop = [];
-  await Promise.all([
-    enrichPredictedPeaksBatch(router, mergedKeywords.slice(0, 20), country),
+  const [, enrichStats] = await Promise.all([
+    enrichPredictedPeaksBatch(router, mergedKeywords.slice(0, 24), country),
     enrichKeywordsInterestVolumes(router, toEnrichVolume, { discoveredRelatedOut: discoveredRelatedFromTop })
   ]);
 
@@ -512,6 +631,7 @@ export async function buildNewbornKeywordCluster(sql, options = {}) {
 
   const discoveredAccounts = Array.from(discoveredAccountsMap.values());
   const enrichedCount = mergedKeywords.filter((k) => k.volume_enriched).length;
+  const failedVolumeCount = mergedKeywords.filter((k) => k.volume_error && !k.volume_enriched).length;
   const remainingUnenrichedCount = Math.max(0, mergedKeywords.length - enrichedCount);
   const buildMs = Date.now() - startedAtMs;
 
@@ -521,7 +641,9 @@ export async function buildNewbornKeywordCluster(sql, options = {}) {
     trends_counts_by_tab: trendsCountsByTab,
     typeahead_queries_run: typeaheadQueries.length,
     typeahead_suggestions_raw: typeaheadSuggestionCount,
-    remaining_unenriched_count: remainingUnenrichedCount
+    remaining_unenriched_count: remainingUnenrichedCount,
+    failed_volume_count: failedVolumeCount,
+    phase1_rate_limited: Boolean(enrichStats?.rateLimited)
   });
 
   const wid = Number.isInteger(Number(options.workspaceId)) && Number(options.workspaceId) > 0 ? Number(options.workspaceId) : 1;
@@ -609,6 +731,7 @@ export async function buildNewbornKeywordCluster(sql, options = {}) {
     discovered_accounts: discoveredAccounts,
     keyword_count: mergedKeywords.length,
     enriched_count: enrichedCount,
+    failed_volume_count: failedVolumeCount,
     remaining_unenriched_count: remainingUnenrichedCount,
     status: 'ready',
     last_run_id: null,
@@ -662,7 +785,13 @@ export async function enrichClusterRemainingVolumes(sql, clusterId, options = {}
     throw err;
   }
 
-  const batchLimit = Math.max(5, Math.min(40, Number(options.batchLimit ?? options.limit ?? 25) || 25));
+  const batchLimit = Math.max(1, Math.min(50, Number(options.batchLimit ?? options.limit ?? 25) || 25));
+  const retryKeywords = Array.isArray(options.retryKeywords || options.retry_keywords)
+    ? (options.retryKeywords || options.retry_keywords).map(normalizeClusterTerm).filter(Boolean)
+    : [];
+  const retryKeywordsSet = new Set(retryKeywords);
+  const retryErrorsOnly = Boolean(options.retryErrorsOnly || options.retry_errors);
+
   const fetchImpl = options.routerOptions?.fetchImpl ||
     (typeof options.env?.NEWBORN_FETCH_IMPL === 'function' ? options.env.NEWBORN_FETCH_IMPL : undefined);
   const router = options.router || new NewbornCookieRouter({
@@ -672,22 +801,57 @@ export async function enrichClusterRemainingVolumes(sql, clusterId, options = {}
   });
 
   const currentKeywords = Array.isArray(existing.keywords) ? existing.keywords.map((k) => ({ ...k })) : [];
-  const pending = currentKeywords.filter((k) => !k.volume_enriched).slice(0, batchLimit);
+
+  let pending = [];
+  if (retryKeywordsSet.size > 0) {
+    // Explicit single or multi-keyword retry: reset error & volume_enriched so they are freshly fetched
+    pending = currentKeywords
+      .filter((k) => retryKeywordsSet.has(normalizeClusterTerm(k.keyword)))
+      .slice(0, batchLimit);
+    for (const row of pending) {
+      row.volume_enriched = false;
+      row.volume_error = false;
+      row.volume_error_reason = null;
+    }
+  } else if (retryErrorsOnly) {
+    pending = currentKeywords
+      .filter((k) => !k.volume_enriched && k.volume_error)
+      .slice(0, batchLimit);
+    for (const row of pending) {
+      row.volume_error = false;
+      row.volume_error_reason = null;
+    }
+  } else {
+    // Prioritize never-attempted keywords first, then previously errored keywords
+    const neverAttempted = currentKeywords.filter((k) => !k.volume_enriched && !k.volume_error);
+    const errored = currentKeywords.filter((k) => !k.volume_enriched && k.volume_error);
+    pending = [...neverAttempted, ...errored].slice(0, batchLimit);
+  }
 
   let newlyEnriched = 0;
+  let newlyFailed = 0;
+  let rateLimited = false;
   if (pending.length > 0) {
-    newlyEnriched = await enrichKeywordsInterestVolumes(router, pending);
-    await enrichPredictedPeaksBatch(router, pending.slice(0, 12), existing.country || 'US');
+    const enrichStats = await enrichKeywordsInterestVolumes(router, pending);
+    newlyEnriched = enrichStats.enrichedCount;
+    newlyFailed = enrichStats.failedCount;
+    rateLimited = enrichStats.rateLimited;
+    await enrichPredictedPeaksBatch(router, pending, existing.country || 'US');
   }
 
   const reMerged = mergeClusterKeywordEntries(currentKeywords, {
     excludeTerms: Array.isArray(existing.exclude_terms) ? existing.exclude_terms : []
   });
   const enrichedCount = reMerged.filter((k) => k.volume_enriched).length;
+  const failedVolumeCount = reMerged.filter((k) => k.volume_error && !k.volume_enriched).length;
   const remainingCount = Math.max(0, reMerged.length - enrichedCount);
+  const unattemptedCount = reMerged.filter((k) => !k.volume_enriched && !k.volume_error).length;
   const updatedMeta = sanitizeForJsonb({
     ...(existing.metadata && typeof existing.metadata === 'object' ? existing.metadata : {}),
     remaining_unenriched_count: remainingCount,
+    failed_volume_count: failedVolumeCount,
+    unattempted_volume_count: unattemptedCount,
+    last_batch_rate_limited: rateLimited,
     last_enriched_at: new Date().toISOString()
   });
 
@@ -747,7 +911,11 @@ export async function enrichClusterRemainingVolumes(sql, clusterId, options = {}
     keyword_count: reMerged.length,
     enriched_count: enrichedCount,
     newly_enriched_count: newlyEnriched,
+    newly_failed_count: newlyFailed,
+    failed_volume_count: failedVolumeCount,
+    unattempted_volume_count: unattemptedCount,
     remaining_unenriched_count: remainingCount,
+    rate_limited: rateLimited,
     status: existing.status || 'ready',
     last_run_id: existing.last_run_id ? Number(existing.last_run_id) : null,
     metadata: updatedMeta,
@@ -814,10 +982,13 @@ export async function getNewbornKeywordClusterById(sql, clusterId, { workspaceId
   const row = rows?.[0] || null;
   if (!row) return null;
   const keywords = Array.isArray(row.keywords) ? row.keywords : [];
-  const enrichedCount = Number(row.enriched_count ?? keywords.filter((k) => k.volume_enriched).length);
+  const enrichedCount = keywords.filter((k) => k.volume_enriched).length;
+  const failedVolumeCount = keywords.filter((k) => k.volume_error && !k.volume_enriched).length;
   return {
     ...row,
     id: Number(row.id),
+    enriched_count: enrichedCount,
+    failed_volume_count: failedVolumeCount,
     last_run_id: row.last_run_id ? Number(row.last_run_id) : null,
     remaining_unenriched_count: Math.max(0, keywords.length - enrichedCount)
   };

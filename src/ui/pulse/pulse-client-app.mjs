@@ -987,8 +987,8 @@ export function getPulseClientAppScript() {
           }
           // @deprecated VM fallback when shared-head formatters are absent
           if (!url) return '#';
-          var s = String(url).trim();
-          if (/^https?:\\/\\//i.test(s) || (s.startsWith('/') && !s.startsWith('//'))) return s;
+          var s = String(url).replace(/[\\u0000-\\u001F\\u007F]/g, '').trim();
+          if (/^https?:\\/\\//i.test(s) || (s.startsWith('/') && !s.startsWith('//') && s.indexOf('/\\\\') !== 0)) return s;
           return '#';
         },
 

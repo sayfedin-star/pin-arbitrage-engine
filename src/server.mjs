@@ -581,12 +581,16 @@ export function createFastifyApp(customEnv = {}) {
       console.warn('[POST /api/internal/self-update queue note]:', qErr?.message || qErr);
     });
 
-    return reply.code(202).header('Content-Type', 'application/json').send({
-      success: true,
-      queued: true,
-      previous_commit: currentSha,
-      message: 'Self-update and migration check queued in background.'
-    });
+    return reply
+      .code(202)
+      .header('Content-Type', 'application/json')
+      .header('Cache-Control', 'no-store, no-cache, must-revalidate, private')
+      .send({
+        success: true,
+        queued: true,
+        previous_commit: currentSha,
+        message: 'Self-update and migration check queued in background.'
+      });
   });
 
   // 3c. Native Fastify Domain API Plugin (eliminates Web-Request / Readable.fromWeb bridge for /api/*)

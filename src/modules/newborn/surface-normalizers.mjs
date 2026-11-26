@@ -373,7 +373,7 @@ export function extractPinAnnotationsDetailed(rawPin) {
     }
   }
 
-  if (map.size === 0 && Array.isArray(rawPin.annotations)) {
+  if (Array.isArray(rawPin.annotations)) {
     for (const item of rawPin.annotations) ingestLinkedItem(item);
   }
 
@@ -472,10 +472,20 @@ export function normalizeSurfaceCandidatePin(rawPin, context = {}) {
 
   const detailedAnnotations = extractPinAnnotationsDetailed(rawPin);
   const boardObj = rawPin.board || {};
+  const isBoardDiscoverySurface = context.surface === 'board_more_ideas' || context.surface === 'board_feed';
+  const discoveryBoardName = isBoardDiscoverySurface
+    ? (decodeHtmlEntities(safeString(context.discovery_board_name || context.board_name || '')) || null)
+    : (decodeHtmlEntities(safeString(context.discovery_board_name || '')) || null);
+  const discoveryBoardUrl = isBoardDiscoverySurface
+    ? formatPinterestBoardUrl(context.discovery_board_url || context.board_url || '')
+    : formatPinterestBoardUrl(context.discovery_board_url || '');
+
+  const pinBoardName = decodeHtmlEntities(safeString(boardObj.name || formatted?.board_name || '')) || null;
+  const pinBoardUrl = formatPinterestBoardUrl(safeString(boardObj.url || formatted?.board_url || ''));
+
   const boardId = safeString(boardObj.id || boardObj.entityId || context.board_id || formatted?.board_id || '') || null;
-  const boardName = decodeHtmlEntities(safeString(boardObj.name || context.board_name || formatted?.board_name || '')) || null;
-  const boardUrlRaw = safeString(boardObj.url || context.board_url || formatted?.board_url || '');
-  const boardUrl = formatPinterestBoardUrl(boardUrlRaw);
+  const boardName = discoveryBoardName || pinBoardName || decodeHtmlEntities(safeString(context.board_name || '')) || null;
+  const boardUrl = discoveryBoardUrl || pinBoardUrl || formatPinterestBoardUrl(safeString(context.board_url || ''));
 
   const rawBoardPins = boardObj.pin_count ?? boardObj.pinCount ?? context.board_pin_count ?? null;
   const boardPinCount = rawBoardPins !== null && rawBoardPins !== undefined
@@ -578,7 +588,12 @@ export function normalizeSurfaceCandidatePin(rawPin, context = {}) {
     )
   );
 
-  const surfaceId = context.surface || 'pin_serp_capsules';
+  const rawSurface = context.is_hydration_overlay
+    ? null
+    : (context.surface !== undefined ? context.surface : 'pin_serp_capsules');
+  const surfaceId = (rawSurface && String(rawSurface).trim().toLowerCase() !== 'pin_resource')
+    ? String(rawSurface).trim()
+    : null;
 
   return {
     pin_id: rawId,
@@ -588,7 +603,7 @@ export function normalizeSurfaceCandidatePin(rawPin, context = {}) {
     root_pin_id: originPinId || (isRepin ? (canonicalPinId || rawId) : rawId),
     root_age_verified: context.root_age_verified ?? null,
     first_surface: surfaceId,
-    discovered_surfaces: [surfaceId],
+    discovered_surfaces: surfaceId ? [surfaceId] : [],
     seed_query: context.seed_query || null,
     matched_queries: context.seed_query ? [String(context.seed_query).trim().toLowerCase()] : [],
     snowball_parent_pin_id: context.snowball_parent_pin_id || null,
@@ -614,6 +629,10 @@ export function normalizeSurfaceCandidatePin(rawPin, context = {}) {
     board_id: boardId,
     board_name: boardName,
     board_url: boardUrl,
+    discovery_board_name: discoveryBoardName,
+    discovery_board_url: discoveryBoardUrl,
+    pin_board_name: pinBoardName,
+    pin_board_url: pinBoardUrl,
     board_pin_count: boardPinCount,
     board_follower_count: boardFollowerCount,
     board_order_modified_at: boardOrderModifiedAt,
@@ -646,10 +665,32 @@ export function mergeCandidatePinRecords(base, incoming) {
   if (!base) return incoming;
   if (!incoming) return base;
 
+  const SURFACE_PRIORITY = [
+    'board_more_ideas',
+    'pin_serp_capsules',
+    'ideas_feeds',
+    'home_feed',
+    'related_pin_snowball',
+    'board_feed',
+    'growing_trends',
+    'zero_query_popular'
+  ];
   const surfaces = Array.from(new Set([
     ...(Array.isArray(base.discovered_surfaces) ? base.discovered_surfaces : []),
     ...(Array.isArray(incoming.discovered_surfaces) ? incoming.discovered_surfaces : [])
-  ]));
+  ].map((s) => String(s || '').trim()).filter((s) => s && s.toLowerCase() !== 'pin_resource')));
+
+  const pickDeterministicFirstSurface = () => {
+    const cleanBase = base.first_surface && String(base.first_surface).toLowerCase() !== 'pin_resource' ? base.first_surface : null;
+    const cleanInc = incoming.first_surface && String(incoming.first_surface).toLowerCase() !== 'pin_resource' ? incoming.first_surface : null;
+    if (surfaces.length > 0) {
+      for (const p of SURFACE_PRIORITY) {
+        if (surfaces.includes(p)) return p;
+      }
+      return surfaces[0];
+    }
+    return cleanBase || cleanInc || 'pin_serp_capsules';
+  };
 
   const annMap = new Map();
   for (const a of [...(base.visual_annotations || []), ...(incoming.visual_annotations || [])]) {
@@ -698,8 +739,9 @@ export function mergeCandidatePinRecords(base, incoming) {
 
   const destinationUrl = incoming.destination_url || base.destination_url || null;
   const cleanDomain = incoming.clean_domain || base.clean_domain || null;
-  const isLinkless = !destinationUrl && !cleanDomain
-    ? Boolean(incoming.is_linkless ?? base.is_linkless)
+  const isInternalDomain = Boolean(cleanDomain && /(^|\.)(pinterest\.|pin\.it)/i.test(String(cleanDomain)));
+  const isLinkless = (!destinationUrl || !cleanDomain || isInternalDomain)
+    ? true
     : false;
 
   const rawCreationMethod = (
@@ -742,7 +784,7 @@ export function mergeCandidatePinRecords(base, incoming) {
     aggregated_pin_data_id: incoming.aggregated_pin_data_id || base.aggregated_pin_data_id || null,
     root_pin_id: incoming.root_pin_id || base.root_pin_id || incoming.pin_id || base.pin_id,
     root_age_verified: resolvedRootVerified,
-    first_surface: base.first_surface || incoming.first_surface,
+    first_surface: pickDeterministicFirstSurface(),
     discovered_surfaces: surfaces,
     seed_query: base.seed_query || incoming.seed_query || null,
     matched_queries: Array.from(new Set([
@@ -780,8 +822,12 @@ export function mergeCandidatePinRecords(base, incoming) {
     creator_pin_count: pickMaxNullable(base.creator_pin_count, incoming.creator_pin_count),
     is_repin: Boolean(base.is_repin || incoming.is_repin || (originUsername && pinnerUsername && originUsername !== pinnerUsername)),
     board_id: incoming.board_id || base.board_id || null,
-    board_name: preferHydratedText(base.board_name, incoming.board_name) || null,
-    board_url: formatPinterestBoardUrl(incoming.board_url || base.board_url || ''),
+    discovery_board_name: base.discovery_board_name || incoming.discovery_board_name || null,
+    discovery_board_url: formatPinterestBoardUrl(base.discovery_board_url || incoming.discovery_board_url || ''),
+    pin_board_name: preferHydratedText(base.pin_board_name, incoming.pin_board_name) || null,
+    pin_board_url: formatPinterestBoardUrl(incoming.pin_board_url || base.pin_board_url || ''),
+    board_name: base.discovery_board_name || incoming.discovery_board_name || preferHydratedText(base.pin_board_name || base.board_name, incoming.pin_board_name || incoming.board_name) || null,
+    board_url: formatPinterestBoardUrl(base.discovery_board_url || incoming.discovery_board_url || incoming.pin_board_url || incoming.board_url || base.pin_board_url || base.board_url || ''),
     board_pin_count: pickMaxNullable(base.board_pin_count, incoming.board_pin_count),
     board_follower_count: pickMaxNullable(base.board_follower_count, incoming.board_follower_count),
     board_order_modified_at: incoming.board_order_modified_at || base.board_order_modified_at || null,

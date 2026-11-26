@@ -219,7 +219,17 @@ export function clearNewbornInflightRunsForTest() {
 
 export function buildNewbornDedupeKey(
   runType,
-  { seedQueries = [], seedPinIds = [], seedBoards = [], folderId = null, workspaceId = 1, settingsOverrides = null } = {}
+  {
+    seedQueries = [],
+    seedPinIds = [],
+    seedBoards = [],
+    folderId = null,
+    workspaceId = 1,
+    profileId = null,
+    clusterId = null,
+    workerIndex = null,
+    settingsOverrides = null
+  } = {}
 ) {
   const cleanQueries = Array.from(new Set(
     (Array.isArray(seedQueries) ? seedQueries : [seedQueries])
@@ -239,9 +249,12 @@ export function buildNewbornDedupeKey(
   const normalizedSeeds = JSON.stringify({ q: cleanQueries, p: cleanPins, b: cleanBoards });
   const fid = folderId !== null && folderId !== undefined && Number(folderId) > 0 ? Number(folderId) : 'global';
   const wid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
+  const pid = profileId !== null && profileId !== undefined && String(profileId).trim() !== '' ? `|p:${String(profileId).trim()}` : '';
+  const cid = clusterId !== null && clusterId !== undefined && Number(clusterId) > 0 ? `|c:${Number(clusterId)}` : '';
+  const widx = workerIndex !== null && workerIndex !== undefined && Number.isInteger(Number(workerIndex)) && Number(workerIndex) > 0 ? `|w:${Number(workerIndex)}` : '';
   const hasOverrides = settingsOverrides && typeof settingsOverrides === 'object' && Object.keys(settingsOverrides).length > 0;
   const overrideSig = hasOverrides ? `|${JSON.stringify(settingsOverrides)}` : '';
-  return `${String(runType || 'discovery').toLowerCase()}|ws:${wid}|${normalizedSeeds}|${fid}${overrideSig}`;
+  return `${String(runType || 'discovery').toLowerCase()}|ws:${wid}|${normalizedSeeds}|${fid}${pid}${cid}${widx}${overrideSig}`;
 }
 
 /**
@@ -622,7 +635,7 @@ export async function createFleetBackedNewbornRun(sql, options = {}) {
     ]
       .map((q) => String(q || '').trim().toLowerCase())
       .filter(Boolean)
-  )).slice(0, 100);
+  ));
 
   const normalizedBoards = Array.isArray(seedBoards)
     ? seedBoards.filter(Boolean).slice(0, 50)
@@ -839,7 +852,9 @@ export async function enqueueNewbornRun(sql, options = {}) {
     seedBoards: cleanBoards,
     folderId: numericFolderId,
     workspaceId: wid,
+    profileId: profileId ?? null,
     clusterId: numericClusterId,
+    workerIndex,
     settingsOverrides
   });
 
@@ -1106,6 +1121,7 @@ export async function enqueueNewbornRun(sql, options = {}) {
             autoPromote,
             routerOptions,
             signal,
+            onProgress: handleLiveProgress,
             env,
             ctx
           });
@@ -1121,6 +1137,7 @@ export async function enqueueNewbornRun(sql, options = {}) {
             existingRunId: runRowId,
             routerOptions,
             signal,
+            onProgress: handleLiveProgress,
             env,
             ctx
           });

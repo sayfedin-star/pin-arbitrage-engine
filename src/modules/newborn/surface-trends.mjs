@@ -8,7 +8,8 @@
 import { safeString } from '../../core/pinterest/pins.mjs';
 import {
   fetchPinterestInterestVolume,
-  fetchPinterestBatchVelocity
+  fetchPinterestBatchVelocity,
+  slugifyInterestTerm
 } from '../keywords/trends-service.mjs';
 import { normalizeSurfaceCandidatePin } from './surface-normalizers.mjs';
 
@@ -63,7 +64,7 @@ export async function resolveIdeaPageIntelligence(term, { router = null, country
     return { found: false, term: cleanTerm, idea_url: null, internal_search_count: 0 };
   }
 
-  const slug = cleanTerm.replace(/[^a-z0-9\s-]/gi, ' ').trim().replace(/[\s_]+/g, '-');
+  const slug = slugifyInterestTerm(cleanTerm);
   if (!slug) {
     return { found: false, term: cleanTerm, idea_url: null, internal_search_count: 0 };
   }
@@ -378,13 +379,16 @@ export async function harvestGrowingTrendsSurface(
       ? Number(item.seasonality_score)
       : null;
     const predictedPeakDate = safeString(item.predicted_peak_date || item.peak_date || item.peakDate || '') || null;
+    const rawPredGrowth = item.predicted_90d_growth ?? item.predictedGrowth ?? null;
+    const predicted90dGrowth = rawPredGrowth !== null && rawPredGrowth !== undefined && Number.isFinite(Number(rawPredGrowth))
+      ? Number(rawPredGrowth)
+      : null;
     const hasPrediction = Boolean(
-      item.hasPrediction ??
-      item.has_prediction ??
-      item.isPredicted ??
-      item.predicted_peak_date ??
-      item.peak_date ??
-      (Number.isFinite(seasonalityScore) && seasonalityScore >= 0.825)
+      item.hasPrediction === true ||
+      item.has_prediction === true ||
+      item.isPredicted === true ||
+      Boolean(predictedPeakDate) ||
+      predicted90dGrowth !== null
     );
 
     trends.push({
@@ -397,12 +401,12 @@ export async function harvestGrowingTrendsSurface(
       monthly_growth_pct: monthlyPct,
       yearly_change: yearlyPct,
       yearly_growth_pct: yearlyPct,
-      seasonality_score: item.seasonality_score !== undefined ? Number(item.seasonality_score) : null,
+      seasonality_score: seasonalityScore,
       search_count: item.searchCount !== undefined ? Number(item.searchCount) : (item.normalizedCount !== undefined ? Number(item.normalizedCount) : null),
       has_prediction: hasPrediction,
-      predicted_90d_growth: null,
+      predicted_90d_growth: predicted90dGrowth,
       predicted_peak_date: predictedPeakDate,
-      is_predicted_peak_rising: false
+      is_predicted_peak_rising: Boolean(predicted90dGrowth !== null && predicted90dGrowth > 5)
     });
 
     const samplePins = item.sample_pins || item.pins || item.top_pins || [];

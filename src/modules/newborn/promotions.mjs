@@ -18,6 +18,7 @@ import { invalidateFolderCache } from '../keywords/folders-crossover.mjs';
 import { bulkCreateClusterSeedsService } from '../cluster/service.mjs';
 import { invalidateGlobalPulseCache } from '../pulse/service.mjs';
 import { normalizePinterestUsername } from '../creators/competitors-crud.mjs';
+import { assertFolderInWorkspace } from '../workspaces/service.mjs';
 
 export function normalizeCandidateForMasterIngest(cand) {
   const annotations = Array.isArray(cand.visual_annotations)
@@ -86,6 +87,7 @@ export async function promoteNewbornCandidates(sql, options = {}) {
     destinations = {},
     source = 'manual',
     notes = '',
+    workspaceId = null,
     env = null,
     ctx = null
   } = options;
@@ -131,8 +133,20 @@ export async function promoteNewbornCandidates(sql, options = {}) {
   const explicitKeyword = typeof destinations.keyword === 'string' ? destinations.keyword.trim().toLowerCase() : '';
   const promoteClusterSeeds = Boolean(destinations.promote_to_cluster_seeds);
 
+  let resolvedWorkspaceId = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
+  if (numericFolderId !== null && workspaceId !== null && workspaceId !== undefined) {
+    try {
+      const folderMeta = await assertFolderInWorkspace(sql, numericFolderId, resolvedWorkspaceId);
+      if (folderMeta?.workspace_id) resolvedWorkspaceId = Number(folderMeta.workspace_id);
+    } catch (err) {
+      // Allow legacy tests/schemas without keyword_folders.workspace_id, but propagate genuine 403/404 isolation errors
+      if (err?.status === 403 || err?.status === 404 || err?.status === 400) throw err;
+    }
+  }
+
   const appliedDestinations = [];
   let anchorsCreated = 0;
+  let campaignTrackedCreated = 0;
   const createdKeywords = [];
   let clusterSeedsCreated = 0;
   const promotedIds = candidateRows.map((c) => String(c.pin_id)).sort((a, b) => a.localeCompare(b));
@@ -243,6 +257,36 @@ export async function promoteNewbornCandidates(sql, options = {}) {
         }
       }
 
+      if (numericFolderId !== null) {
+        // Unified Campaign Tracking: also enroll promoted pins directly into campaign_tracked_pins
+        // so they appear immediately inside the Campaign AND track daily velocity without ghost rows!
+        try {
+          const trackedRows = await tx`
+            INSERT INTO campaign_tracked_pins (
+              folder_id, workspace_id, pin_id, source_type, source_ref, is_active, added_at
+            )
+            SELECT
+              ${numericFolderId},
+              ${resolvedWorkspaceId},
+              p_id,
+              'newborn',
+              ${String(source || 'discover_promote').slice(0, 255)},
+              TRUE,
+              NOW()
+            FROM UNNEST(${promotedIds}::text[]) AS p_id
+            ORDER BY p_id ASC
+            ON CONFLICT (folder_id, pin_id, source_type) DO UPDATE SET
+              is_active = TRUE,
+              source_ref = CASE WHEN EXCLUDED.source_ref <> '' THEN EXCLUDED.source_ref ELSE campaign_tracked_pins.source_ref END
+            RETURNING pin_id;
+          `;
+          campaignTrackedCreated = Array.isArray(trackedRows) ? trackedRows.length : promotedIds.length;
+        } catch (err) {
+          // Graceful fallback if campaign_tracked_pins table does not exist in older unit test mocks
+          if (!['42P01', '42703'].includes(String(err?.code || ''))) throw err;
+        }
+      }
+
       if (promoteKeyword && createdKeywords.length > 0) appliedDestinations.push('tracked_keywords');
       if (numericFolderId !== null) appliedDestinations.push(`campaign_folder:${numericFolderId}`);
     }
@@ -264,6 +308,7 @@ export async function promoteNewbornCandidates(sql, options = {}) {
       UPDATE newborn_candidates
       SET
         stage = 'promoted',
+        folder_id = COALESCE(${numericFolderId}, folder_id),
         promoted_at = COALESCE(promoted_at, NOW()),
         promoted_destinations = ${JSON.stringify(appliedDestinations)}::jsonb,
         updated_at = NOW()
@@ -290,6 +335,7 @@ export async function promoteNewbornCandidates(sql, options = {}) {
     pin_ids: promotedIds,
     destinations_applied: appliedDestinations,
     anchors_created: anchorsCreated,
+    campaign_tracked_count: campaignTrackedCreated,
     keywords_created: createdKeywords,
     cluster_seeds_created: clusterSeedsCreated
   };

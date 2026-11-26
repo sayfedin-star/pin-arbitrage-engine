@@ -177,13 +177,13 @@ export function getNewbornCandidatesAndRookiesHtml({ folderId = '' } = {}) {
                 No Link / Linkless
               </button>
 
-              <select x-model="filters.surface" @change="loadCandidates(true)" aria-label="Filter by discovery source" class="px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs text-slate-700 dark:text-[#FAFAFA] cursor-pointer"><option value="">Source: All</option><option value="pin_serp_capsules">Search</option><option value="board_more_ideas">Find More Ideas</option><option value="ideas_feeds">Idea Page</option><option value="home_feed">Home Feed</option><option value="related_pin_snowball">Related</option><option value="board_feed">Board</option></select>
-              <select x-model="filters.creationMethod" @change="loadCandidates(true)" aria-label="Filter by creation method" class="px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs text-slate-700 dark:text-[#FAFAFA] cursor-pointer"><option value="">Method: All</option><option value="uploaded">Uploaded</option><option value="photos">Photos</option><option value="pin_scheduling">Scheduled</option><option value="share_extension_ios">iOS Share</option><option value="share_extension_android">Android Share</option><option value="bookmarklet">Bookmarklet</option></select>
-              <select x-model="filters.repinFilter" @change="loadCandidates(true)" aria-label="Filter by pin type" class="px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs text-slate-700 dark:text-[#FAFAFA] cursor-pointer"><option value="">Type: All</option><option value="original">Original</option><option value="repin">Repin</option></select>
+              <select x-model="filters.surface" @change="onCandidateFilterChange()" aria-label="Filter by discovery source" class="px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs text-slate-700 dark:text-[#FAFAFA] cursor-pointer"><option value="">Source: All</option><option value="pin_serp_capsules">Search</option><option value="board_more_ideas">Find More Ideas</option><option value="ideas_feeds">Idea Page</option><option value="home_feed">Home Feed</option><option value="related_pin_snowball">Related Pins</option><option value="board_feed">Board</option></select>
+              <select x-model="filters.creationMethod" @change="onCandidateFilterChange()" aria-label="Filter by creation method" class="px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs text-slate-700 dark:text-[#FAFAFA] cursor-pointer"><option value="">Method: All</option><option value="uploaded">Uploaded</option><option value="photos">Photos</option><option value="pin_scheduling">Scheduled</option><option value="pinterest_platform">Pinterest Platform</option><option value="organic_pin">Organic Pin</option><option value="in_app_browser">In-App Browser</option><option value="share_extension_ios">iOS Share</option><option value="share_extension_android">Android Share</option><option value="idea_pin">Idea Pin</option><option value="carousel">Carousel</option><option value="bookmarklet">Bookmarklet</option><option value="extension">Browser Extension</option><option value="instagram_api">Instagram</option><option value="shuffles_composer">Shuffles</option><option value="csv_importer">CSV Import</option></select>
+              <select x-model="filters.repinFilter" @change="onCandidateFilterChange()" aria-label="Filter by pin type" class="px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs text-slate-700 dark:text-[#FAFAFA] cursor-pointer"><option value="">Type: All</option><option value="original">Original</option><option value="repin">Repin</option></select>
 
               <input type="search"
                      x-model="filters.search"
-                     @input.debounce.300ms="loadCandidates(true)"
+                     @input.debounce.300ms="onCandidateFilterChange()"
                      aria-label="Filter results by title, domain, or board"
                      placeholder="Filter title, domain..."
                      class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs text-slate-800 dark:text-[#FAFAFA] w-36 sm:w-44 focus:outline-none focus:ring-2 focus:ring-rose-500" />
@@ -233,16 +233,18 @@ export function getNewbornCandidatesAndRookiesHtml({ folderId = '' } = {}) {
                 </button>
                 <div class="inline-flex items-center gap-1.5 pl-1 border-l border-slate-200 dark:border-[#27272A]">
                   <select x-model="targetCampaignFolderId"
+                          @change="handleCampaignDropdownChange('target', $event.target.value)"
                           aria-label="Target campaign folder"
-                          class="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs text-slate-700 dark:text-[#FAFAFA] max-w-[165px] cursor-pointer">
+                          class="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs text-slate-700 dark:text-[#FAFAFA] max-w-[175px] cursor-pointer">
                     <option value="">Campaign...</option>
                     <template x-for="f in foldersList" :key="f.id">
                       <option :value="String(f.id)" x-text="f.name"></option>
                     </template>
+                    <option value="__create_new__">+ Create New Campaign...</option>
                   </select>
                   <button type="button"
                           @click="sendSelectedNewbornPinsToCampaign()"
-                          :disabled="isSendingToCampaign || !targetCampaignFolderId"
+                          :disabled="isSendingToCampaign || !targetCampaignFolderId || targetCampaignFolderId === '__create_new__'"
                           class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-xs font-semibold text-white cursor-pointer">
                     <i data-lucide="folder-plus" class="w-3.5 h-3.5" aria-hidden="true"></i>
                     <span x-text="isSendingToCampaign ? 'Sending...' : 'Send to Campaign'"></span>
@@ -421,27 +423,34 @@ export function getNewbornCandidatesAndRookiesHtml({ folderId = '' } = {}) {
                       </div>
                     </td>
 
-                    <!-- Discovery Source + Cluster Hit Overlap Badge -->
-                    <td class="py-3 px-3 whitespace-nowrap">
-                      <div class="flex items-center gap-1 flex-wrap">
-                        <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 dark:bg-[#27272A] text-slate-700 dark:text-[#E4E4E7] text-[11px] font-semibold"
-                              x-text="formatSurfaceLabel(pin.run_surface || pin.first_surface)"></span>
+                    <!-- Discovery Source (All Real Surfaces + True Discovery Context) -->
+                    <td class="py-3 px-3">
+                      <div class="flex items-center gap-1 flex-wrap max-w-[190px]">
+                        <template x-for="surf in getPinDisplaySurfaces(pin)" :key="surf">
+                          <span class="inline-flex items-center px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-[#27272A] text-slate-700 dark:text-[#E4E4E7] text-[10px] font-semibold"
+                                x-text="formatSurfaceLabel(surf)"></span>
+                        </template>
                         <template x-if="(pin.cluster_hit_count || (pin.matched_queries ? pin.matched_queries.length : 0)) >= 2">
                           <span class="inline-flex items-center px-1.5 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-[10px] font-mono font-bold"
                                 :title="'Matched cluster keywords: ' + (pin.matched_queries || []).join(', ')"
                                 x-text="'Cluster Hit ' + (pin.cluster_hit_count || pin.matched_queries.length) + 'x'"></span>
                         </template>
                       </div>
-                      <template x-if="pin.board_name && formatBoardUrl(pin.board_url)">
-                        <a :href="formatBoardUrl(pin.board_url)"
+                      <template x-if="pin.discovery_board_name && formatBoardUrl(pin.discovery_board_url || pin.board_url)">
+                        <a :href="formatBoardUrl(pin.discovery_board_url || pin.board_url)"
                            target="_blank"
                            rel="noopener noreferrer"
-                           class="block text-[11px] text-slate-500 hover:text-rose-600 truncate max-w-[140px] mt-1"
-                           :title="pin.board_name"
-                           x-text="pin.board_name"></a>
+                           class="block text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline truncate max-w-[180px] mt-1"
+                           :title="'Discovery Board: ' + pin.discovery_board_name"
+                           x-text="'Board: ' + pin.discovery_board_name"></a>
                       </template>
-                      <template x-if="pin.board_name && !formatBoardUrl(pin.board_url)">
-                        <div class="text-[11px] text-slate-500 dark:text-[#A1A1AA] truncate max-w-[140px] mt-1" :title="pin.board_name" x-text="pin.board_name"></div>
+                      <template x-if="pin.discovery_board_name && !formatBoardUrl(pin.discovery_board_url || pin.board_url)">
+                        <div class="text-[11px] text-slate-500 dark:text-[#A1A1AA] truncate max-w-[180px] mt-1" :title="'Discovery Board: ' + pin.discovery_board_name" x-text="'Board: ' + pin.discovery_board_name"></div>
+                      </template>
+                      <template x-if="!pin.discovery_board_name && (pin.seed_query || (pin.matched_queries && pin.matched_queries.length > 0))">
+                        <div class="text-[11px] text-slate-500 dark:text-[#A1A1AA] truncate max-w-[180px] mt-1"
+                             :title="'Matched query: ' + (pin.seed_query || pin.matched_queries[0])"
+                             x-text="'Query: ' + (pin.seed_query || pin.matched_queries[0])"></div>
                       </template>
                     </td>
 

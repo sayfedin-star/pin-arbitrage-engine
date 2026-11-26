@@ -14,6 +14,7 @@ import { dispatchGitHubWorkflow, resolveGitHubAuth } from '../http/github-workfl
 import {
   DEFAULT_WORKSPACE_ID,
   assertFolderInWorkspace,
+  getWorkspaceSettings,
   saveWorkspaceCookie,
   clearWorkspaceCookie
 } from '../modules/workspaces/service.mjs';
@@ -247,12 +248,16 @@ export function buildHuntOverridesFromBody(body = {}, { isSnowball = false } = {
   return explicit ? deepMergePlain(patch, explicit) : patch;
 }
 
-export function computeEstimatedPinBudget(body = {}, keywordsCount = 1) {
+export function computeEstimatedPinBudget(body = {}, keywordsCount = 1, workspaceSettings = null) {
   const kwCount = Math.max(1, Number(keywordsCount) || 1);
-  const p = (body?.paths && typeof body.paths === 'object') ? body.paths : null;
+  const p = (body?.paths && typeof body.paths === 'object')
+    ? body.paths
+    : (workspaceSettings?.extraction_targets && typeof workspaceSettings.extraction_targets === 'object'
+        ? workspaceSettings.extraction_targets
+        : null);
   if (!p) {
-    // Default hunt budget (~500 Search + ~800 Boards + ~250 Idea Page per keyword)
-    return kwCount * 1550;
+    // Default hunt budget (~500 Search + ~1000 Boards + ~250 Idea Page per keyword)
+    return kwCount * 1750;
   }
   let perKeyword = 0;
   if (p.search !== undefined) {
@@ -803,16 +808,35 @@ export async function handleNewbornRoutes({
     const folderId = searchParams.get('folder_id') || null;
     const stage = searchParams.get('stage') || null;
     const goldenOnly = searchParams.get('golden_only') === 'true';
+    const linklessOnly = searchParams.get('linkless_only') === 'true' || searchParams.get('linkless') === 'true';
+    const surface = searchParams.get('surface') || null;
+    const creationMethod = searchParams.get('creation_method') || null;
+    const repinFilter = searchParams.get('repin_filter') || null;
+    const search = searchParams.get('search') || searchParams.get('q') || null;
     const limit = clampLimit(searchParams.get('limit'), 30, 100);
+    const reportOpts = {
+      workspaceId,
+      runId,
+      folderId,
+      stage,
+      goldenOnly,
+      linklessOnly,
+      surface,
+      creationMethod,
+      repinFilter,
+      search,
+      limit
+    };
     const cacheKey = buildCanonicalCacheKey(`newborn:crossover:ws${workspaceId}`, searchParams);
-    const report = (runId || folderId)
-      ? await getNewbornCrossoverReport(sql, { workspaceId, runId, folderId, stage, goldenOnly, limit })
+    const bypassCache = Boolean(runId || folderId || linklessOnly || surface || creationMethod || repinFilter || search);
+    const report = bypassCache
+      ? await getNewbornCrossoverReport(sql, reportOpts)
       : await getCachedOrFetch(
           cacheKey,
-          () => getNewbornCrossoverReport(sql, { workspaceId, runId, folderId, stage, goldenOnly, limit }),
+          () => getNewbornCrossoverReport(sql, reportOpts),
           15_000
         );
-    return jsonResponse({ success: true, ...report }, 200, (runId || folderId) ? -1 : 15);
+    return jsonResponse({ success: true, ...report }, 200, bypassCache ? -1 : 15);
   }
 
   // 8. /api/newborn/runs (GET) — strictly no-store
@@ -1024,6 +1048,9 @@ export async function handleNewbornRoutes({
       }
 
       if (pathname === '/api/newborn/cluster/build') {
+        const cbBlocked = await checkDirectModeCircuitBreaker();
+        if (cbBlocked) return cbBlocked;
+
         const cluster = await buildNewbornKeywordCluster(sql, {
           workspaceId,
           folderId: body?.folder_id ?? null,
@@ -1040,6 +1067,9 @@ export async function handleNewbornRoutes({
       }
 
       if (pathname === '/api/newborn/cluster/enrich') {
+        const cbBlocked = await checkDirectModeCircuitBreaker();
+        if (cbBlocked) return cbBlocked;
+
         const clusterId = Number(body?.cluster_id ?? body?.id);
         if (!Number.isFinite(clusterId) || clusterId <= 0) {
           return jsonResponse({
@@ -1050,7 +1080,11 @@ export async function handleNewbornRoutes({
         }
         const cluster = await enrichClusterRemainingVolumes(sql, clusterId, {
           workspaceId,
-          batchLimit: body?.batch_limit ?? body?.limit ?? 25,
+          batchLimit: body?.batch_limit ?? body?.limit ?? 40,
+          retryKeywords: Array.isArray(body?.retry_keywords)
+            ? body.retry_keywords
+            : (Array.isArray(body?.retryKeywords) ? body.retryKeywords : null),
+          retryErrorsOnly: Boolean(body?.retry_errors ?? body?.retryErrors),
           routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
           env
         });
@@ -1082,13 +1116,18 @@ export async function handleNewbornRoutes({
           return jsonResponse({
             success: false,
             error: 'BAD_REQUEST',
-            message: 'Select at least 1 keyword (up to 100 in Fleet mode, 25 in Direct mode) to launch a Cluster Newborn Hunt.'
+            message: 'Select at least 1 keyword to launch a Cluster Newborn Hunt.'
           }, 400, -1);
         }
 
-        const estimatedPins = computeEstimatedPinBudget(body, dedupedKeywords.length);
+        const wsSettings = sql ? await getWorkspaceSettings(sql, workspaceId).catch(() => null) : null;
+        const estimatedPins = computeEstimatedPinBudget(body, dedupedKeywords.length, wsSettings);
+        const explicitRequestedMode = body?.execution_mode ?? body?.executionMode ?? null;
+        const ghAuth = resolveGitHubAuth(env, { allowPat: true });
+        const effectiveRequestedMode = explicitRequestedMode
+          || (ghAuth?.token ? (wsSettings?.execution_mode || 'fleet') : 'auto');
         const modeDecision = resolveExecutionMode({
-          requestedMode: body?.execution_mode ?? body?.executionMode ?? 'auto',
+          requestedMode: effectiveRequestedMode,
           keywordsCount: dedupedKeywords.length,
           estimatedPins,
           env
@@ -1102,8 +1141,8 @@ export async function handleNewbornRoutes({
           }, modeDecision.status || 400, -1);
         }
 
-        const keywordCap = modeDecision.mode === 'fleet' ? 100 : 25;
-        const selectedKeywords = dedupedKeywords.slice(0, keywordCap);
+        // Uncapped: send ALL selected keywords without silent 25 or 100 truncation!
+        const selectedKeywords = dedupedKeywords;
 
         const baseOverrides = buildHuntOverridesFromBody(body, { isSnowball: false }) || {};
         const clusterOverrides = deepMergePlain(baseOverrides, {
@@ -1114,8 +1153,8 @@ export async function handleNewbornRoutes({
 
         if (modeDecision.mode === 'fleet') {
           const requestedShards = body?.shards != null && Number(body.shards) > 0
-            ? Number(body.shards)
-            : Math.min(20, Math.max(2, Math.ceil(selectedKeywords.length / 2)));
+            ? Math.min(20, Math.max(1, Number(body.shards)))
+            : Math.min(20, Math.max(1, selectedKeywords.length));
           const fleetRes = await createFleetBackedNewbornRun(sql, {
             runType: 'discovery',
             seedQueries: selectedKeywords,
@@ -1214,9 +1253,14 @@ export async function handleNewbornRoutes({
         }
 
         const mergedOverrides = buildHuntOverridesFromBody(body, { isSnowball: false });
-        const estimatedPins = computeEstimatedPinBudget(body, Math.max(1, parsedQueries.length));
+        const wsSettings = sql ? await getWorkspaceSettings(sql, workspaceId).catch(() => null) : null;
+        const estimatedPins = computeEstimatedPinBudget(body, Math.max(1, parsedQueries.length), wsSettings);
+        const explicitRequestedMode = body?.execution_mode ?? body?.executionMode ?? null;
+        const ghAuth = resolveGitHubAuth(env, { allowPat: true });
+        const effectiveRequestedMode = explicitRequestedMode
+          || (ghAuth?.token ? (wsSettings?.execution_mode || 'fleet') : 'auto');
         const modeDecision = resolveExecutionMode({
-          requestedMode: body?.execution_mode ?? body?.executionMode ?? 'auto',
+          requestedMode: effectiveRequestedMode,
           keywordsCount: parsedQueries.length,
           estimatedPins,
           env
@@ -1230,12 +1274,13 @@ export async function handleNewbornRoutes({
           }, modeDecision.status || 400, -1);
         }
 
+        const dedupedDiscoverQueries = Array.from(new Set(parsedQueries));
         if (modeDecision.mode === 'fleet') {
-          const selectedKeywords = Array.from(new Set(parsedQueries)).slice(0, 100);
+          const selectedKeywords = dedupedDiscoverQueries;
           const seedCount = Math.max(1, selectedKeywords.length || parsedBoards.length || 1);
           const requestedShards = body?.shards != null && Number(body.shards) > 0
-            ? Number(body.shards)
-            : Math.min(20, Math.max(1, Math.min(4, seedCount)));
+            ? Math.min(20, Math.max(1, Number(body.shards)))
+            : Math.min(20, Math.max(1, seedCount));
           const fleetOverrides = selectedKeywords.length > 25
             ? deepMergePlain(mergedOverrides || {}, { discovery: { max_queries_per_run: selectedKeywords.length } })
             : mergedOverrides;
@@ -1265,15 +1310,19 @@ export async function handleNewbornRoutes({
         const cbBlocked = await checkDirectModeCircuitBreaker();
         if (cbBlocked) return cbBlocked;
 
+        const directOverrides = dedupedDiscoverQueries.length > 25
+          ? deepMergePlain(mergedOverrides || {}, { discovery: { max_queries_per_run: dedupedDiscoverQueries.length } })
+          : mergedOverrides;
+
         const queued = await enqueueNewbornRun(sql, {
           runType: 'discovery',
-          seedQueries: parsedQueries,
+          seedQueries: dedupedDiscoverQueries,
           seedPinIds: parsedPinIds,
           seedBoards: parsedBoards,
           profileId: body?.profile_id ?? body?.profile ?? null,
           folderId: body?.folder_id ?? null,
           workspaceId,
-          settingsOverrides: mergedOverrides,
+          settingsOverrides: directOverrides,
           routerOptions: { env, ...(typeof env?.NEWBORN_FETCH_IMPL === 'function' ? { fetchImpl: env.NEWBORN_FETCH_IMPL } : {}) },
           env,
           ctx
@@ -1401,6 +1450,7 @@ export async function handleNewbornRoutes({
     const pinsResult = (Array.isArray(pinIds) && pinIds.length > 0)
       ? await promoteNewbornCandidates(sql, {
           pinIds,
+          workspaceId,
           destinations: body?.destinations || {
             promote_to_daily_ssot: body?.promote_to_daily_ssot !== false,
             promote_to_campaign_folder_id: body?.folder_id ?? body?.promote_to_campaign_folder_id ?? null,

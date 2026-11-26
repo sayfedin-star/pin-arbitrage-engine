@@ -108,6 +108,31 @@ export async function getNewbornOverview(sql, env = {}, { workspaceId = 1, folde
     }
   };
 
+  const wsCandidateFilter = fid !== null
+    ? null
+    : (wid === 1
+        ? sql`(
+            nc.folder_id IS NULL
+            OR nc.folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = 1)
+          ) AND (
+            nc.first_run_id IS NULL
+            OR nc.first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = 1)
+            OR EXISTS (
+              SELECT 1 FROM newborn_run_candidates nrc_w1
+              JOIN newborn_runs nr_w1 ON nr_w1.id = nrc_w1.run_id
+              WHERE nrc_w1.pin_id = nc.pin_id AND nr_w1.workspace_id = 1
+            )
+          )`
+        : sql`(
+            nc.folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
+            OR nc.first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = ${wid})
+            OR EXISTS (
+              SELECT 1 FROM newborn_run_candidates nrc_ws
+              JOIN newborn_runs nr_ws ON nr_ws.id = nrc_ws.run_id
+              WHERE nrc_ws.pin_id = nc.pin_id AND nr_ws.workspace_id = ${wid}
+            )
+          )`);
+
   const statsPromise = fid !== null
     ? sql`
         SELECT
@@ -132,17 +157,51 @@ export async function getNewbornOverview(sql, env = {}, { workspaceId = 1, folde
       ? sql`
           SELECT
             COUNT(*)::int AS total_candidates,
-            COUNT(*) FILTER (WHERE stage = 'discovered')::int AS discovered_count,
-            COUNT(*) FILTER (WHERE stage = 'watchlist')::int AS watchlist_count,
-            COUNT(*) FILTER (WHERE stage = 'promoted')::int AS promoted_count,
-            COUNT(*) FILTER (WHERE stage = 'discarded')::int AS discarded_count,
-            COUNT(*) FILTER (WHERE is_golden_pin = TRUE AND stage <> 'discarded')::int AS golden_pins_count,
-            COUNT(*) FILTER (WHERE is_linkless = TRUE AND stage <> 'discarded')::int AS linkless_vacuum_count,
-            COUNT(*) FILTER (WHERE is_rookie_outlier = TRUE AND stage <> 'discarded')::int AS rookie_outliers_count,
-            COALESCE(ROUND(AVG(golden_score) FILTER (WHERE stage <> 'discarded')::numeric, 2), 0)::double precision AS avg_golden_score,
-            0::int AS rookie_accounts_count,
-            0::int AS rookie_watchlist_count,
-            0::int AS rookie_promoted_count,
+            COUNT(*) FILTER (WHERE nc.stage = 'discovered')::int AS discovered_count,
+            COUNT(*) FILTER (WHERE nc.stage = 'watchlist')::int AS watchlist_count,
+            COUNT(*) FILTER (WHERE nc.stage = 'promoted')::int AS promoted_count,
+            COUNT(*) FILTER (WHERE nc.stage = 'discarded')::int AS discarded_count,
+            COUNT(*) FILTER (WHERE nc.is_golden_pin = TRUE AND nc.stage <> 'discarded')::int AS golden_pins_count,
+            COUNT(*) FILTER (WHERE nc.is_linkless = TRUE AND nc.stage <> 'discarded')::int AS linkless_vacuum_count,
+            COUNT(*) FILTER (WHERE nc.is_rookie_outlier = TRUE AND nc.stage <> 'discarded')::int AS rookie_outliers_count,
+            COALESCE(ROUND(AVG(nc.golden_score) FILTER (WHERE nc.stage <> 'discarded')::numeric, 2), 0)::double precision AS avg_golden_score,
+            (
+              SELECT COUNT(*)::int FROM newborn_rookie_accounts nra
+              WHERE nra.stage <> 'discarded'
+                AND (
+                  EXISTS (
+                    SELECT 1 FROM newborn_run_candidates nrc_r
+                    JOIN newborn_runs nr_r ON nr_r.id = nrc_r.run_id
+                    JOIN newborn_candidates nc_r ON nc_r.pin_id = nrc_r.pin_id
+                    WHERE nr_r.workspace_id = ${wid} AND LOWER(COALESCE(nc_r.effective_creator_username, '')) = LOWER(nra.username)
+                  )
+                  OR EXISTS (
+                    SELECT 1 FROM newborn_candidates nc_r2
+                    JOIN keyword_folders kf_r ON kf_r.id = nc_r2.folder_id
+                    WHERE kf_r.workspace_id = ${wid} AND LOWER(COALESCE(nc_r2.effective_creator_username, '')) = LOWER(nra.username)
+                  )
+                )
+            ) AS rookie_accounts_count,
+            (
+              SELECT COUNT(*)::int FROM newborn_rookie_accounts nra
+              WHERE nra.stage = 'watchlist'
+                AND EXISTS (
+                  SELECT 1 FROM newborn_run_candidates nrc_r
+                  JOIN newborn_runs nr_r ON nr_r.id = nrc_r.run_id
+                  JOIN newborn_candidates nc_r ON nc_r.pin_id = nrc_r.pin_id
+                  WHERE nr_r.workspace_id = ${wid} AND LOWER(COALESCE(nc_r.effective_creator_username, '')) = LOWER(nra.username)
+                )
+            ) AS rookie_watchlist_count,
+            (
+              SELECT COUNT(*)::int FROM newborn_rookie_accounts nra
+              WHERE nra.stage = 'promoted'
+                AND EXISTS (
+                  SELECT 1 FROM newborn_run_candidates nrc_r
+                  JOIN newborn_runs nr_r ON nr_r.id = nrc_r.run_id
+                  JOIN newborn_candidates nc_r ON nc_r.pin_id = nrc_r.pin_id
+                  WHERE nr_r.workspace_id = ${wid} AND LOWER(COALESCE(nc_r.effective_creator_username, '')) = LOWER(nra.username)
+                )
+            ) AS rookie_promoted_count,
             (
               SELECT COUNT(*)::int
               FROM newborn_daily_anchors nda
@@ -150,27 +209,27 @@ export async function getNewbornOverview(sql, env = {}, { workspaceId = 1, folde
                 AND nda.folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
             ) AS active_daily_anchors_count,
             (SELECT COUNT(*)::int FROM newborn_rule_profiles WHERE is_active = TRUE) AS active_profiles_count
-          FROM newborn_candidates
-          WHERE folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
-             OR first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = ${wid});
+          FROM newborn_candidates nc
+          WHERE ${wsCandidateFilter};
         `
       : sql`
           SELECT
             COUNT(*)::int AS total_candidates,
-            COUNT(*) FILTER (WHERE stage = 'discovered')::int AS discovered_count,
-            COUNT(*) FILTER (WHERE stage = 'watchlist')::int AS watchlist_count,
-            COUNT(*) FILTER (WHERE stage = 'promoted')::int AS promoted_count,
-            COUNT(*) FILTER (WHERE stage = 'discarded')::int AS discarded_count,
-            COUNT(*) FILTER (WHERE is_golden_pin = TRUE AND stage <> 'discarded')::int AS golden_pins_count,
-            COUNT(*) FILTER (WHERE is_linkless = TRUE AND stage <> 'discarded')::int AS linkless_vacuum_count,
-            COUNT(*) FILTER (WHERE is_rookie_outlier = TRUE AND stage <> 'discarded')::int AS rookie_outliers_count,
-            COALESCE(ROUND(AVG(golden_score) FILTER (WHERE stage <> 'discarded')::numeric, 2), 0)::double precision AS avg_golden_score,
+            COUNT(*) FILTER (WHERE nc.stage = 'discovered')::int AS discovered_count,
+            COUNT(*) FILTER (WHERE nc.stage = 'watchlist')::int AS watchlist_count,
+            COUNT(*) FILTER (WHERE nc.stage = 'promoted')::int AS promoted_count,
+            COUNT(*) FILTER (WHERE nc.stage = 'discarded')::int AS discarded_count,
+            COUNT(*) FILTER (WHERE nc.is_golden_pin = TRUE AND nc.stage <> 'discarded')::int AS golden_pins_count,
+            COUNT(*) FILTER (WHERE nc.is_linkless = TRUE AND nc.stage <> 'discarded')::int AS linkless_vacuum_count,
+            COUNT(*) FILTER (WHERE nc.is_rookie_outlier = TRUE AND nc.stage <> 'discarded')::int AS rookie_outliers_count,
+            COALESCE(ROUND(AVG(nc.golden_score) FILTER (WHERE nc.stage <> 'discarded')::numeric, 2), 0)::double precision AS avg_golden_score,
             (SELECT COUNT(*)::int FROM newborn_rookie_accounts WHERE stage <> 'discarded') AS rookie_accounts_count,
             (SELECT COUNT(*)::int FROM newborn_rookie_accounts WHERE stage = 'watchlist') AS rookie_watchlist_count,
             (SELECT COUNT(*)::int FROM newborn_rookie_accounts WHERE stage = 'promoted') AS rookie_promoted_count,
             (SELECT COUNT(*)::int FROM newborn_daily_anchors WHERE is_active = TRUE) AS active_daily_anchors_count,
             (SELECT COUNT(*)::int FROM newborn_rule_profiles WHERE is_active = TRUE) AS active_profiles_count
-          FROM newborn_candidates;
+          FROM newborn_candidates nc
+          WHERE ${wsCandidateFilter};
         `;
 
   const topCandidatesPromise = fid !== null
@@ -182,25 +241,14 @@ export async function getNewbornOverview(sql, env = {}, { workspaceId = 1, folde
         ORDER BY repin_count DESC NULLS LAST, golden_score DESC, first_seen_at DESC
         LIMIT 100;
       `
-    : wid !== 1
-      ? sql`
-          SELECT pin_id, title, board_name, is_golden_pin, is_linkless, golden_score, repin_count, save_count, repin_per_day, visual_annotations
-          FROM newborn_candidates
-          WHERE stage IN ('discovered', 'watchlist', 'promoted')
-            AND (
-              folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
-              OR first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = ${wid})
-            )
-          ORDER BY repin_count DESC NULLS LAST, golden_score DESC, first_seen_at DESC
-          LIMIT 100;
-        `
-      : sql`
-          SELECT pin_id, title, board_name, is_golden_pin, is_linkless, golden_score, repin_count, save_count, repin_per_day, visual_annotations
-          FROM newborn_candidates
-          WHERE stage IN ('discovered', 'watchlist', 'promoted')
-          ORDER BY repin_count DESC NULLS LAST, golden_score DESC, first_seen_at DESC
-          LIMIT 100;
-        `;
+    : sql`
+        SELECT nc.pin_id, nc.title, nc.board_name, nc.is_golden_pin, nc.is_linkless, nc.golden_score, nc.repin_count, nc.save_count, nc.repin_per_day, nc.visual_annotations
+        FROM newborn_candidates nc
+        WHERE nc.stage IN ('discovered', 'watchlist', 'promoted')
+          AND ${wsCandidateFilter}
+        ORDER BY nc.repin_count DESC NULLS LAST, nc.golden_score DESC, nc.first_seen_at DESC
+        LIMIT 100;
+      `;
 
   const [settings, cookieStatus, statsRows, recentRuns, topCandidates] = await Promise.all([
     getNewbornSettings(sql),
@@ -280,144 +328,178 @@ export async function listNewbornCandidates(sql, filters = {}) {
   const limit = Math.min(500, Math.max(1, Number(filters.limit) || 50));
   const offset = Math.max(0, Number(filters.offset) || 0);
 
-  const surfaceCond = runId !== null
-    ? sql`(${surface}::text IS NULL OR nrc.surface = ${surface} OR nc.first_surface = ${surface} OR nc.discovered_surfaces ? ${surface || ''})`
-    : sql`(${surface}::text IS NULL OR nc.first_surface = ${surface} OR nc.discovered_surfaces ? ${surface || ''})`;
+  const wsScopeCond = wid === 1
+    ? sql`(
+        (nc.folder_id IS NULL OR nc.folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = 1))
+        AND (
+          nc.first_run_id IS NULL
+          OR nc.first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = 1)
+          OR EXISTS (
+            SELECT 1 FROM newborn_run_candidates nrc_w1
+            JOIN newborn_runs nr_w1 ON nr_w1.id = nrc_w1.run_id
+            WHERE nrc_w1.pin_id = nc.pin_id AND nr_w1.workspace_id = 1
+          )
+        )
+      )`
+    : sql`(
+        nc.folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
+        OR nc.first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = ${wid})
+        OR EXISTS (
+          SELECT 1 FROM newborn_run_candidates nrc_ws
+          JOIN newborn_runs nr_ws ON nr_ws.id = nrc_ws.run_id
+          WHERE nrc_ws.pin_id = nc.pin_id AND nr_ws.workspace_id = ${wid}
+        )
+      )`;
 
-  const wsScopeCond = (folderId === null && wid !== 1)
-    ? sql`(nc.folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid}) OR nc.first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = ${wid}))`
-    : sql`TRUE`;
+  const runListQueries = async (includeRunSurfaces) => {
+    const surfaceCond = runId !== null
+      ? (includeRunSurfaces
+          ? sql`(${surface}::text IS NULL OR nrc.surface = ${surface} OR COALESCE(nrc.surfaces, '[]'::jsonb) ? ${surface || ''} OR nc.first_surface = ${surface} OR nc.discovered_surfaces ? ${surface || ''})`
+          : sql`(${surface}::text IS NULL OR nrc.surface = ${surface} OR nc.first_surface = ${surface} OR nc.discovered_surfaces ? ${surface || ''})`)
+      : sql`(${surface}::text IS NULL OR nc.first_surface = ${surface} OR nc.discovered_surfaces ? ${surface || ''})`;
 
-  const whereCond = sql`
-    (${stage}::text IS NULL OR nc.stage = ${stage})
-    AND (${stage !== null}::boolean = TRUE OR nc.stage <> 'discarded')
-    AND (${folderId}::int IS NULL OR nc.folder_id = ${folderId})
-    AND ${wsScopeCond}
-    AND (${qualifiedOnly}::boolean = FALSE OR nc.qualified = TRUE)
-    AND ${surfaceCond}
-    AND (${provenance}::text IS NULL OR nc.upload_provenance = ${provenance})
-    AND (${creationMethod}::text IS NULL OR LOWER(COALESCE(nc.raw_creation_method, '')) = ${creationMethod})
-    AND (${repinFilter}::boolean IS NULL OR nc.is_repin = ${repinFilter})
-    AND (${goldenOnly}::boolean = FALSE OR nc.is_golden_pin = TRUE)
-    AND (${rookieOnly}::boolean = FALSE OR nc.is_rookie_outlier = TRUE)
-    AND (${linklessOnly}::boolean = FALSE OR nc.is_linkless = TRUE)
-    AND (${minGoldenScore}::double precision IS NULL OR nc.golden_score >= ${minGoldenScore})
-    AND (${minRepins}::double precision IS NULL OR nc.repin_count >= ${minRepins})
-    AND (${maxAgeDays}::double precision IS NULL OR nc.age_days <= ${maxAgeDays})
-    AND (
-      ${cleanAnnotation}::text IS NULL
-      OR EXISTS (
-        SELECT 1
-        FROM jsonb_array_elements(COALESCE(nc.visual_annotations, '[]'::jsonb)) AS elem
-        WHERE (
-          CASE
-            WHEN jsonb_typeof(elem) = 'object' THEN LOWER(COALESCE(elem->>'name', ''))
-            ELSE LOWER(elem #>> '{}')
-          END
-        ) = ${cleanAnnotation}
+    const whereCond = sql`
+      (${stage}::text IS NULL OR nc.stage = ${stage})
+      AND (${stage !== null}::boolean = TRUE OR nc.stage <> 'discarded')
+      AND (${folderId}::int IS NULL OR nc.folder_id = ${folderId})
+      AND ${wsScopeCond}
+      AND (${qualifiedOnly}::boolean = FALSE OR nc.qualified = TRUE)
+      AND ${surfaceCond}
+      AND (${provenance}::text IS NULL OR nc.upload_provenance = ${provenance})
+      AND (${creationMethod}::text IS NULL OR LOWER(COALESCE(nc.raw_creation_method, '')) = ${creationMethod})
+      AND (${repinFilter}::boolean IS NULL OR nc.is_repin = ${repinFilter})
+      AND (${goldenOnly}::boolean = FALSE OR nc.is_golden_pin = TRUE)
+      AND (${rookieOnly}::boolean = FALSE OR nc.is_rookie_outlier = TRUE)
+      AND (${linklessOnly}::boolean = FALSE OR nc.is_linkless = TRUE)
+      AND (${minGoldenScore}::double precision IS NULL OR nc.golden_score >= ${minGoldenScore})
+      AND (${minRepins}::double precision IS NULL OR nc.repin_count >= ${minRepins})
+      AND (${maxAgeDays}::double precision IS NULL OR nc.age_days <= ${maxAgeDays})
+      AND (
+        ${cleanAnnotation}::text IS NULL
+        OR EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(COALESCE(nc.visual_annotations, '[]'::jsonb)) AS elem
+          WHERE (
+            CASE
+              WHEN jsonb_typeof(elem) = 'object' THEN LOWER(COALESCE(elem->>'name', ''))
+              ELSE LOWER(elem #>> '{}')
+            END
+          ) = ${cleanAnnotation}
+        )
       )
-    )
-    AND (
-      ${searchPattern}::text IS NULL
-      OR LOWER(nc.title) LIKE ${searchPattern} ESCAPE '\\'
-      OR LOWER(COALESCE(nc.board_name, '')) LIKE ${searchPattern} ESCAPE '\\'
-      OR LOWER(COALESCE(nc.effective_creator_username, '')) LIKE ${searchPattern} ESCAPE '\\'
-      OR LOWER(COALESCE(nc.clean_domain, '')) LIKE ${searchPattern} ESCAPE '\\'
-      OR LOWER(COALESCE(nc.seed_query, '')) LIKE ${searchPattern} ESCAPE '\\'
-      OR nc.pin_id LIKE ${searchPattern} ESCAPE '\\'
-    )
-  `;
+      AND (
+        ${searchPattern}::text IS NULL
+        OR LOWER(nc.title) LIKE ${searchPattern} ESCAPE '\\'
+        OR LOWER(COALESCE(nc.board_name, '')) LIKE ${searchPattern} ESCAPE '\\'
+        OR LOWER(COALESCE(nc.effective_creator_username, '')) LIKE ${searchPattern} ESCAPE '\\'
+        OR LOWER(COALESCE(nc.clean_domain, '')) LIKE ${searchPattern} ESCAPE '\\'
+        OR LOWER(COALESCE(nc.seed_query, '')) LIKE ${searchPattern} ESCAPE '\\'
+        OR nc.pin_id LIKE ${searchPattern} ESCAPE '\\'
+      )
+    `;
 
-  const runJoin = runId !== null
-    ? sql`JOIN newborn_run_candidates nrc ON nrc.pin_id = nc.pin_id AND nrc.run_id = ${runId}`
-    : sql``;
-  const selectCols = runId !== null
-    ? sql`nc.*, COALESCE(nrc.matched_queries, '[]'::jsonb) AS run_matched_queries, nrc.surface AS run_surface`
-    : sql`nc.*`;
+    const runJoin = runId !== null
+      ? sql`JOIN newborn_run_candidates nrc ON nrc.pin_id = nc.pin_id AND nrc.run_id = ${runId}`
+      : sql``;
+    const selectCols = runId !== null
+      ? (includeRunSurfaces
+          ? sql`nc.*, COALESCE(nrc.matched_queries, '[]'::jsonb) AS run_matched_queries, nrc.surface AS run_surface, COALESCE(nrc.surfaces, '[]'::jsonb) AS run_surfaces`
+          : sql`nc.*, COALESCE(nrc.matched_queries, '[]'::jsonb) AS run_matched_queries, nrc.surface AS run_surface`)
+      : sql`nc.*`;
 
-  const [rows, countRows] = await Promise.all([
-    sort === 'cluster_hits' || sort === 'cluster_overlap'
-      ? (runId !== null
-          ? sql`
-              SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
-              WHERE ${whereCond}
-              ORDER BY jsonb_array_length(COALESCE(nrc.matched_queries, '[]'::jsonb)) DESC, nc.repin_count DESC NULLS LAST, nc.age_days ASC NULLS LAST, nc.pin_id ASC
-              LIMIT ${limit} OFFSET ${offset};
-            `
-          : sql`
-              SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
-              WHERE ${whereCond}
-              ORDER BY nc.repin_count DESC NULLS LAST, nc.age_days ASC NULLS LAST, nc.pin_id ASC
-              LIMIT ${limit} OFFSET ${offset};
-            `)
-      : sort === 'repin_velocity' || sort === 'repin_per_day'
-      ? sql`
-          SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
-          WHERE ${whereCond}
-          ORDER BY nc.repin_per_day DESC NULLS LAST, nc.save_per_day DESC NULLS LAST, nc.golden_score DESC, nc.pin_id ASC
-          LIMIT ${limit} OFFSET ${offset};
-        `
-      : sort === 'save_velocity' || sort === 'save_per_day'
-      ? sql`
-          SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
-          WHERE ${whereCond}
-          ORDER BY nc.save_per_day DESC NULLS LAST, nc.golden_score DESC, nc.pin_id ASC
-          LIMIT ${limit} OFFSET ${offset};
-        `
-      : sort === 'saves' || sort === 'save_count'
-      ? sql`
-          SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
-          WHERE ${whereCond}
-          ORDER BY nc.save_count DESC NULLS LAST, nc.golden_score DESC, nc.pin_id ASC
-          LIMIT ${limit} OFFSET ${offset};
-        `
-      : sort === 'repins' || sort === 'repin_count'
-      ? sql`
-          SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
-          WHERE ${whereCond}
-          ORDER BY nc.repin_count DESC NULLS LAST, nc.repin_per_day DESC NULLS LAST, nc.age_days ASC NULLS LAST, nc.pin_id ASC
-          LIMIT ${limit} OFFSET ${offset};
-        `
-      : sort === 'fresh' || sort === 'age_days'
-      ? sql`
-          SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
-          WHERE ${whereCond}
-          ORDER BY nc.age_days ASC NULLS LAST, nc.repin_count DESC NULLS LAST, nc.pin_id ASC
-          LIMIT ${limit} OFFSET ${offset};
-        `
-      : sort === 'recent'
-      ? sql`
-          SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
-          WHERE ${whereCond}
-          ORDER BY nc.first_seen_at DESC, nc.pin_id ASC
-          LIMIT ${limit} OFFSET ${offset};
-        `
-      : sort === 'shares' || sort === 'share_count'
-      ? sql`
-          SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
-          WHERE ${whereCond}
-          ORDER BY nc.share_count DESC NULLS LAST, nc.repin_count DESC NULLS LAST, nc.pin_id ASC
-          LIMIT ${limit} OFFSET ${offset};
-        `
-      : sort === 'golden_score'
-      ? sql`
-          SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
-          WHERE ${whereCond}
-          ORDER BY nc.golden_score DESC, nc.repin_count DESC NULLS LAST, nc.pin_id ASC
-          LIMIT ${limit} OFFSET ${offset};
-        `
-      : sql`
-          SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
-          WHERE ${whereCond}
-          ORDER BY nc.repin_count DESC NULLS LAST, nc.repin_per_day DESC NULLS LAST, nc.age_days ASC NULLS LAST, nc.pin_id ASC
-          LIMIT ${limit} OFFSET ${offset};
-        `,
-    sql`
-      SELECT COUNT(*)::int AS total
-      FROM newborn_candidates nc ${runJoin}
-      WHERE ${whereCond};
-    `
-  ]);
+    return await Promise.all([
+      sort === 'cluster_hits' || sort === 'cluster_overlap'
+        ? (runId !== null
+            ? sql`
+                SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
+                WHERE ${whereCond}
+                ORDER BY jsonb_array_length(COALESCE(nrc.matched_queries, '[]'::jsonb)) DESC, nc.repin_count DESC NULLS LAST, nc.age_days ASC NULLS LAST, nc.pin_id ASC
+                LIMIT ${limit} OFFSET ${offset};
+              `
+            : sql`
+                SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
+                WHERE ${whereCond}
+                ORDER BY nc.repin_count DESC NULLS LAST, nc.age_days ASC NULLS LAST, nc.pin_id ASC
+                LIMIT ${limit} OFFSET ${offset};
+              `)
+        : sort === 'repin_velocity' || sort === 'repin_per_day'
+        ? sql`
+            SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
+            WHERE ${whereCond}
+            ORDER BY nc.repin_per_day DESC NULLS LAST, nc.save_per_day DESC NULLS LAST, nc.golden_score DESC, nc.pin_id ASC
+            LIMIT ${limit} OFFSET ${offset};
+          `
+        : sort === 'save_velocity' || sort === 'save_per_day'
+        ? sql`
+            SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
+            WHERE ${whereCond}
+            ORDER BY nc.save_per_day DESC NULLS LAST, nc.golden_score DESC, nc.pin_id ASC
+            LIMIT ${limit} OFFSET ${offset};
+          `
+        : sort === 'saves' || sort === 'save_count'
+        ? sql`
+            SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
+            WHERE ${whereCond}
+            ORDER BY nc.save_count DESC NULLS LAST, nc.golden_score DESC, nc.pin_id ASC
+            LIMIT ${limit} OFFSET ${offset};
+          `
+        : sort === 'repins' || sort === 'repin_count'
+        ? sql`
+            SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
+            WHERE ${whereCond}
+            ORDER BY nc.repin_count DESC NULLS LAST, nc.repin_per_day DESC NULLS LAST, nc.age_days ASC NULLS LAST, nc.pin_id ASC
+            LIMIT ${limit} OFFSET ${offset};
+          `
+        : sort === 'fresh' || sort === 'age_days'
+        ? sql`
+            SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
+            WHERE ${whereCond}
+            ORDER BY nc.age_days ASC NULLS LAST, nc.repin_count DESC NULLS LAST, nc.pin_id ASC
+            LIMIT ${limit} OFFSET ${offset};
+          `
+        : sort === 'recent'
+        ? sql`
+            SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
+            WHERE ${whereCond}
+            ORDER BY nc.first_seen_at DESC, nc.pin_id ASC
+            LIMIT ${limit} OFFSET ${offset};
+          `
+        : sort === 'shares' || sort === 'share_count'
+        ? sql`
+            SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
+            WHERE ${whereCond}
+            ORDER BY nc.share_count DESC NULLS LAST, nc.repin_count DESC NULLS LAST, nc.pin_id ASC
+            LIMIT ${limit} OFFSET ${offset};
+          `
+        : sort === 'golden_score'
+        ? sql`
+            SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
+            WHERE ${whereCond}
+            ORDER BY nc.golden_score DESC, nc.repin_count DESC NULLS LAST, nc.pin_id ASC
+            LIMIT ${limit} OFFSET ${offset};
+          `
+        : sql`
+            SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
+            WHERE ${whereCond}
+            ORDER BY nc.repin_count DESC NULLS LAST, nc.repin_per_day DESC NULLS LAST, nc.age_days ASC NULLS LAST, nc.pin_id ASC
+            LIMIT ${limit} OFFSET ${offset};
+          `,
+      sql`
+        SELECT COUNT(*)::int AS total
+        FROM newborn_candidates nc ${runJoin}
+        WHERE ${whereCond};
+      `
+    ]);
+  };
+
+  let rows;
+  let countRows;
+  try {
+    [rows, countRows] = await runListQueries(true);
+  } catch (err) {
+    if (String(err?.code || '') !== '42703' || runId === null) throw err;
+    [rows, countRows] = await runListQueries(false);
+  }
 
   const enrichBoardMeta = (row) => {
     if (!row || typeof row !== 'object') return row;
@@ -427,17 +509,36 @@ export async function listNewbornCandidates(sql, filters = {}) {
       : (Array.isArray(row.matched_queries) && row.matched_queries.length > 0
           ? row.matched_queries
           : (row.seed_query ? [String(row.seed_query).trim().toLowerCase()] : []));
-    const runSurface = row.run_surface || null;
+    const runSurface = row.run_surface && String(row.run_surface).toLowerCase() !== 'pin_resource' ? row.run_surface : null;
+    const rawRunSurfaces = Array.isArray(row.run_surfaces) ? row.run_surfaces : [];
+    const rawDiscoveredSurfaces = Array.isArray(row.discovered_surfaces) ? row.discovered_surfaces : [];
+    const cleanSurfaces = Array.from(new Set([
+      ...rawRunSurfaces,
+      ...rawDiscoveredSurfaces,
+      ...(runSurface ? [runSurface] : []),
+      ...(row.first_surface ? [row.first_surface] : [])
+    ].map((s) => String(s || '').trim()).filter((s) => s && s.toLowerCase() !== 'pin_resource')));
+    const discoveryBoardName = row.discovery_board_name != null ? decodeHtmlEntities(row.discovery_board_name) : null;
+    const discoveryBoardUrl = formatPinterestBoardUrl(row.discovery_board_url || '');
+    const pinBoardName = row.pin_board_name != null ? decodeHtmlEntities(row.pin_board_name) : null;
+    const pinBoardUrl = formatPinterestBoardUrl(row.pin_board_url || '');
+
     return {
       ...row,
       title: row.title != null ? decodeHtmlEntities(row.title) : row.title,
       description: row.description != null ? decodeHtmlEntities(row.description) : row.description,
       board_name: row.board_name != null ? decodeHtmlEntities(row.board_name) : row.board_name,
+      discovery_board_name: discoveryBoardName,
+      discovery_board_url: discoveryBoardUrl,
+      pin_board_name: pinBoardName,
+      pin_board_url: pinBoardUrl,
       pinner_full_name: row.pinner_full_name != null ? decodeHtmlEntities(row.pinner_full_name) : row.pinner_full_name,
       origin_creator_full_name: row.origin_creator_full_name != null ? decodeHtmlEntities(row.origin_creator_full_name) : row.origin_creator_full_name,
       visual_annotations: Array.isArray(row.visual_annotations) ? decodeCandidateAnnotations(row.visual_annotations) : row.visual_annotations,
+      discovered_surfaces: cleanSurfaces,
+      run_surfaces: rawRunSurfaces.filter((s) => s && String(s).toLowerCase() !== 'pin_resource'),
       run_surface: runSurface,
-      effective_surface: runSurface || row.first_surface || null,
+      effective_surface: runSurface || cleanSurfaces[0] || row.first_surface || null,
       matched_queries: matchedQueries,
       cluster_hit_count: matchedQueries.length,
       board_url: formatPinterestBoardUrl(row.board_url || ''),
@@ -472,6 +573,11 @@ export async function getNewbornCandidateDossier(sql, pinId, { workspaceId = 1 }
             AND (
               folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
               OR first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = ${wid})
+              OR EXISTS (
+                SELECT 1 FROM newborn_run_candidates nrc_ws
+                JOIN newborn_runs nr_ws ON nr_ws.id = nrc_ws.run_id
+                WHERE nrc_ws.pin_id = newborn_candidates.pin_id AND nr_ws.workspace_id = ${wid}
+              )
             )
           LIMIT 1;
         `
@@ -497,6 +603,10 @@ export async function getNewbornCandidateDossier(sql, pinId, { workspaceId = 1 }
 
   const rawCand = candRows[0];
   const candMeta = (rawCand?.metadata && typeof rawCand.metadata === 'object') ? rawCand.metadata : {};
+  const cleanSurfaces = Array.from(new Set([
+    ...(Array.isArray(rawCand.discovered_surfaces) ? rawCand.discovered_surfaces : []),
+    ...(rawCand.first_surface ? [rawCand.first_surface] : [])
+  ].map((s) => String(s || '').trim()).filter((s) => s && s.toLowerCase() !== 'pin_resource')));
 
   return {
     candidate: {
@@ -504,6 +614,11 @@ export async function getNewbornCandidateDossier(sql, pinId, { workspaceId = 1 }
       title: rawCand.title != null ? decodeHtmlEntities(rawCand.title) : rawCand.title,
       description: rawCand.description != null ? decodeHtmlEntities(rawCand.description) : rawCand.description,
       board_name: rawCand.board_name != null ? decodeHtmlEntities(rawCand.board_name) : rawCand.board_name,
+      discovery_board_name: rawCand.discovery_board_name != null ? decodeHtmlEntities(rawCand.discovery_board_name) : null,
+      discovery_board_url: formatPinterestBoardUrl(rawCand.discovery_board_url || ''),
+      pin_board_name: rawCand.pin_board_name != null ? decodeHtmlEntities(rawCand.pin_board_name) : null,
+      pin_board_url: formatPinterestBoardUrl(rawCand.pin_board_url || ''),
+      discovered_surfaces: cleanSurfaces,
       pinner_full_name: rawCand.pinner_full_name != null ? decodeHtmlEntities(rawCand.pinner_full_name) : rawCand.pinner_full_name,
       origin_creator_full_name: rawCand.origin_creator_full_name != null ? decodeHtmlEntities(rawCand.origin_creator_full_name) : rawCand.origin_creator_full_name,
       visual_annotations: Array.isArray(rawCand.visual_annotations) ? decodeCandidateAnnotations(rawCand.visual_annotations) : rawCand.visual_annotations,
@@ -551,6 +666,11 @@ export async function updateNewbornCandidateStage(sql, pinIds, nextStage, { work
           AND (
             folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
             OR first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = ${wid})
+            OR EXISTS (
+              SELECT 1 FROM newborn_run_candidates nrc_ws
+              JOIN newborn_runs nr_ws ON nr_ws.id = nrc_ws.run_id
+              WHERE nrc_ws.pin_id = newborn_candidates.pin_id AND nr_ws.workspace_id = ${wid}
+            )
           )
         RETURNING pin_id, stage;
       `
@@ -594,6 +714,11 @@ export async function deleteNewbornCandidate(sql, pinIds, { workspaceId = 1 } = 
           AND (
             folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
             OR first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = ${wid})
+            OR EXISTS (
+              SELECT 1 FROM newborn_run_candidates nrc_ws
+              JOIN newborn_runs nr_ws ON nr_ws.id = nrc_ws.run_id
+              WHERE nrc_ws.pin_id = newborn_candidates.pin_id AND nr_ws.workspace_id = ${wid}
+            )
           )
         RETURNING pin_id;
       `
@@ -780,15 +905,52 @@ export async function listNewbornDailyAnchors(sql, { workspaceId = 1, activeOnly
 
 /**
  * Builds the Annotation + Board-Title Crossover matrix across staged Newborn candidates
- * (optionally strictly scoped to `runId` via `newborn_run_candidates` and/or `folderId`).
+ * (optionally strictly scoped to `runId` via `newborn_run_candidates`, `folderId`, and active table filters).
  */
-export async function getNewbornCrossoverReport(sql, { workspaceId = 1, runId = null, folderId = null, stage = null, goldenOnly = false, limit = 30 } = {}) {
+export async function getNewbornCrossoverReport(
+  sql,
+  {
+    workspaceId = 1,
+    runId = null,
+    folderId = null,
+    stage = null,
+    goldenOnly = false,
+    linklessOnly = false,
+    surface = null,
+    creationMethod = null,
+    repinFilter = null,
+    search = null,
+    limit = 30
+  } = {}
+) {
   const wid = parseOptionalPositiveInt(workspaceId) || 1;
   const cleanStage = stage && ['discovered', 'watchlist', 'promoted'].includes(String(stage).toLowerCase())
     ? String(stage).toLowerCase()
     : null;
   const numericRunId = parseOptionalPositiveInt(runId);
   const numericFolderId = parseOptionalPositiveInt(folderId);
+  const cleanSurface = surface ? String(surface).trim().toLowerCase() : null;
+  const cleanMethod = creationMethod ? String(creationMethod).trim().toLowerCase() : null;
+  const rawRepin = repinFilter ? String(repinFilter).trim().toLowerCase() : '';
+  const repinBool = rawRepin === 'original' ? false : (rawRepin === 'repin' ? true : null);
+  const rawSearch = String(search || '').trim().toLowerCase();
+  const searchPattern = rawSearch ? `%${escapeSqlWildcards(rawSearch)}%` : null;
+
+  const extraFilterCond = sql`
+    AND (${Boolean(linklessOnly)}::boolean = FALSE OR nc.is_linkless = TRUE)
+    AND (${cleanSurface}::text IS NULL OR nc.first_surface = ${cleanSurface} OR nc.discovered_surfaces ? ${cleanSurface || ''})
+    AND (${cleanMethod}::text IS NULL OR LOWER(COALESCE(nc.raw_creation_method, '')) = ${cleanMethod})
+    AND (${repinBool}::boolean IS NULL OR nc.is_repin = ${repinBool})
+    AND (
+      ${searchPattern}::text IS NULL
+      OR LOWER(nc.title) LIKE ${searchPattern} ESCAPE '\\'
+      OR LOWER(COALESCE(nc.board_name, '')) LIKE ${searchPattern} ESCAPE '\\'
+      OR LOWER(COALESCE(nc.effective_creator_username, '')) LIKE ${searchPattern} ESCAPE '\\'
+      OR LOWER(COALESCE(nc.clean_domain, '')) LIKE ${searchPattern} ESCAPE '\\'
+      OR LOWER(COALESCE(nc.seed_query, '')) LIKE ${searchPattern} ESCAPE '\\'
+      OR nc.pin_id LIKE ${searchPattern} ESCAPE '\\'
+    )
+  `;
 
   const rows = numericRunId !== null
     ? await sql`
@@ -803,33 +965,41 @@ export async function getNewbornCrossoverReport(sql, { workspaceId = 1, runId = 
           AND (${cleanStage}::text IS NULL OR nc.stage = ${cleanStage})
           AND nc.stage <> 'discarded'
           AND (${Boolean(goldenOnly)}::boolean = FALSE OR nc.is_golden_pin = TRUE)
+          ${extraFilterCond}
         ORDER BY nc.repin_count DESC NULLS LAST, nc.golden_score DESC
         LIMIT 1000;
       `
     : (numericFolderId === null && wid !== 1)
       ? await sql`
-          SELECT pin_id, title, board_name, is_golden_pin, is_linkless,
-                 golden_score, repin_count, save_count, repin_per_day, save_per_day, visual_annotations
-          FROM newborn_candidates
+          SELECT nc.pin_id, nc.title, nc.board_name, nc.is_golden_pin, nc.is_linkless,
+                 nc.golden_score, nc.repin_count, nc.save_count, nc.repin_per_day, nc.save_per_day, nc.visual_annotations
+          FROM newborn_candidates nc
           WHERE (
-              folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
-              OR first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = ${wid})
+              nc.folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
+              OR nc.first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = ${wid})
+              OR EXISTS (
+                SELECT 1 FROM newborn_run_candidates nrc_ws
+                JOIN newborn_runs nr_ws ON nr_ws.id = nrc_ws.run_id
+                WHERE nrc_ws.pin_id = nc.pin_id AND nr_ws.workspace_id = ${wid}
+              )
             )
-            AND (${cleanStage}::text IS NULL OR stage = ${cleanStage})
-            AND stage <> 'discarded'
-            AND (${Boolean(goldenOnly)}::boolean = FALSE OR is_golden_pin = TRUE)
-          ORDER BY repin_count DESC NULLS LAST, golden_score DESC
+            AND (${cleanStage}::text IS NULL OR nc.stage = ${cleanStage})
+            AND nc.stage <> 'discarded'
+            AND (${Boolean(goldenOnly)}::boolean = FALSE OR nc.is_golden_pin = TRUE)
+            ${extraFilterCond}
+          ORDER BY nc.repin_count DESC NULLS LAST, nc.golden_score DESC
           LIMIT 1000;
         `
       : await sql`
-          SELECT pin_id, title, board_name, is_golden_pin, is_linkless,
-                 golden_score, repin_count, save_count, repin_per_day, save_per_day, visual_annotations
-          FROM newborn_candidates
-          WHERE (${numericFolderId}::int IS NULL OR folder_id = ${numericFolderId})
-            AND (${cleanStage}::text IS NULL OR stage = ${cleanStage})
-            AND stage <> 'discarded'
-            AND (${Boolean(goldenOnly)}::boolean = FALSE OR is_golden_pin = TRUE)
-          ORDER BY repin_count DESC NULLS LAST, golden_score DESC
+          SELECT nc.pin_id, nc.title, nc.board_name, nc.is_golden_pin, nc.is_linkless,
+                 nc.golden_score, nc.repin_count, nc.save_count, nc.repin_per_day, nc.save_per_day, nc.visual_annotations
+          FROM newborn_candidates nc
+          WHERE (${numericFolderId}::int IS NULL OR nc.folder_id = ${numericFolderId})
+            AND (${cleanStage}::text IS NULL OR nc.stage = ${cleanStage})
+            AND nc.stage <> 'discarded'
+            AND (${Boolean(goldenOnly)}::boolean = FALSE OR nc.is_golden_pin = TRUE)
+            ${extraFilterCond}
+          ORDER BY nc.repin_count DESC NULLS LAST, nc.golden_score DESC
           LIMIT 1000;
         `;
 
