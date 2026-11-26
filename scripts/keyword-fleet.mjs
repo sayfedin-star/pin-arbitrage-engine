@@ -657,10 +657,10 @@ export async function refreshRollingWindowGainsBatch(sql) {
     const hasMultiDaySnaps = distinctSnapDates.size >= 2;
     const nextDeltaRepins24h = hasMultiDaySnaps
       ? normalizeIntGain(computed.delta_repins_24h)
-      : normalizeIntGain(pin.delta_repins_24h);
+      : null;
     const nextDailyRepinVel = hasMultiDaySnaps
       ? normalizeFloatGain(computed.daily_repin_velocity ?? computed.delta_repins_24h)
-      : normalizeFloatGain(pin.daily_repin_velocity);
+      : 0;
 
     if (
       normalizeIntGain(pin.gains_5d) !== next5 ||

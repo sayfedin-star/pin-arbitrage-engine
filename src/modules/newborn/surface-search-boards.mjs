@@ -637,12 +637,12 @@ export async function harvestIdeasHubSurface(
     });
 
     interestData = interestRes.data?.resource_response?.data || interestRes.data?.data || null;
-    interestId = safeString(interestData?.id || '');
+    interestId = safeString(interestData?.id || '').trim();
     isOfficialInterest = Boolean(
       interestRes.ok &&
       interestData &&
       interestData.is_interest !== false &&
-      interestId &&
+      /^\d+$/.test(interestId) &&
       interestId !== '0'
     );
   }

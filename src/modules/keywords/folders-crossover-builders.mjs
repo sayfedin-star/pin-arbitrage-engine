@@ -135,7 +135,14 @@ export async function buildFolderCrossoverMatrix({
     if (!pid) continue;
 
     const rowRankings = parseRowRankings(row);
-    if (rowRankings.length === 0) {
+    const rowTrackedSources = Array.isArray(row.tracked_sources)
+      ? row.tracked_sources.map((s) => String(s || '').trim().toLowerCase()).filter(Boolean)
+      : [];
+    const rowIsNewbornTracked = Boolean(row.is_newborn_tracked || rowTrackedSources.includes('newborn'));
+    const rowIsTrackedPin = Boolean(row.is_tracked_pin || rowIsNewbornTracked || rowTrackedSources.length > 0);
+    const rowNewbornSeedQuery = row.newborn_seed_query ? decodeHtmlEntities(String(row.newborn_seed_query).trim()) : null;
+
+    if (rowRankings.length === 0 && !rowIsTrackedPin) {
       continue;
     }
 
@@ -221,10 +228,22 @@ export async function buildFolderCrossoverMatrix({
         repins_gains_7d: null,
         repins_gains_10d: null,
         repins_gains_15d: null,
+        is_tracked_pin: rowIsTrackedPin,
+        tracked_sources: rowTrackedSources,
+        is_newborn_tracked: rowIsNewbornTracked,
+        newborn_seed_query: rowNewbornSeedQuery,
         rankings: []
       });
     } else {
       const existingPin = pinMap.get(pid);
+      if (rowIsTrackedPin) existingPin.is_tracked_pin = true;
+      if (rowIsNewbornTracked) existingPin.is_newborn_tracked = true;
+      if (!existingPin.newborn_seed_query && rowNewbornSeedQuery) {
+        existingPin.newborn_seed_query = rowNewbornSeedQuery;
+      }
+      if (rowTrackedSources.length > 0) {
+        existingPin.tracked_sources = Array.from(new Set([...(existingPin.tracked_sources || []), ...rowTrackedSources]));
+      }
       const incomingTitle = decodeHtmlEntities(String(row.title || meta.title || '').trim());
       if (!existingPin.raw_title && !isSyntheticPinTitle(incomingTitle)) {
         existingPin.raw_title = incomingTitle;
@@ -343,13 +362,14 @@ export async function buildFolderCrossoverMatrix({
     }
   }
 
+  const safeTotalKeywords = Math.max(1, Number(totalKeywords) || 0);
   for (const p of allPins) {
     p.has_active_rank = p.rankings.some(r => !r.is_displaced);
     p.has_vault_rank = p.rankings.some(r => r.is_displaced);
     p.overlap_count = p.rankings.length;
-    p.overlap_percentage = Math.round((p.overlap_count / totalKeywords) * 100);
-    // Unified Super-Pin rule: any pin ranking in >= 2 keywords across Active + Vault
-    p.is_super_pin = p.overlap_count >= minSuperOverlap && p.rankings.every(r => r.is_displaced || (Number.isFinite(r.rank_position) && r.rank_position >= 1));
+    p.overlap_percentage = totalKeywords > 0 ? Math.round((p.overlap_count / safeTotalKeywords) * 100) : 0;
+    // Unified Super-Pin rule: any pin ranking in >= 2 keywords across Active + Vault (never 0-ranking tracked pins!)
+    p.is_super_pin = p.overlap_count >= minSuperOverlap && p.overlap_count >= 1 && p.rankings.every(r => r.is_displaced || (Number.isFinite(r.rank_position) && r.rank_position >= 1));
     const numericRanks = p.rankings.map(r => r.rank_position).filter(r => r != null && Number.isFinite(r) && r >= 1);
     p.min_rank = numericRanks.length > 0 ? Math.min(...numericRanks) : null;
     p.avg_rank = numericRanks.length > 0 ? Number((numericRanks.reduce((sum, r) => sum + r, 0) / numericRanks.length).toFixed(1)) : null;
@@ -574,7 +594,7 @@ export async function buildFolderCrossoverMatrix({
 
   const allTagBridges = Array.from(tagMap.values()).map(t => {
     const kwCount = t.keywords_set.size;
-    const overlapPct = Math.round((kwCount / totalKeywords) * 100);
+    const overlapPct = totalKeywords > 0 ? Math.round((kwCount / safeTotalKeywords) * 100) : 0;
     const velGain = Number(t.velocity_gain.toFixed(1));
     const savesGain = Math.round(t.saves_gain);
     const repinsGain = Math.round(t.repins_gain);
@@ -807,7 +827,7 @@ export async function buildFolderCrossoverMatrix({
 
     const kwList = Array.from(matchedKeywordsSet).map(kw => p.keywords_map.get(kw) || { keyword: kw, display_order: 99, score: 1 });
     const kwCount = Math.max(1, matchedKeywordsSet.size);
-    const overlapPct = Math.round((kwCount / totalKeywords) * 100);
+    const overlapPct = totalKeywords > 0 ? Math.round((kwCount / safeTotalKeywords) * 100) : 0;
 
     return {
       term: p.term,
@@ -962,7 +982,7 @@ export async function buildFolderCrossoverMatrix({
       display_name: c.display_name,
       keywords_covered: Array.from(c.keywords_set),
       keywords_count: c.keywords_set.size,
-      overlap_percentage: Math.round((c.keywords_set.size / totalKeywords) * 100),
+      overlap_percentage: totalKeywords > 0 ? Math.round((c.keywords_set.size / safeTotalKeywords) * 100) : 0,
       pin_count: c.pin_count,
       total_saves: c.total_saves,
       top_pins: c.top_pins,
@@ -1159,7 +1179,7 @@ export async function buildFolderCrossoverMatrix({
         count: c.pin_count,
         keywords_count: kwCount,
         keyword_overlap_count: kwCount,
-        overlap_percentage: Math.round((kwCount / totalKeywords) * 100),
+        overlap_percentage: totalKeywords > 0 ? Math.round((kwCount / safeTotalKeywords) * 100) : 0,
         keywords: Array.from(c.keywords_set),
         total_saves: c.total_saves,
         total_velocity: Math.round(c.total_velocity * 10) / 10,
@@ -1233,6 +1253,8 @@ export async function buildFolderCrossoverMatrix({
       active_serp_slots_count: activeSerpSlotsCount,
       vault_pins_count: allPins.filter(p => !p.has_active_rank && p.has_vault_rank).length,
       super_pins_count: superPins.length,
+      newborn_pins_count: allPins.filter(p => p.is_newborn_tracked).length,
+      tracked_pins_count: allPins.filter(p => p.is_tracked_pin).length,
       vacuum_pins_count: vacuumPinsCount,
       breakout_baby_domains_count: breakoutBabyDomainsCount,
       rockets_count: rocketsCount,

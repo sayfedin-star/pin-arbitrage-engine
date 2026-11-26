@@ -1040,10 +1040,11 @@ export async function markNewbornAnchorsCrawled(targetSql, pinIds = []) {
  * shard-partitioned across the 20-runner 01:00 UTC Daily Pulse fleet so every tracked campaign pin
  * receives daily `pins_daily_metrics` velocity updates even without a tracked keyword SERP hit.
  */
-export async function fetchCampaignTrackedPinsForWorker(targetSql, { workerIndex = 0, workerTotal = 20 } = {}) {
+export async function fetchCampaignTrackedPinsForWorker(targetSql, { workerIndex = 0, workerTotal = 20, folderId = null } = {}) {
   if (!targetSql || typeof targetSql !== 'function') return [];
   const wTotal = Math.max(1, Number(workerTotal) || 20);
   const wIdx = Math.max(0, Math.min(wTotal - 1, Number(workerIndex) || 0));
+  const cleanFolderId = Number.isInteger(Number(folderId)) && Number(folderId) > 0 ? Number(folderId) : null;
 
   try {
     if (wTotal === 20) {
@@ -1138,6 +1139,7 @@ export async function fetchCampaignTrackedPinsForWorker(targetSql, { workerIndex
             'false'
           )) <> 'true'
           AND (ABS(hashtext(ctp.pin_id::text)::bigint) % 20) = ${wIdx}
+          AND (${cleanFolderId}::int IS NULL OR ctp.folder_id = ${cleanFolderId})
         ORDER BY ctp.pin_id ASC, ctp.added_at DESC;
       `;
     }
@@ -1233,6 +1235,7 @@ export async function fetchCampaignTrackedPinsForWorker(targetSql, { workerIndex
             'false'
           )) <> 'true'
           AND (ABS(hashtext(ctp.pin_id::text)::bigint) % ${wTotal}) = ${wIdx}
+          AND (${cleanFolderId}::int IS NULL OR ctp.folder_id = ${cleanFolderId})
         ORDER BY ctp.pin_id ASC, ctp.added_at DESC;
       `;
     }
@@ -1326,6 +1329,7 @@ export async function fetchCampaignTrackedPinsForWorker(targetSql, { workerIndex
           END,
           'false'
         )) <> 'true'
+        AND (${cleanFolderId}::int IS NULL OR ctp.folder_id = ${cleanFolderId})
       ORDER BY ctp.pin_id ASC, ctp.added_at DESC;
     `;
   } catch (err) {
@@ -2493,7 +2497,38 @@ async function run() {
       ORDER BY f.pin_id, f.is_displaced ASC, f.rank_position ASC NULLS LAST;
     `, phase1bRetryOpts);
 
+    const folderTrackedPins = await withDbRetry(
+      () => fetchCampaignTrackedPinsForWorker(phase1bSql, { workerIndex, workerTotal, folderId: fid }),
+      phase1bRetryOpts
+    ).catch((err) => {
+      console.warn(`  [!] [Mode C] fetchCampaignTrackedPinsForWorker warning for folder ${fid}:`, err?.message || err);
+      return [];
+    });
+
+    if (Array.isArray(folderTrackedPins) && folderTrackedPins.length > 0) {
+      const pinIndexById = new Map(allPins.map((p, idx) => [String(p.pin_id), idx]));
+      let addedTrackedCount = 0;
+      for (const tp of folderTrackedPins) {
+        if (!tp?.pin_id) continue;
+        const pid = String(tp.pin_id);
+        const existingIdx = pinIndexById.get(pid);
+        if (existingIdx !== undefined) {
+          allPins[existingIdx].is_campaign_tracked = true;
+        } else {
+          pinIndexById.set(pid, allPins.length);
+          allPins.push({ ...tp, is_campaign_tracked: true });
+          addedTrackedCount++;
+        }
+      }
+      if (addedTrackedCount > 0) {
+        console.log(`  [+] [Mode C] Merged ${addedTrackedCount} active campaign_tracked_pins into Folder #${fid} worker slice.`);
+      }
+    }
+
     allPins.sort((a, b) => {
+      const prioA = Boolean(a.is_campaign_tracked || a.is_newborn_anchor);
+      const prioB = Boolean(b.is_campaign_tracked || b.is_newborn_anchor);
+      if (prioA !== prioB) return prioA ? -1 : 1;
       const rA = Number(a.rank_position) || Number(a.last_known_rank) || 9999;
       const rB = Number(b.rank_position) || Number(b.last_known_rank) || 9999;
       if (rA !== rB) return rA - rB;
@@ -3017,16 +3052,25 @@ async function run() {
 
     const extraTrackedPins = [...standaloneAnchors, ...campaignTrackedPins, ...watchlistPins];
     if (extraTrackedPins.length > 0) {
-      const existingPinIds = new Set(myPins.map((p) => String(p.pin_id)));
+      const existingPinMap = new Map(myPins.map((p) => [String(p.pin_id), p]));
       for (const extraPin of extraTrackedPins) {
-        if (extraPin?.pin_id && !existingPinIds.has(String(extraPin.pin_id))) {
-          existingPinIds.add(String(extraPin.pin_id));
+        if (!extraPin?.pin_id) continue;
+        const pid = String(extraPin.pin_id);
+        const existing = existingPinMap.get(pid);
+        if (existing) {
+          if (extraPin.is_campaign_tracked) existing.is_campaign_tracked = true;
+          if (extraPin.is_newborn_anchor) existing.is_newborn_anchor = true;
+        } else {
+          existingPinMap.set(pid, extraPin);
           myPins.push(extraPin);
         }
       }
     }
 
     myPins.sort((a, b) => {
+      const prioA = Boolean(a.is_campaign_tracked || a.is_newborn_anchor);
+      const prioB = Boolean(b.is_campaign_tracked || b.is_newborn_anchor);
+      if (prioA !== prioB) return prioA ? -1 : 1;
       if (a.is_displaced !== b.is_displaced) return a.is_displaced ? 1 : -1;
       const rA = Number(a.rank_position) || Number(a.last_known_rank) || 9999;
       const rB = Number(b.rank_position) || Number(b.last_known_rank) || 9999;

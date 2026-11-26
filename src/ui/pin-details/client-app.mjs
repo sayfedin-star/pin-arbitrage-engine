@@ -145,7 +145,18 @@ export function getPinDetailsClientAppScripts() {
           return (Number(head.save_count) || 0) - (Number(priorDaySnap.save_count) || 0);
         },
 
+        isSingleDayBaseline() {
+          if (this.dossier?.creative?.is_day1_baseline === true) return true;
+          const traj = this.dossier?.daily_trajectory;
+          if (!Array.isArray(traj) || traj.length === 0) return true;
+          const distinctDays = new Set(traj.map(s => String(s?.snapshot_date || '').slice(0, 10)).filter(Boolean));
+          return distinctDays.size <= 1;
+        },
+
         formatLive24hVelocity() {
+          if (this.isSingleDayBaseline()) {
+            return '—';
+          }
           const head = this.dossier?.daily_trajectory?.[0];
           if (head?.window_24h_velocity !== undefined && head?.window_24h_velocity !== null && Number(head.window_24h_velocity) > 0) {
             const wVel = Number(head.window_24h_velocity);
@@ -179,6 +190,9 @@ export function getPinDetailsClientAppScripts() {
         },
 
         format24hSaveDelta() {
+          if (this.isSingleDayBaseline()) {
+            return 'Day 1 Baseline (awaiting next UTC pulse)';
+          }
           const delta = this.computeTrue24hWindowDelta();
           if (delta === null) {
             return '0 today (Hydrated Baseline)';

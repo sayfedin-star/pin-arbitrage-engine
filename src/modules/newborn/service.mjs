@@ -56,8 +56,8 @@ export {
 export {
   getNewbornOverview, listNewbornCandidates, getNewbornCandidateDossier,
   updateNewbornCandidateStage, deleteNewbornCandidate,
-  listNewbornRookies, listNewbornRuns, listNewbornDailyAnchors,
-  getNewbornCrossoverReport
+  listNewbornRookies, listNewbornRuns, deleteNewbornRun, clearFailedAndEmptyNewbornRuns,
+  listNewbornDailyAnchors, getNewbornCrossoverReport
 } from './queries.mjs';
 
 export {

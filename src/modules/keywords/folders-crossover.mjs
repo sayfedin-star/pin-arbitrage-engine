@@ -301,178 +301,345 @@ function isMissingFirstSeenColumnError(err) {
 }
 
 async function queryAggregatedFolderPins(sql, fid) {
-  const runAggQuery = (withFirstSeen) => {
-    if (withFirstSeen) {
-      return sql`
-        WITH folder_positions AS (
-          SELECT
-            c.pin_id,
-            c.keyword_id,
-            tk.keyword AS keyword_text,
-            CASE
-              WHEN c.is_displaced IS TRUE THEN COALESCE(c.last_known_rank, c.rank_position)
-              ELSE c.rank_position
-            END AS rank_position,
-            COALESCE(c.is_displaced, FALSE) AS is_displaced,
-            c.crawled_at,
-            c.updated_at AS snapshot_date,
-            c.first_seen_at AS pin_first_seen_at,
-            i.added_at AS folder_added_at
-          FROM keyword_folder_items i
-          JOIN tracked_keywords tk ON tk.id = i.keyword_id
-          JOIN keyword_serp_positions c ON c.keyword_id = i.keyword_id
-          WHERE i.folder_id = ${fid}
-            AND (
-              (c.is_displaced IS FALSE AND c.rank_position IS NOT NULL AND c.rank_position >= 1)
-              OR c.is_displaced IS TRUE
-            )
-        ),
-        pin_agg AS (
-          SELECT
-            fp.pin_id,
-            BOOL_OR(NOT fp.is_displaced) AS has_active_rank,
-            BOOL_OR(fp.is_displaced) AS has_vault_rank,
-            MIN(fp.pin_first_seen_at) AS pin_first_seen_at,
-            MIN(fp.folder_added_at) AS folder_added_at,
-            MAX(fp.crawled_at) AS crawled_at,
-            MAX(fp.snapshot_date) AS snapshot_date,
-            JSONB_AGG(
-              JSONB_BUILD_OBJECT(
-                'keyword_id', fp.keyword_id,
-                'keyword', fp.keyword_text,
-                'rank_position', fp.rank_position,
-                'is_displaced', fp.is_displaced
-              )
-              ORDER BY fp.is_displaced ASC, fp.rank_position ASC NULLS LAST
-            ) AS rankings
-          FROM folder_positions fp
-          GROUP BY fp.pin_id
-        )
-        SELECT
-          pa.pin_id,
-          pa.has_active_rank,
-          pa.has_vault_rank,
-          pa.pin_first_seen_at,
-          pa.folder_added_at,
-          pa.crawled_at,
-          pa.snapshot_date,
-          pa.rankings,
-          ump.title,
-          COALESCE(ump.clean_domain, '') AS domain,
-          ump.destination_url,
-          ump.image_url,
-          ump.creator_username,
-          ump.board_name,
-          ump.dominant_color,
-          COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
-          ump.creation_method,
-          ump.save_count,
-          ump.repin_count,
-          ump.comment_count,
-          ump.daily_save_velocity,
-          ump.daily_repin_velocity,
-          ump.delta_repins_24h,
-          ump.gains_5d,
-          ump.gains_7d,
-          ump.gains_10d,
-          ump.gains_15d,
-          ump.created_at_pinterest,
-          (ump.metadata->>'aspect_ratio') AS aspect_ratio,
-          (ump.metadata->>'format') AS format,
-          (ump.metadata->>'seo_title') AS seo_title
-        FROM pin_agg pa
-        JOIN universal_master_pins ump ON ump.pin_id = pa.pin_id
-        ORDER BY ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST;
-      `;
-    }
-    return sql`
-      WITH folder_positions AS (
-        SELECT
-          c.pin_id,
-          c.keyword_id,
-          tk.keyword AS keyword_text,
-          CASE
-            WHEN c.is_displaced IS TRUE THEN COALESCE(c.last_known_rank, c.rank_position)
-            ELSE c.rank_position
-          END AS rank_position,
-          COALESCE(c.is_displaced, FALSE) AS is_displaced,
-          c.crawled_at,
-          c.updated_at AS snapshot_date,
-          NULL::timestamptz AS pin_first_seen_at,
-          i.added_at AS folder_added_at
-        FROM keyword_folder_items i
-        JOIN tracked_keywords tk ON tk.id = i.keyword_id
-        JOIN keyword_serp_positions c ON c.keyword_id = i.keyword_id
-        WHERE i.folder_id = ${fid}
-          AND (
-            (c.is_displaced IS FALSE AND c.rank_position IS NOT NULL AND c.rank_position >= 1)
-            OR c.is_displaced IS TRUE
-          )
-      ),
-      pin_agg AS (
-        SELECT
-          fp.pin_id,
-          BOOL_OR(NOT fp.is_displaced) AS has_active_rank,
-          BOOL_OR(fp.is_displaced) AS has_vault_rank,
-          MIN(fp.pin_first_seen_at) AS pin_first_seen_at,
-          MIN(fp.folder_added_at) AS folder_added_at,
-          MAX(fp.crawled_at) AS crawled_at,
-          MAX(fp.snapshot_date) AS snapshot_date,
-          JSONB_AGG(
-            JSONB_BUILD_OBJECT(
-              'keyword_id', fp.keyword_id,
-              'keyword', fp.keyword_text,
-              'rank_position', fp.rank_position,
-              'is_displaced', fp.is_displaced
-            )
-            ORDER BY fp.is_displaced ASC, fp.rank_position ASC NULLS LAST
-          ) AS rankings
-        FROM folder_positions fp
-        GROUP BY fp.pin_id
-      )
+  const runFullWithFirstSeen = () => sql`
+    WITH folder_positions AS (
       SELECT
-        pa.pin_id,
-        pa.has_active_rank,
-        pa.has_vault_rank,
-        pa.pin_first_seen_at,
-        pa.folder_added_at,
-        pa.crawled_at,
-        pa.snapshot_date,
-        pa.rankings,
-        ump.title,
-        COALESCE(ump.clean_domain, '') AS domain,
-        ump.destination_url,
-        ump.image_url,
-        ump.creator_username,
-        ump.board_name,
-        ump.dominant_color,
-        COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
-        ump.creation_method,
-        ump.save_count,
-        ump.repin_count,
-        ump.comment_count,
-        ump.daily_save_velocity,
-        ump.daily_repin_velocity,
-        ump.delta_repins_24h,
-        ump.gains_5d,
-        ump.gains_7d,
-        ump.gains_10d,
-        ump.gains_15d,
-        ump.created_at_pinterest,
-        (ump.metadata->>'aspect_ratio') AS aspect_ratio,
-        (ump.metadata->>'format') AS format,
-        (ump.metadata->>'seo_title') AS seo_title
+        c.pin_id,
+        c.keyword_id,
+        tk.keyword AS keyword_text,
+        CASE
+          WHEN c.is_displaced IS TRUE THEN COALESCE(c.last_known_rank, c.rank_position)
+          ELSE c.rank_position
+        END AS rank_position,
+        COALESCE(c.is_displaced, FALSE) AS is_displaced,
+        c.crawled_at,
+        c.updated_at AS snapshot_date,
+        c.first_seen_at AS pin_first_seen_at,
+        i.added_at AS folder_added_at
+      FROM keyword_folder_items i
+      JOIN tracked_keywords tk ON tk.id = i.keyword_id
+      JOIN keyword_serp_positions c ON c.keyword_id = i.keyword_id
+      WHERE i.folder_id = ${fid}
+        AND (
+          (c.is_displaced IS FALSE AND c.rank_position IS NOT NULL AND c.rank_position >= 1)
+          OR c.is_displaced IS TRUE
+        )
+    ),
+    pin_agg AS (
+      SELECT
+        fp.pin_id,
+        BOOL_OR(NOT fp.is_displaced) AS has_active_rank,
+        BOOL_OR(fp.is_displaced) AS has_vault_rank,
+        MIN(fp.pin_first_seen_at) AS pin_first_seen_at,
+        MIN(fp.folder_added_at) AS folder_added_at,
+        MAX(fp.crawled_at) AS crawled_at,
+        MAX(fp.snapshot_date) AS snapshot_date,
+        JSONB_AGG(
+          JSONB_BUILD_OBJECT(
+            'keyword_id', fp.keyword_id,
+            'keyword', fp.keyword_text,
+            'rank_position', fp.rank_position,
+            'is_displaced', fp.is_displaced
+          )
+          ORDER BY fp.is_displaced ASC, fp.rank_position ASC NULLS LAST
+        ) AS rankings
+      FROM folder_positions fp
+      GROUP BY fp.pin_id
+    ),
+    tracked_agg AS (
+      SELECT
+        ctp.pin_id,
+        ARRAY_AGG(DISTINCT ctp.source_type ORDER BY ctp.source_type) AS tracked_sources,
+        BOOL_OR(ctp.source_type = 'newborn') AS is_newborn_tracked,
+        MAX(COALESCE(NULLIF(TRIM(ctp.seed_query), ''), NULLIF(TRIM(nda.seed_query), ''), NULLIF(TRIM(nc.seed_query), ''))) AS newborn_seed_query,
+        MIN(ctp.added_at) AS tracked_added_at
+      FROM campaign_tracked_pins ctp
+      LEFT JOIN newborn_daily_anchors nda ON nda.pin_id = ctp.pin_id
+      LEFT JOIN newborn_candidates nc ON nc.pin_id = ctp.pin_id
+      WHERE ctp.folder_id = ${fid}
+        AND ctp.is_active = TRUE
+      GROUP BY ctp.pin_id
+    ),
+    combined_pins AS (
+      SELECT
+        COALESCE(pa.pin_id, ta.pin_id) AS pin_id,
+        COALESCE(pa.has_active_rank, FALSE) AS has_active_rank,
+        COALESCE(pa.has_vault_rank, FALSE) AS has_vault_rank,
+        COALESCE(pa.pin_first_seen_at, ta.tracked_added_at) AS pin_first_seen_at,
+        COALESCE(pa.folder_added_at, ta.tracked_added_at) AS folder_added_at,
+        COALESCE(pa.crawled_at, ta.tracked_added_at) AS crawled_at,
+        COALESCE(pa.snapshot_date, ta.tracked_added_at) AS snapshot_date,
+        COALESCE(pa.rankings, '[]'::jsonb) AS rankings,
+        (ta.pin_id IS NOT NULL) AS is_tracked_pin,
+        COALESCE(ta.tracked_sources, ARRAY[]::text[]) AS tracked_sources,
+        COALESCE(ta.is_newborn_tracked, FALSE) AS is_newborn_tracked,
+        ta.newborn_seed_query
       FROM pin_agg pa
-      JOIN universal_master_pins ump ON ump.pin_id = pa.pin_id
-      ORDER BY ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST;
-    `;
-  };
+      FULL OUTER JOIN tracked_agg ta ON ta.pin_id = pa.pin_id
+    )
+    SELECT
+      cp.pin_id,
+      cp.has_active_rank,
+      cp.has_vault_rank,
+      cp.pin_first_seen_at,
+      cp.folder_added_at,
+      cp.crawled_at,
+      cp.snapshot_date,
+      cp.rankings,
+      cp.is_tracked_pin,
+      cp.tracked_sources,
+      cp.is_newborn_tracked,
+      cp.newborn_seed_query,
+      ump.title,
+      COALESCE(ump.clean_domain, '') AS domain,
+      ump.destination_url,
+      ump.image_url,
+      ump.creator_username,
+      ump.board_name,
+      ump.dominant_color,
+      COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
+      ump.creation_method,
+      ump.save_count,
+      ump.repin_count,
+      ump.comment_count,
+      ump.daily_save_velocity,
+      ump.daily_repin_velocity,
+      ump.delta_repins_24h,
+      ump.gains_5d,
+      ump.gains_7d,
+      ump.gains_10d,
+      ump.gains_15d,
+      ump.created_at_pinterest,
+      (ump.metadata->>'aspect_ratio') AS aspect_ratio,
+      (ump.metadata->>'format') AS format,
+      (ump.metadata->>'seo_title') AS seo_title
+    FROM combined_pins cp
+    JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
+    ORDER BY ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST;
+  `;
+
+  const runWithoutFirstSeen = () => sql`
+    WITH folder_positions AS (
+      SELECT
+        c.pin_id,
+        c.keyword_id,
+        tk.keyword AS keyword_text,
+        CASE
+          WHEN c.is_displaced IS TRUE THEN COALESCE(c.last_known_rank, c.rank_position)
+          ELSE c.rank_position
+        END AS rank_position,
+        COALESCE(c.is_displaced, FALSE) AS is_displaced,
+        c.crawled_at,
+        c.updated_at AS snapshot_date,
+        NULL::timestamptz AS pin_first_seen_at,
+        i.added_at AS folder_added_at
+      FROM keyword_folder_items i
+      JOIN tracked_keywords tk ON tk.id = i.keyword_id
+      JOIN keyword_serp_positions c ON c.keyword_id = i.keyword_id
+      WHERE i.folder_id = ${fid}
+        AND (
+          (c.is_displaced IS FALSE AND c.rank_position IS NOT NULL AND c.rank_position >= 1)
+          OR c.is_displaced IS TRUE
+        )
+    ),
+    pin_agg AS (
+      SELECT
+        fp.pin_id,
+        BOOL_OR(NOT fp.is_displaced) AS has_active_rank,
+        BOOL_OR(fp.is_displaced) AS has_vault_rank,
+        MIN(fp.pin_first_seen_at) AS pin_first_seen_at,
+        MIN(fp.folder_added_at) AS folder_added_at,
+        MAX(fp.crawled_at) AS crawled_at,
+        MAX(fp.snapshot_date) AS snapshot_date,
+        JSONB_AGG(
+          JSONB_BUILD_OBJECT(
+            'keyword_id', fp.keyword_id,
+            'keyword', fp.keyword_text,
+            'rank_position', fp.rank_position,
+            'is_displaced', fp.is_displaced
+          )
+          ORDER BY fp.is_displaced ASC, fp.rank_position ASC NULLS LAST
+        ) AS rankings
+      FROM folder_positions fp
+      GROUP BY fp.pin_id
+    ),
+    tracked_agg AS (
+      SELECT
+        ctp.pin_id,
+        ARRAY_AGG(DISTINCT ctp.source_type ORDER BY ctp.source_type) AS tracked_sources,
+        BOOL_OR(ctp.source_type = 'newborn') AS is_newborn_tracked,
+        MAX(COALESCE(NULLIF(TRIM(nda.seed_query), ''), NULLIF(TRIM(nc.seed_query), ''))) AS newborn_seed_query,
+        MIN(ctp.added_at) AS tracked_added_at
+      FROM campaign_tracked_pins ctp
+      LEFT JOIN newborn_daily_anchors nda ON nda.pin_id = ctp.pin_id
+      LEFT JOIN newborn_candidates nc ON nc.pin_id = ctp.pin_id
+      WHERE ctp.folder_id = ${fid}
+        AND ctp.is_active = TRUE
+      GROUP BY ctp.pin_id
+    ),
+    combined_pins AS (
+      SELECT
+        COALESCE(pa.pin_id, ta.pin_id) AS pin_id,
+        COALESCE(pa.has_active_rank, FALSE) AS has_active_rank,
+        COALESCE(pa.has_vault_rank, FALSE) AS has_vault_rank,
+        COALESCE(pa.pin_first_seen_at, ta.tracked_added_at) AS pin_first_seen_at,
+        COALESCE(pa.folder_added_at, ta.tracked_added_at) AS folder_added_at,
+        COALESCE(pa.crawled_at, ta.tracked_added_at) AS crawled_at,
+        COALESCE(pa.snapshot_date, ta.tracked_added_at) AS snapshot_date,
+        COALESCE(pa.rankings, '[]'::jsonb) AS rankings,
+        (ta.pin_id IS NOT NULL) AS is_tracked_pin,
+        COALESCE(ta.tracked_sources, ARRAY[]::text[]) AS tracked_sources,
+        COALESCE(ta.is_newborn_tracked, FALSE) AS is_newborn_tracked,
+        ta.newborn_seed_query
+      FROM pin_agg pa
+      FULL OUTER JOIN tracked_agg ta ON ta.pin_id = pa.pin_id
+    )
+    SELECT
+      cp.pin_id,
+      cp.has_active_rank,
+      cp.has_vault_rank,
+      cp.pin_first_seen_at,
+      cp.folder_added_at,
+      cp.crawled_at,
+      cp.snapshot_date,
+      cp.rankings,
+      cp.is_tracked_pin,
+      cp.tracked_sources,
+      cp.is_newborn_tracked,
+      cp.newborn_seed_query,
+      ump.title,
+      COALESCE(ump.clean_domain, '') AS domain,
+      ump.destination_url,
+      ump.image_url,
+      ump.creator_username,
+      ump.board_name,
+      ump.dominant_color,
+      COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
+      ump.creation_method,
+      ump.save_count,
+      ump.repin_count,
+      ump.comment_count,
+      ump.daily_save_velocity,
+      ump.daily_repin_velocity,
+      ump.delta_repins_24h,
+      ump.gains_5d,
+      ump.gains_7d,
+      ump.gains_10d,
+      ump.gains_15d,
+      ump.created_at_pinterest,
+      (ump.metadata->>'aspect_ratio') AS aspect_ratio,
+      (ump.metadata->>'format') AS format,
+      (ump.metadata->>'seo_title') AS seo_title
+    FROM combined_pins cp
+    JOIN universal_master_pins ump ON ump.pin_id = cp.pin_id
+    ORDER BY ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST;
+  `;
+
+  const runSerpOnlyFallback = () => sql`
+    WITH folder_positions AS (
+      SELECT
+        c.pin_id,
+        c.keyword_id,
+        tk.keyword AS keyword_text,
+        CASE
+          WHEN c.is_displaced IS TRUE THEN COALESCE(c.last_known_rank, c.rank_position)
+          ELSE c.rank_position
+        END AS rank_position,
+        COALESCE(c.is_displaced, FALSE) AS is_displaced,
+        c.crawled_at,
+        c.updated_at AS snapshot_date,
+        NULL::timestamptz AS pin_first_seen_at,
+        i.added_at AS folder_added_at
+      FROM keyword_folder_items i
+      JOIN tracked_keywords tk ON tk.id = i.keyword_id
+      JOIN keyword_serp_positions c ON c.keyword_id = i.keyword_id
+      WHERE i.folder_id = ${fid}
+        AND (
+          (c.is_displaced IS FALSE AND c.rank_position IS NOT NULL AND c.rank_position >= 1)
+          OR c.is_displaced IS TRUE
+        )
+    ),
+    pin_agg AS (
+      SELECT
+        fp.pin_id,
+        BOOL_OR(NOT fp.is_displaced) AS has_active_rank,
+        BOOL_OR(fp.is_displaced) AS has_vault_rank,
+        MIN(fp.pin_first_seen_at) AS pin_first_seen_at,
+        MIN(fp.folder_added_at) AS folder_added_at,
+        MAX(fp.crawled_at) AS crawled_at,
+        MAX(fp.snapshot_date) AS snapshot_date,
+        JSONB_AGG(
+          JSONB_BUILD_OBJECT(
+            'keyword_id', fp.keyword_id,
+            'keyword', fp.keyword_text,
+            'rank_position', fp.rank_position,
+            'is_displaced', fp.is_displaced
+          )
+          ORDER BY fp.is_displaced ASC, fp.rank_position ASC NULLS LAST
+        ) AS rankings
+      FROM folder_positions fp
+      GROUP BY fp.pin_id
+    )
+    SELECT
+      pa.pin_id,
+      pa.has_active_rank,
+      pa.has_vault_rank,
+      pa.pin_first_seen_at,
+      pa.folder_added_at,
+      pa.crawled_at,
+      pa.snapshot_date,
+      pa.rankings,
+      FALSE AS is_tracked_pin,
+      ARRAY[]::text[] AS tracked_sources,
+      FALSE AS is_newborn_tracked,
+      NULL::text AS newborn_seed_query,
+      ump.title,
+      COALESCE(ump.clean_domain, '') AS domain,
+      ump.destination_url,
+      ump.image_url,
+      ump.creator_username,
+      ump.board_name,
+      ump.dominant_color,
+      COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
+      ump.creation_method,
+      ump.save_count,
+      ump.repin_count,
+      ump.comment_count,
+      ump.daily_save_velocity,
+      ump.daily_repin_velocity,
+      ump.delta_repins_24h,
+      ump.gains_5d,
+      ump.gains_7d,
+      ump.gains_10d,
+      ump.gains_15d,
+      ump.created_at_pinterest,
+      (ump.metadata->>'aspect_ratio') AS aspect_ratio,
+      (ump.metadata->>'format') AS format,
+      (ump.metadata->>'seo_title') AS seo_title
+    FROM pin_agg pa
+    JOIN universal_master_pins ump ON ump.pin_id = pa.pin_id
+    ORDER BY ump.daily_save_velocity DESC NULLS LAST, ump.save_count DESC NULLS LAST;
+  `;
 
   try {
-    return await runAggQuery(true);
+    return await runFullWithFirstSeen();
   } catch (err) {
-    if (!isMissingFirstSeenColumnError(err)) throw err;
-    return await runAggQuery(false);
+    const code = String(err?.code || err?.cause?.code || '');
+    if (isMissingFirstSeenColumnError(err) || code === '42703') {
+      try {
+        return await runWithoutFirstSeen();
+      } catch (innerErr) {
+        const innerCode = String(innerErr?.code || innerErr?.cause?.code || '');
+        if (innerCode === '42P01' || innerCode === '42703') {
+          return await runSerpOnlyFallback();
+        }
+        throw innerErr;
+      }
+    }
+    if (code === '42P01') {
+      return await runSerpOnlyFallback();
+    }
+    throw err;
   }
 }
 
@@ -504,7 +671,21 @@ async function _executeFolderCrossover(sql, fid) {
   const totalKeywords = folderKeywords.length;
   const keywordIds = folderKeywords.map(k => k.id);
 
+  let activeTrackedPinsCount = 0;
   if (totalKeywords === 0) {
+    try {
+      const [cntRow] = await sql`
+        SELECT COUNT(*)::int AS cnt
+        FROM campaign_tracked_pins
+        WHERE folder_id = ${fid} AND is_active = TRUE;
+      `;
+      activeTrackedPinsCount = Number(cntRow?.cnt || 0);
+    } catch (_) {
+      activeTrackedPinsCount = 0;
+    }
+  }
+
+  if (totalKeywords === 0 && activeTrackedPinsCount === 0) {
     return {
       _crossover_schema_v: 7,
       folder,
@@ -512,6 +693,8 @@ async function _executeFolderCrossover(sql, fid) {
         total_keywords: 0,
         total_unique_pins: 0,
         super_pins_count: 0,
+        newborn_pins_count: 0,
+        tracked_pins_count: 0,
         vacuum_pins_count: 0,
         breakout_baby_domains_count: 0,
         universal_tags_count: 0,
@@ -538,32 +721,39 @@ async function _executeFolderCrossover(sql, fid) {
     };
   }
 
-  // 2. Query aggregated unique pins (active + vault, zero LIMIT truncation), capsules, and per-pin rolling repin gains in parallel
+  // 2. Query aggregated unique pins (active + vault + campaign tracked, zero LIMIT truncation), capsules, and per-pin rolling repin gains in parallel
   // [INVARIANT: TARGETED-JSONB-PROJECTION]
   let repinWindowDegraded = false;
   let [pinRows, capsuleRows, repinWindowRows] = await Promise.all([
     queryAggregatedFolderPins(sql, fid),
-    sql`
-      SELECT 
-        c.id,
-        c.keyword_id,
-        c.term,
-        c.display_label,
-        c.score,
-        c.dominant_color,
-        c.display_order,
-        tk.keyword as keyword_text
-      FROM keyword_guided_capsules c
-      JOIN tracked_keywords tk ON tk.id = c.keyword_id
-      WHERE c.keyword_id = ANY(${keywordIds})
-      ORDER BY c.score DESC, c.display_order ASC;
-    `,
+    keywordIds.length > 0
+      ? sql`
+          SELECT 
+            c.id,
+            c.keyword_id,
+            c.term,
+            c.display_label,
+            c.score,
+            c.dominant_color,
+            c.display_order,
+            tk.keyword as keyword_text
+          FROM keyword_guided_capsules c
+          JOIN tracked_keywords tk ON tk.id = c.keyword_id
+          WHERE c.keyword_id = ANY(${keywordIds})
+          ORDER BY c.score DESC, c.display_order ASC;
+        `
+      : Promise.resolve([]),
     sql`
       WITH folder_pins AS (
         SELECT DISTINCT c.pin_id
         FROM keyword_folder_items i
         JOIN keyword_serp_positions c ON c.keyword_id = i.keyword_id
         WHERE i.folder_id = ${fid}
+        UNION
+        SELECT DISTINCT ctp.pin_id
+        FROM campaign_tracked_pins ctp
+        WHERE ctp.folder_id = ${fid}
+          AND ctp.is_active = TRUE
       ),
       pin_metrics AS (
         SELECT

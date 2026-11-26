@@ -173,11 +173,11 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
         <!-- Table Title & Meta Bar -->
         <div class="p-4 border-b border-slate-200 dark:border-[#27272A] flex items-center justify-between flex-wrap gap-3">
           <div class="flex items-center gap-2">
-            <span x-show="scopeFilter === 'super_only'" class="inline-flex text-pink-500"><i data-lucide="star" class="w-4 h-4"></i></span><span x-show="scopeFilter === 'active_only'" class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block shrink-0" aria-hidden="true"></span><span x-show="scopeFilter === 'vault_only'" class="w-2.5 h-2.5 rounded-full bg-purple-500 inline-block shrink-0" aria-hidden="true"></span><span x-show="scopeFilter !== 'super_only' && scopeFilter !== 'active_only' && scopeFilter !== 'vault_only'" class="inline-flex text-indigo-500"><i data-lucide="pin" class="w-4 h-4"></i></span>
+            <span x-show="scopeFilter === 'super_only'" class="inline-flex text-pink-500"><i data-lucide="star" class="w-4 h-4"></i></span><span x-show="scopeFilter === 'newborn_only'" class="inline-flex text-orange-500"><i data-lucide="flame" class="w-4 h-4"></i></span><span x-show="scopeFilter === 'active_only'" class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block shrink-0" aria-hidden="true"></span><span x-show="scopeFilter === 'vault_only'" class="w-2.5 h-2.5 rounded-full bg-purple-500 inline-block shrink-0" aria-hidden="true"></span><span x-show="scopeFilter !== 'super_only' && scopeFilter !== 'newborn_only' && scopeFilter !== 'active_only' && scopeFilter !== 'vault_only'" class="inline-flex text-indigo-500"><i data-lucide="pin" class="w-4 h-4"></i></span>
             <h3 class="text-sm font-semibold text-slate-900 dark:text-white tracking-tight" 
-                x-text="scopeFilter === 'super_only' ? 'Multi-Ranking Super-Pins (Cross-SERP Dominators)' : (scopeFilter === 'active_only' ? 'Active SERP Dominators (Live Ranking Pins)' : (scopeFilter === 'vault_only' ? 'Displaced Vault Movers (Organic Cluster Pins)' : (scopeFilter === 'all' ? 'All Cluster Pins (Full Snapshot Dataset)' : 'Pins ranking for: ' + scopeFilter)))"></h3>
+                x-text="scopeFilter === 'super_only' ? 'Multi-Ranking Super-Pins (Cross-SERP Dominators)' : (scopeFilter === 'newborn_only' ? 'Newborn Tracked Pins (Discover Velocity Radar)' : (scopeFilter === 'active_only' ? 'Active SERP Dominators (Live Ranking Pins)' : (scopeFilter === 'vault_only' ? 'Displaced Vault Movers (Organic Cluster Pins)' : (scopeFilter === 'all' ? 'All Cluster Pins (Full Snapshot Dataset)' : 'Pins ranking for: ' + scopeFilter))))"></h3>
             <span class="text-xs text-slate-500 dark:text-slate-400" 
-                  x-text="scopeFilter === 'super_only' ? '(Pins ranking across >= 2 cluster search terms)' : (scopeFilter === 'active_only' ? '(Pins actively ranking in live SERPs)' : (scopeFilter === 'vault_only' ? '(High-signal displaced organic pins in vault)' : '(Every verified pin across cluster search snapshots)'))"></span>
+                  x-text="scopeFilter === 'super_only' ? '(Pins ranking across >= 2 cluster search terms)' : (scopeFilter === 'newborn_only' ? '(High-signal Newborn pins tracked daily in this campaign)' : (scopeFilter === 'active_only' ? '(Pins actively ranking in live SERPs)' : (scopeFilter === 'vault_only' ? '(High-signal displaced organic pins in vault)' : '(Every verified pin across cluster search snapshots)')))"></span>
           </div>
           <div class="flex items-center gap-3">
             <span class="text-xs font-mono tabular-nums text-indigo-600 dark:text-indigo-400 font-bold" x-text="formatNumber(filteredPinsList().length) + ' pins matching'"></span>
@@ -213,6 +213,12 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                       title="All pins appearing in >= 2 keywords across Active SERP and Vault"
                       :class="scopeFilter === 'super_only' ? 'bg-pink-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
                 <i data-lucide="star" class="w-3.5 h-3.5 shrink-0"></i> Super-Pins Only (<span x-text="formatNumber(crossoverData?.summary?.super_pins_count ?? (crossoverData?.all_pins?.filter(p => p.is_super_pin || (p.overlap_count || 0) >= 2)?.length || 0))"></span>)
+              </button>
+              <button @click="scopeFilter = 'newborn_only'; currentPage = 1" 
+                      class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
+                      title="Newborn pins tracked daily in this campaign"
+                      :class="scopeFilter === 'newborn_only' ? 'bg-orange-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
+                <i data-lucide="flame" class="w-3.5 h-3.5 shrink-0"></i> Newborn (<span x-text="formatNumber(crossoverData?.summary?.newborn_pins_count ?? (crossoverData?.all_pins?.filter(p => p.is_newborn_tracked)?.length || 0))"></span>)
               </button>
               <template x-if="activeFolder?.items?.length">
                 <select x-model="scopeFilter" @change="currentPage = 1" class="bg-white dark:bg-[#18181B] text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] rounded-lg text-xs py-1.5 px-2.5 font-mono tabular-nums shadow-sm cursor-pointer">
@@ -413,6 +419,11 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                    <td class="p-3.5">
                      <div class="flex flex-col gap-1.5">
                        <div class="flex items-center gap-1.5 flex-wrap">
+                         <template x-if="sp.is_newborn_tracked">
+                           <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold border bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30 inline-flex items-center gap-1" :title="sp.newborn_seed_query ? ('Newborn Seed: ' + sp.newborn_seed_query) : 'Promoted from Newborn Discovery'">
+                             <span x-text="sp.newborn_seed_query ? ('Newborn · ' + sp.newborn_seed_query) : 'Newborn'"></span>
+                           </span>
+                         </template>
                          <template x-for="rk in (expandedPinRanks[sp.pin_id] ? getSortedPinRankings(sp) : getSortedPinRankings(sp).slice(0, 4))" :key="rk.keyword_id || rk.keyword">
                            <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums border flex items-center gap-1"
                                  :class="rk.is_displaced
@@ -436,7 +447,7 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                          </template>
                        </div>
                        <div class="flex items-center gap-2 flex-wrap">
-                         <span class="text-[10px] text-slate-500 dark:text-slate-400" x-text="'Ranks in ' + sp.overlap_count + ' keyword' + (sp.overlap_count > 1 ? 's' : '') + ' (' + sp.overlap_percentage + '% coverage)'"></span>
+                         <span class="text-[10px] text-slate-500 dark:text-slate-400" x-text="(sp.overlap_count > 0) ? ('Ranks in ' + sp.overlap_count + ' keyword' + (sp.overlap_count > 1 ? 's' : '') + ' (' + sp.overlap_percentage + '% coverage)') : (sp.is_tracked_pin ? 'Tracked in Campaign · Daily Velocity Active' : 'Ranks in 0 keywords')"></span>
                          <template x-if="sp.bridge_tags && sp.bridge_tags.length">
                            <span class="inline-flex items-center gap-1 text-[9px] font-mono tabular-nums px-1.5 py-0.2 rounded bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-semibold" :title="'Universal Bridge Tags: ' + sp.bridge_tags.join(', ')"><i data-lucide="git-merge" class="w-2.5 h-2.5 shrink-0"></i><span x-text="sp.bridge_tags.length + ' Bridges'"></span></span>
                          </template>

@@ -170,12 +170,26 @@ export function getNewbornCandidatesAndRookiesHtml({ folderId = '' } = {}) {
 
             <!-- Filter Chips, Search, Sort & Export CSV -->
             <div class="flex flex-wrap items-center gap-2">
-              <button type="button"
-                      @click="toggleFilterFlag('linklessOnly')"
-                      class="px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
-                      :class="filters.linklessOnly ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300' : 'bg-slate-50 dark:bg-[#121215] border-slate-200 dark:border-[#27272A] text-slate-600 dark:text-[#A1A1AA]'">
-                No Link / Linkless
-              </button>
+              <div class="inline-flex items-center rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] p-0.5 text-xs" role="group" aria-label="Filter by outbound link status">
+                <button type="button"
+                        @click="setLinkFilter('all')"
+                        class="px-2 py-0.5 rounded-md font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+                        :class="filters.linkFilter === 'all' ? 'bg-white dark:bg-[#27272A] text-slate-900 dark:text-[#FAFAFA] shadow-xs' : 'text-slate-600 dark:text-[#A1A1AA] hover:text-slate-900'">
+                  All Links
+                </button>
+                <button type="button"
+                        @click="setLinkFilter('linkless')"
+                        class="px-2 py-0.5 rounded-md font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+                        :class="filters.linkFilter === 'linkless' ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 shadow-xs' : 'text-slate-600 dark:text-[#A1A1AA] hover:text-slate-900'">
+                  No Link
+                </button>
+                <button type="button"
+                        @click="setLinkFilter('linked')"
+                        class="px-2 py-0.5 rounded-md font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+                        :class="filters.linkFilter === 'linked' ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 shadow-xs' : 'text-slate-600 dark:text-[#A1A1AA] hover:text-slate-900'">
+                  Has Link
+                </button>
+              </div>
 
               <select x-model="filters.surface" @change="onCandidateFilterChange()" aria-label="Filter by discovery source" class="px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs text-slate-700 dark:text-[#FAFAFA] cursor-pointer"><option value="">Source: All</option><option value="pin_serp_capsules">Search</option><option value="board_more_ideas">Find More Ideas</option><option value="ideas_feeds">Idea Page</option><option value="home_feed">Home Feed</option><option value="related_pin_snowball">Related Pins</option><option value="board_feed">Board</option></select>
               <select x-model="filters.creationMethod" @change="onCandidateFilterChange()" aria-label="Filter by creation method" class="px-2 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs text-slate-700 dark:text-[#FAFAFA] cursor-pointer"><option value="">Method: All</option><option value="uploaded">Uploaded</option><option value="photos">Photos</option><option value="pin_scheduling">Scheduled</option><option value="pinterest_platform">Pinterest Platform</option><option value="organic_pin">Organic Pin</option><option value="in_app_browser">In-App Browser</option><option value="share_extension_ios">iOS Share</option><option value="share_extension_android">Android Share</option><option value="idea_pin">Idea Pin</option><option value="carousel">Carousel</option><option value="bookmarklet">Bookmarklet</option><option value="extension">Browser Extension</option><option value="instagram_api">Instagram</option><option value="shuffles_composer">Shuffles</option><option value="csv_importer">CSV Import</option></select>
@@ -528,6 +542,22 @@ export function getNewbornCandidatesAndRookiesHtml({ folderId = '' } = {}) {
     <!-- ====================================================================== -->
     <template x-if="activeView === 'history'">
       <section id="panel-newborn-history" role="tabpanel" aria-labelledby="tab-newborn-history" class="bg-white dark:bg-[#18181B] rounded-2xl border border-slate-200 dark:border-[#27272A] shadow-xs overflow-x-auto">
+        <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-slate-200 dark:border-[#27272A] bg-slate-50/70 dark:bg-[#121215]/70">
+          <div class="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-[#E4E4E7]">
+            <i data-lucide="history" class="w-4 h-4 text-slate-400" aria-hidden="true"></i>
+            <span>Past Hunts</span>
+            <span class="px-2 py-0.5 rounded-full bg-white dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] text-[11px] font-mono tabular-nums text-slate-600 dark:text-[#A1A1AA]" x-text="runs.length"></span>
+          </div>
+          <template x-if="failedOrEmptyRunsCount() > 0">
+            <button type="button"
+                    @click="clearFailedAndEmptyRuns()"
+                    :disabled="isClearingRuns"
+                    class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-950/50 text-xs font-semibold text-rose-700 dark:text-rose-300 disabled:opacity-60 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
+              <i data-lucide="trash-2" class="w-3.5 h-3.5" aria-hidden="true"></i>
+              <span x-text="isClearingRuns ? 'Clearing...' : ('Clear Failed & Empty (' + failedOrEmptyRunsCount() + ')')"></span>
+            </button>
+          </template>
+        </div>
         <template x-if="runs.length === 0">
           <div class="p-8 text-center text-xs text-slate-500 dark:text-[#A1A1AA]">
             No past hunts recorded yet. Launch your first deep-scroll hunt above.
@@ -584,6 +614,19 @@ export function getNewbornCandidatesAndRookiesHtml({ folderId = '' } = {}) {
                               class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] hover:border-rose-300 text-xs font-semibold text-slate-700 dark:text-[#FAFAFA] cursor-pointer">
                         View Results
                       </button>
+                      <template x-if="!isRunActiveStatus(r.status)">
+                        <button type="button"
+                                @click.stop="deletePastRun(r)"
+                                :disabled="deletingRunId === Number(r.id)"
+                                :title="confirmDeleteRunId === Number(r.id) ? 'Click again to confirm deletion' : 'Delete hunt and unpromoted orphan pins'"
+                                class="inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                                :class="confirmDeleteRunId === Number(r.id) ? 'border-rose-500 bg-rose-600 text-white hover:bg-rose-700' : 'border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#121215] text-slate-500 hover:text-rose-600 hover:border-rose-300'">
+                          <i data-lucide="trash-2" class="w-3.5 h-3.5" aria-hidden="true"></i>
+                          <template x-if="confirmDeleteRunId === Number(r.id)">
+                            <span>Confirm</span>
+                          </template>
+                        </button>
+                      </template>
                     </div>
                   </td>
                 </tr>

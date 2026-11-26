@@ -49,16 +49,18 @@ export function normalizeCandidateForMasterIngest(cand) {
     share_count: cand.share_count != null ? Number(cand.share_count) : null,
     reaction_count: cand.reaction_count != null ? Number(cand.reaction_count) : null,
     // Strictly preserve [INVARIANT: UNHYDRATED-SAVES-NULL] & [INVARIANT: ANTI-HYDRATION-SPIKE]:
-    // Never mark hydrated without explicit save_count, and NEVER inject lifetime save_per_day
-    // into Day-1 daily_save_velocity (keep Day-1 velocity at 0 until 01:00 UTC Day-2 delta!).
+    // Never mark hydrated without explicit save_count, and NEVER inject Day-1 velocity or deltas
+    // before a genuine multi-day snapshot diff exists (was_live_scraped: false protects against Day-1 fabrication).
     is_hydrated: hasSaves,
     daily_save_velocity: 0,
     daily_repin_velocity: 0,
+    delta_saves_24h: null,
+    delta_repins_24h: null,
     is_product: Boolean(cand.is_product),
     is_video: Boolean(cand.is_video),
     creation_method: cand.raw_creation_method || cand.upload_provenance?.toLowerCase() || 'pinterest_platform',
     image_signature: cand.image_signature || null,
-    was_live_scraped: true,
+    was_live_scraped: false,
     metadata: {
       newborn_promoted: true,
       newborn_golden_score: Number(cand.golden_score || 0),
@@ -260,30 +262,61 @@ export async function promoteNewbornCandidates(sql, options = {}) {
       if (numericFolderId !== null) {
         // Unified Campaign Tracking: also enroll promoted pins directly into campaign_tracked_pins
         // so they appear immediately inside the Campaign AND track daily velocity without ghost rows!
+        const trackedPayloads = candidateRows
+          .map((c) => ({
+            pin_id: String(c.pin_id),
+            seed_query: c.seed_query || c.crossover_blueprint?.primary_keyword || null
+          }))
+          .sort((a, b) => a.pin_id.localeCompare(b.pin_id));
+        const trackedJson = JSON.stringify(sanitizeForJsonb(trackedPayloads));
         try {
           const trackedRows = await tx`
             INSERT INTO campaign_tracked_pins (
-              folder_id, workspace_id, pin_id, source_type, source_ref, is_active, added_at
+              folder_id, workspace_id, pin_id, source_type, source_ref, seed_query, is_active, added_at
             )
             SELECT
               ${numericFolderId},
               ${resolvedWorkspaceId},
-              p_id,
+              t.pin_id,
               'newborn',
               ${String(source || 'discover_promote').slice(0, 255)},
+              t.seed_query,
               TRUE,
               NOW()
-            FROM UNNEST(${promotedIds}::text[]) AS p_id
-            ORDER BY p_id ASC
+            FROM jsonb_to_recordset(${trackedJson}::jsonb) AS t(pin_id text, seed_query text)
+            ORDER BY t.pin_id ASC
             ON CONFLICT (folder_id, pin_id, source_type) DO UPDATE SET
               is_active = TRUE,
-              source_ref = CASE WHEN EXCLUDED.source_ref <> '' THEN EXCLUDED.source_ref ELSE campaign_tracked_pins.source_ref END
+              source_ref = CASE WHEN EXCLUDED.source_ref <> '' THEN EXCLUDED.source_ref ELSE campaign_tracked_pins.source_ref END,
+              seed_query = COALESCE(NULLIF(EXCLUDED.seed_query, ''), campaign_tracked_pins.seed_query)
             RETURNING pin_id;
           `;
           campaignTrackedCreated = Array.isArray(trackedRows) ? trackedRows.length : promotedIds.length;
         } catch (err) {
-          // Graceful fallback if campaign_tracked_pins table does not exist in older unit test mocks
-          if (!['42P01', '42703'].includes(String(err?.code || ''))) throw err;
+          if (String(err?.code || '') === '42703') {
+            const trackedRows = await tx`
+              INSERT INTO campaign_tracked_pins (
+                folder_id, workspace_id, pin_id, source_type, source_ref, is_active, added_at
+              )
+              SELECT
+                ${numericFolderId},
+                ${resolvedWorkspaceId},
+                p_id,
+                'newborn',
+                ${String(source || 'discover_promote').slice(0, 255)},
+                TRUE,
+                NOW()
+              FROM UNNEST(${promotedIds}::text[]) AS p_id
+              ORDER BY p_id ASC
+              ON CONFLICT (folder_id, pin_id, source_type) DO UPDATE SET
+                is_active = TRUE,
+                source_ref = CASE WHEN EXCLUDED.source_ref <> '' THEN EXCLUDED.source_ref ELSE campaign_tracked_pins.source_ref END
+              RETURNING pin_id;
+            `;
+            campaignTrackedCreated = Array.isArray(trackedRows) ? trackedRows.length : promotedIds.length;
+          } else if (String(err?.code || '') !== '42P01') {
+            throw err;
+          }
         }
       }
 

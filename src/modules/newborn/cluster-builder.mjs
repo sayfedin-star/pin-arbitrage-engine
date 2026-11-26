@@ -19,6 +19,7 @@
  */
 
 import { Semaphore, sanitizeForJsonb } from '../../utils.mjs';
+import { normalizeWordLemma } from '../../domain/pin-intelligence.mjs';
 import { NewbornCookieRouter } from './cookie-router.mjs';
 import { fetchKeywordTypeahead } from '../keywords/typeahead.mjs';
 import { slugifyInterestTerm } from '../keywords/trends-service.mjs';
@@ -33,11 +34,41 @@ const TREND_TABS = Object.freeze(['growing', 'seasonal', 'monthly', 'yearly']);
 const FOOD_SUFFIXES = Object.freeze(['recipes', 'ideas', 'easy', 'healthy']);
 const DEFAULT_SUFFIXES = Object.freeze(['ideas', 'easy', 'aesthetic', 'diy']);
 
+const SEMANTIC_STOP_WORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'for', 'of', 'in', 'on', 'to', 'with', 'at', 'by', 'from',
+  'my', 'your', 'our', 'this', 'that', 'these', 'those', 'is', 'are', 'be',
+  'idea', 'ideas', 'best', 'easy', 'simple', 'diy', 'cute', 'aesthetic', 'quick', 'homemade'
+]);
+
 export function normalizeClusterTerm(raw) {
   return String(raw || '')
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
+}
+
+function extractSemanticLemmas(phrase) {
+  const tokens = normalizeClusterTerm(phrase)
+    .split(/[^a-z0-9]+/)
+    .map((t) => normalizeWordLemma(t))
+    .filter((t) => t.length >= 2);
+  const meaningful = tokens.filter((t) => !SEMANTIC_STOP_WORDS.has(t));
+  return new Set(meaningful.length > 0 ? meaningful : tokens);
+}
+
+/**
+ * Checks whether a 2nd-hop related interest shares at least one lemmatized core semantic token
+ * with the cluster's `seedKeyword`, blocking off-topic hops (e.g. "thanksgiving turkey" in a "green bean" cluster).
+ */
+export function hasSeedSemanticOverlap(seedKeyword, candidateKeyword) {
+  const seedTokens = extractSemanticLemmas(seedKeyword);
+  if (seedTokens.size === 0) return true;
+  const candTokens = extractSemanticLemmas(candidateKeyword);
+  if (candTokens.size === 0) return false;
+  for (const tok of seedTokens) {
+    if (candTokens.has(tok)) return true;
+  }
+  return false;
 }
 
 export function buildTypeaheadExpansionQueries(seedKeyword, l1Interest = 'all') {
@@ -312,7 +343,11 @@ export function resolveInterestLookupTarget(row) {
  * - On transient network error / HTTP 429 / 5xx / circuit breaker open, keeps `volume_enriched = false`
  *   and sets `volume_error = true` + `volume_error_reason` so the operator can retry cleanly!
  */
-async function enrichKeywordsInterestVolumes(router, rowsToEnrich = [], { discoveredRelatedOut = null } = {}) {
+async function enrichKeywordsInterestVolumes(
+  router,
+  rowsToEnrich = [],
+  { discoveredRelatedOut = null, seedKeyword = '', country = 'US' } = {}
+) {
   if (!Array.isArray(rowsToEnrich) || rowsToEnrich.length === 0) {
     return { enrichedCount: 0, failedCount: 0, rateLimited: false };
   }
@@ -407,26 +442,51 @@ async function enrichKeywordsInterestVolumes(router, rowsToEnrich = [], { discov
       row.volume_error_reason = null;
       enrichedCount++;
 
-      if (!res?.ok || !data || data.is_interest === false) {
-        if (!row.interest_id) row.has_taxonomy = false;
+      const rawInterestId = String(data?.id || '').trim();
+      const hasValidResponseId = /^\d+$/.test(rawInterestId) && rawInterestId !== '0';
+      const hasKnownId = /^\d+$/.test(String(knownId || '').trim()) && String(knownId).trim() !== '0';
+
+      if (!res?.ok || !data || data.is_interest === false || (!hasValidResponseId && !hasKnownId)) {
+        if (!hasKnownId) {
+          row.has_taxonomy = false;
+        }
         return;
       }
 
-      const interestId = String(data.id || knownId || '').trim();
-      const searchCount = Number(data.internal_search_count ?? data.search_count ?? 0);
-      const urlName = String(data.url_name || slug).trim();
+      const interestId = hasValidResponseId ? rawInterestId : String(knownId).trim();
+      let searchCount = Number(data.internal_search_count ?? data.search_count ?? 0);
+      let urlName = String(data.url_name || slug).trim();
 
       if (interestId && interestId !== '0') {
         row.interest_id = interestId;
         row.has_taxonomy = true;
         row.idea_url = `https://www.pinterest.com/ideas/${encodeURIComponent(urlName)}/${encodeURIComponent(interestId)}/`;
       }
+
+      // Fallback to resolveIdeaPageIntelligence when an official Taxonomy interest returns 0 / missing volume
+      if ((!Number.isFinite(searchCount) || searchCount <= 0) && row.has_taxonomy) {
+        try {
+          const fallbackIdea = await resolveIdeaPageIntelligence(row.keyword, { router, country });
+          const fbVol = Number(fallbackIdea?.internal_search_count ?? 0);
+          if (fallbackIdea?.found && Number.isFinite(fbVol) && fbVol > 0) {
+            searchCount = fbVol;
+            if (fallbackIdea.url_name) urlName = String(fallbackIdea.url_name).trim();
+            if (fallbackIdea.id && /^\d+$/.test(String(fallbackIdea.id)) && String(fallbackIdea.id) !== '0') {
+              row.interest_id = String(fallbackIdea.id);
+              row.idea_url = `https://www.pinterest.com/ideas/${encodeURIComponent(urlName)}/${encodeURIComponent(row.interest_id)}/`;
+            }
+          }
+        } catch (_) {
+          // Best-effort fallback; never abort the batch
+        }
+      }
+
       if (Number.isFinite(searchCount) && searchCount > 0) {
         row.volume = Math.round(searchCount);
         row.formatted_volume = row.volume.toLocaleString('en-US');
-      } else if (row.volume === null) {
-        row.volume = 0;
-        row.formatted_volume = '0';
+      } else if (row.volume !== null && Number(row.volume) <= 0) {
+        row.volume = null;
+        row.formatted_volume = null;
       }
 
       if (Array.isArray(discoveredRelatedOut)) {
@@ -434,6 +494,7 @@ async function enrichKeywordsInterestVolumes(router, rowsToEnrich = [], { discov
         for (const rel of relList.slice(0, 8)) {
           const relName = normalizeClusterTerm(rel?.name || rel?.key || rel?.url_name?.replace(/-/g, ' '));
           if (!relName) continue;
+          if (seedKeyword && !hasSeedSemanticOverlap(seedKeyword, relName)) continue;
           const relId = String(rel?.id || '').trim() || null;
           const relUrlName = String(rel?.url_name || '').trim();
           discoveredRelatedOut.push({
@@ -623,7 +684,11 @@ export async function buildNewbornKeywordCluster(sql, options = {}) {
   const discoveredRelatedFromTop = [];
   const [, enrichStats] = await Promise.all([
     enrichPredictedPeaksBatch(router, mergedKeywords.slice(0, 24), country),
-    enrichKeywordsInterestVolumes(router, toEnrichVolume, { discoveredRelatedOut: discoveredRelatedFromTop })
+    enrichKeywordsInterestVolumes(router, toEnrichVolume, {
+      discoveredRelatedOut: discoveredRelatedFromTop,
+      seedKeyword,
+      country
+    })
   ]);
 
   // Re-score & re-sort after Volume + Predicted Peaks + Related Interests enrichment
@@ -822,17 +887,29 @@ export async function enrichClusterRemainingVolumes(sql, clusterId, options = {}
       row.volume_error_reason = null;
     }
   } else {
-    // Prioritize never-attempted keywords first, then previously errored keywords
+    // Prioritize never-attempted keywords first, then previously errored keywords,
+    // then official Taxonomy keywords still stuck at 0/null volume (so poisoned rows can recover).
     const neverAttempted = currentKeywords.filter((k) => !k.volume_enriched && !k.volume_error);
     const errored = currentKeywords.filter((k) => !k.volume_enriched && k.volume_error);
-    pending = [...neverAttempted, ...errored].slice(0, batchLimit);
+    const zeroVolTaxonomy = currentKeywords.filter(
+      (k) => k.volume_enriched && k.has_taxonomy === true && (!k.volume || Number(k.volume) <= 0)
+    );
+    pending = [...neverAttempted, ...errored, ...zeroVolTaxonomy].slice(0, batchLimit);
+    for (const row of pending) {
+      if (row.has_taxonomy === true && (!row.volume || Number(row.volume) <= 0)) {
+        row.volume_enriched = false;
+      }
+    }
   }
 
   let newlyEnriched = 0;
   let newlyFailed = 0;
   let rateLimited = false;
   if (pending.length > 0) {
-    const enrichStats = await enrichKeywordsInterestVolumes(router, pending);
+    const enrichStats = await enrichKeywordsInterestVolumes(router, pending, {
+      seedKeyword: existing.seed_keyword || '',
+      country: existing.country || 'US'
+    });
     newlyEnriched = enrichStats.enrichedCount;
     newlyFailed = enrichStats.failedCount;
     rateLimited = enrichStats.rateLimited;

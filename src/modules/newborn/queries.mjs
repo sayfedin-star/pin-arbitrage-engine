@@ -40,6 +40,15 @@ function parseOptionalPositiveInt(val) {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
+function normalizeLinkFilter(linkFilter, linklessOnly) {
+  const raw = String(linkFilter || '').trim().toLowerCase();
+  if (raw === 'linkless' || raw === 'no_link' || raw === 'without_link') return 'linkless';
+  if (raw === 'linked' || raw === 'has_link' || raw === 'with_link') return 'linked';
+  if (raw === 'all') return 'all';
+  if (linklessOnly === true || linklessOnly === 'true') return 'linkless';
+  return 'all';
+}
+
 /**
  * Single-pass Executive Overview for `/api/newborn/overview`.
  */
@@ -308,7 +317,7 @@ export async function listNewbornCandidates(sql, filters = {}) {
   const repinFilter = rawRepinFilter === 'original' ? false : (rawRepinFilter === 'repin' ? true : null);
   const goldenOnly = filters.golden_only === true || filters.golden_only === 'true';
   const rookieOnly = filters.rookie_only === true || filters.rookie_only === 'true';
-  const linklessOnly = filters.linkless_only === true || filters.linkless_only === 'true';
+  const linkFilter = normalizeLinkFilter(filters.link_filter ?? filters.linkFilter, filters.linkless_only ?? filters.linkless);
   const qualifiedOnly = filters.qualified_only === true || filters.qualified_only === 'true';
   const minGoldenScore = filters.min_golden_score != null && filters.min_golden_score !== ''
     ? Number(filters.min_golden_score)
@@ -319,7 +328,9 @@ export async function listNewbornCandidates(sql, filters = {}) {
   const maxAgeDays = filters.max_age_days != null && filters.max_age_days !== ''
     ? Number(filters.max_age_days)
     : null;
-  const cleanAnnotation = String(filters.annotation || '').trim().toLowerCase() || null;
+  const cleanAnnotation = filters.annotation
+    ? decodeHtmlEntities(String(filters.annotation)).trim().toLowerCase() || null
+    : null;
 
   const rawSearch = String(filters.search || filters.q || '').trim().toLowerCase();
   const searchPattern = rawSearch ? `%${escapeSqlWildcards(rawSearch)}%` : null;
@@ -351,12 +362,27 @@ export async function listNewbornCandidates(sql, filters = {}) {
         )
       )`;
 
-  const runListQueries = async (includeRunSurfaces) => {
+  const runListQueries = async (includeRunSurfaces, useAnnotationGinFn = true) => {
     const surfaceCond = runId !== null
       ? (includeRunSurfaces
           ? sql`(${surface}::text IS NULL OR nrc.surface = ${surface} OR COALESCE(nrc.surfaces, '[]'::jsonb) ? ${surface || ''} OR nc.first_surface = ${surface} OR nc.discovered_surfaces ? ${surface || ''})`
           : sql`(${surface}::text IS NULL OR nrc.surface = ${surface} OR nc.first_surface = ${surface} OR nc.discovered_surfaces ? ${surface || ''})`)
       : sql`(${surface}::text IS NULL OR nc.first_surface = ${surface} OR nc.discovered_surfaces ? ${surface || ''})`;
+
+    const annotationCond = cleanAnnotation === null
+      ? sql`TRUE`
+      : useAnnotationGinFn
+        ? sql`public.pae_extract_annotation_tags(nc.visual_annotations) @> ARRAY[${cleanAnnotation}]::text[]`
+        : sql`EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(COALESCE(nc.visual_annotations, '[]'::jsonb)) AS elem
+            WHERE (
+              CASE
+                WHEN jsonb_typeof(elem) = 'object' THEN LOWER(COALESCE(elem->>'name', ''))
+                ELSE LOWER(elem #>> '{}')
+              END
+            ) = ${cleanAnnotation}
+          )`;
 
     const whereCond = sql`
       (${stage}::text IS NULL OR nc.stage = ${stage})
@@ -370,23 +396,15 @@ export async function listNewbornCandidates(sql, filters = {}) {
       AND (${repinFilter}::boolean IS NULL OR nc.is_repin = ${repinFilter})
       AND (${goldenOnly}::boolean = FALSE OR nc.is_golden_pin = TRUE)
       AND (${rookieOnly}::boolean = FALSE OR nc.is_rookie_outlier = TRUE)
-      AND (${linklessOnly}::boolean = FALSE OR nc.is_linkless = TRUE)
+      AND (
+        ${linkFilter}::text = 'all'
+        OR (${linkFilter}::text = 'linkless' AND nc.is_linkless = TRUE)
+        OR (${linkFilter}::text = 'linked' AND nc.is_linkless = FALSE)
+      )
       AND (${minGoldenScore}::double precision IS NULL OR nc.golden_score >= ${minGoldenScore})
       AND (${minRepins}::double precision IS NULL OR nc.repin_count >= ${minRepins})
       AND (${maxAgeDays}::double precision IS NULL OR nc.age_days <= ${maxAgeDays})
-      AND (
-        ${cleanAnnotation}::text IS NULL
-        OR EXISTS (
-          SELECT 1
-          FROM jsonb_array_elements(COALESCE(nc.visual_annotations, '[]'::jsonb)) AS elem
-          WHERE (
-            CASE
-              WHEN jsonb_typeof(elem) = 'object' THEN LOWER(COALESCE(elem->>'name', ''))
-              ELSE LOWER(elem #>> '{}')
-            END
-          ) = ${cleanAnnotation}
-        )
-      )
+      AND ${annotationCond}
       AND (
         ${searchPattern}::text IS NULL
         OR LOWER(nc.title) LIKE ${searchPattern} ESCAPE '\\'
@@ -495,10 +513,21 @@ export async function listNewbornCandidates(sql, filters = {}) {
   let rows;
   let countRows;
   try {
-    [rows, countRows] = await runListQueries(true);
+    [rows, countRows] = await runListQueries(true, true);
   } catch (err) {
-    if (String(err?.code || '') !== '42703' || runId === null) throw err;
-    [rows, countRows] = await runListQueries(false);
+    const code = String(err?.code || '');
+    if (code === '42883' && cleanAnnotation !== null) {
+      try {
+        [rows, countRows] = await runListQueries(true, false);
+      } catch (innerErr) {
+        if (String(innerErr?.code || '') !== '42703' || runId === null) throw innerErr;
+        [rows, countRows] = await runListQueries(false, false);
+      }
+    } else if (code === '42703' && runId !== null) {
+      [rows, countRows] = await runListQueries(false, true);
+    } else {
+      throw err;
+    }
   }
 
   const enrichBoardMeta = (row) => {
@@ -854,6 +883,215 @@ export async function listNewbornRuns(sql, { limit = 30, folderId = null, worksp
   }
 }
 
+async function pruneOrphanCandidatesAfterRunDelete(tx, targetPinIds = []) {
+  const cleanIds = Array.from(new Set(
+    (Array.isArray(targetPinIds) ? targetPinIds : [])
+      .map((id) => String(id || '').trim())
+      .filter(Boolean)
+  )).sort((a, b) => a.localeCompare(b));
+  if (cleanIds.length === 0) return 0;
+
+  try {
+    const pruned = await tx`
+      DELETE FROM newborn_candidates nc
+      WHERE nc.pin_id = ANY(${cleanIds}::text[])
+        AND nc.stage <> 'promoted'
+        AND NOT EXISTS (
+          SELECT 1 FROM newborn_run_candidates nrc WHERE nrc.pin_id = nc.pin_id
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM newborn_daily_anchors nda WHERE nda.pin_id = nc.pin_id
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM campaign_tracked_pins ctp WHERE ctp.pin_id = nc.pin_id AND ctp.is_active = TRUE
+        )
+      RETURNING nc.pin_id;
+    `;
+    return Array.isArray(pruned) ? pruned.length : 0;
+  } catch (err) {
+    if (String(err?.code || '') !== '42P01') throw err;
+    const pruned = await tx`
+      DELETE FROM newborn_candidates nc
+      WHERE nc.pin_id = ANY(${cleanIds}::text[])
+        AND nc.stage <> 'promoted'
+        AND NOT EXISTS (
+          SELECT 1 FROM newborn_run_candidates nrc WHERE nrc.pin_id = nc.pin_id
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM newborn_daily_anchors nda WHERE nda.pin_id = nc.pin_id
+        )
+      RETURNING nc.pin_id;
+    `;
+    return Array.isArray(pruned) ? pruned.length : 0;
+  }
+}
+
+/**
+ * Atomically deletes a single finished/failed/cancelled Past Hunt (`newborn_runs`)
+ * and prunes any unpromoted/untracked orphan candidates exclusively tied to it.
+ * Captures `target_pins` BEFORE `DELETE FROM newborn_runs` (before ON DELETE CASCADE clears links).
+ */
+export async function deleteNewbornRun(sql, runId, { workspaceId = 1 } = {}) {
+  const numericRunId = parseOptionalPositiveInt(runId);
+  const wid = parseOptionalPositiveInt(workspaceId) || 1;
+  if (numericRunId === null) {
+    return { ok: false, status: 400, error: 'BAD_REQUEST', message: 'Valid numeric run ID is required.' };
+  }
+
+  const runInTx = async (fn) => (typeof sql.begin === 'function' ? sql.begin(fn) : fn(sql));
+  const result = await runInTx(async (tx) => {
+    let runRows;
+    try {
+      runRows = await tx`
+        SELECT id, status, workspace_id
+        FROM newborn_runs
+        WHERE id = ${numericRunId} AND workspace_id = ${wid}
+        LIMIT 1;
+      `;
+    } catch (err) {
+      if (String(err?.code || '') !== '42703') throw err;
+      if (wid !== 1) return { ok: false, status: 404, error: 'NOT_FOUND', message: `Newborn run #${numericRunId} not found.` };
+      runRows = await tx`
+        SELECT id, status
+        FROM newborn_runs
+        WHERE id = ${numericRunId}
+        LIMIT 1;
+      `;
+    }
+
+    const run = runRows?.[0];
+    if (!run) {
+      return { ok: false, status: 404, error: 'NOT_FOUND', message: `Newborn run #${numericRunId} not found.` };
+    }
+
+    const st = String(run.status || '').toLowerCase();
+    if (st === 'queued' || st === 'running' || st === 'cancelling') {
+      return {
+        ok: false,
+        status: 409,
+        error: 'RUN_ACTIVE',
+        message: `Hunt #${numericRunId} is currently ${st}. Cancel it before deleting.`
+      };
+    }
+
+    // Step 1: Capture target pin_ids BEFORE deleting from newborn_runs (prevents cascade blindspot)
+    const linkedRows = await tx`
+      SELECT pin_id FROM newborn_run_candidates WHERE run_id = ${numericRunId}
+      UNION
+      SELECT pin_id FROM newborn_candidates WHERE first_run_id = ${numericRunId};
+    `;
+    const targetPinIds = (linkedRows || []).map((r) => String(r.pin_id || '')).filter(Boolean);
+
+    // Step 2: Delete the run (cascades newborn_run_candidates)
+    await tx`
+      DELETE FROM newborn_runs
+      WHERE id = ${numericRunId}
+      RETURNING id;
+    `;
+
+    // Step 3: Clean up unpromoted/untracked orphan candidates
+    const orphansPruned = await pruneOrphanCandidatesAfterRunDelete(tx, targetPinIds);
+    return {
+      ok: true,
+      deleted_run_id: numericRunId,
+      orphans_pruned: orphansPruned
+    };
+  });
+
+  if (result.ok) {
+    await invalidateEdgeCache('newborn');
+  }
+  return result;
+}
+
+/**
+ * Atomically deletes all failed, cancelled, or empty (0 winners / 0 linked pins) Past Hunts
+ * inside the active workspace (optionally scoped to `folderId`) and prunes orphan candidates.
+ */
+export async function clearFailedAndEmptyNewbornRuns(sql, { workspaceId = 1, folderId = null } = {}) {
+  const wid = parseOptionalPositiveInt(workspaceId) || 1;
+  const fid = parseOptionalPositiveInt(folderId);
+  const runInTx = async (fn) => (typeof sql.begin === 'function' ? sql.begin(fn) : fn(sql));
+
+  const result = await runInTx(async (tx) => {
+    let targetRuns;
+    try {
+      targetRuns = await tx`
+        SELECT nr.id
+        FROM newborn_runs nr
+        WHERE nr.workspace_id = ${wid}
+          AND (${fid}::int IS NULL OR nr.folder_id = ${fid})
+          AND LOWER(COALESCE(nr.status, '')) NOT IN ('queued', 'running', 'cancelling')
+          AND (
+            LOWER(COALESCE(nr.status, '')) IN ('failed', 'cancelled', 'error')
+            OR (
+              COALESCE(nr.candidates_qualified, 0) = 0
+              AND COALESCE(nr.golden_pins_count, 0) = 0
+              AND NOT EXISTS (
+                SELECT 1 FROM newborn_run_candidates nrc WHERE nrc.run_id = nr.id
+              )
+            )
+          )
+        ORDER BY nr.id ASC;
+      `;
+    } catch (err) {
+      if (String(err?.code || '') !== '42703') throw err;
+      if (wid !== 1) return { ok: true, deleted_runs: 0, deleted_run_ids: [], orphans_pruned: 0 };
+      targetRuns = await tx`
+        SELECT nr.id
+        FROM newborn_runs nr
+        WHERE (${fid}::int IS NULL OR nr.folder_id = ${fid})
+          AND LOWER(COALESCE(nr.status, '')) NOT IN ('queued', 'running', 'cancelling')
+          AND (
+            LOWER(COALESCE(nr.status, '')) IN ('failed', 'cancelled', 'error')
+            OR (
+              COALESCE(nr.candidates_qualified, 0) = 0
+              AND COALESCE(nr.golden_pins_count, 0) = 0
+              AND NOT EXISTS (
+                SELECT 1 FROM newborn_run_candidates nrc WHERE nrc.run_id = nr.id
+              )
+            )
+          )
+        ORDER BY nr.id ASC;
+      `;
+    }
+
+    const runIds = (targetRuns || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
+    if (runIds.length === 0) {
+      return { ok: true, deleted_runs: 0, deleted_run_ids: [], orphans_pruned: 0 };
+    }
+
+    // Step 1: Capture target pin_ids BEFORE deleting runs
+    const linkedRows = await tx`
+      SELECT pin_id FROM newborn_run_candidates WHERE run_id = ANY(${runIds}::bigint[])
+      UNION
+      SELECT pin_id FROM newborn_candidates WHERE first_run_id = ANY(${runIds}::bigint[]);
+    `;
+    const targetPinIds = (linkedRows || []).map((r) => String(r.pin_id || '')).filter(Boolean);
+
+    // Step 2: Delete runs atomically
+    await tx`
+      DELETE FROM newborn_runs
+      WHERE id = ANY(${runIds}::bigint[])
+      RETURNING id;
+    `;
+
+    // Step 3: Prune unpromoted/untracked orphans
+    const orphansPruned = await pruneOrphanCandidatesAfterRunDelete(tx, targetPinIds);
+    return {
+      ok: true,
+      deleted_runs: runIds.length,
+      deleted_run_ids: runIds,
+      orphans_pruned: orphansPruned
+    };
+  });
+
+  if (result.deleted_runs > 0) {
+    await invalidateEdgeCache('newborn');
+  }
+  return result;
+}
+
 /**
  * Lists standalone daily velocity crawler anchors (`newborn_daily_anchors`).
  */
@@ -915,6 +1153,7 @@ export async function getNewbornCrossoverReport(
     folderId = null,
     stage = null,
     goldenOnly = false,
+    linkFilter = null,
     linklessOnly = false,
     surface = null,
     creationMethod = null,
@@ -929,6 +1168,7 @@ export async function getNewbornCrossoverReport(
     : null;
   const numericRunId = parseOptionalPositiveInt(runId);
   const numericFolderId = parseOptionalPositiveInt(folderId);
+  const resolvedLinkFilter = normalizeLinkFilter(linkFilter, linklessOnly);
   const cleanSurface = surface ? String(surface).trim().toLowerCase() : null;
   const cleanMethod = creationMethod ? String(creationMethod).trim().toLowerCase() : null;
   const rawRepin = repinFilter ? String(repinFilter).trim().toLowerCase() : '';
@@ -937,7 +1177,11 @@ export async function getNewbornCrossoverReport(
   const searchPattern = rawSearch ? `%${escapeSqlWildcards(rawSearch)}%` : null;
 
   const extraFilterCond = sql`
-    AND (${Boolean(linklessOnly)}::boolean = FALSE OR nc.is_linkless = TRUE)
+    AND (
+      ${resolvedLinkFilter}::text = 'all'
+      OR (${resolvedLinkFilter}::text = 'linkless' AND nc.is_linkless = TRUE)
+      OR (${resolvedLinkFilter}::text = 'linked' AND nc.is_linkless = FALSE)
+    )
     AND (${cleanSurface}::text IS NULL OR nc.first_surface = ${cleanSurface} OR nc.discovered_surfaces ? ${cleanSurface || ''})
     AND (${cleanMethod}::text IS NULL OR LOWER(COALESCE(nc.raw_creation_method, '')) = ${cleanMethod})
     AND (${repinBool}::boolean IS NULL OR nc.is_repin = ${repinBool})

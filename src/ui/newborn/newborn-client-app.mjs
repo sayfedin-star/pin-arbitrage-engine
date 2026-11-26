@@ -216,6 +216,7 @@ export function getNewbornClientAppScript() {
         isExportingCsv: false,
         selectedPinIds: [],
         filters: {
+          linkFilter: 'all',
           linklessOnly: false,
           surface: '',
           creationMethod: '',
@@ -238,6 +239,9 @@ export function getNewbornClientAppScript() {
         dailyAnchors: [],
         isSubmittingWatchlistPoll: false,
         runs: [],
+        deletingRunId: null,
+        confirmDeleteRunId: null,
+        isClearingRuns: false,
 
         // Settings Draft & Modals
         settingsTab: 'filters',
@@ -1597,8 +1601,89 @@ export function getNewbornClientAppScript() {
           this.refreshIcons();
         },
 
+        setLinkFilter(mode) {
+          const clean = (mode === 'linkless' || mode === 'linked') ? mode : 'all';
+          if (this.filters.linkFilter === clean) return;
+          this.filters.linkFilter = clean;
+          this.filters.linklessOnly = clean === 'linkless';
+          this.onCandidateFilterChange();
+        },
+
+        failedOrEmptyRunsCount() {
+          return (this.runs || []).filter((r) => {
+            if (!r || this.isRunActiveStatus(r.status)) return false;
+            const st = String(r.status || '').toLowerCase();
+            if (st === 'failed' || st === 'cancelled' || st === 'error') return true;
+            const funnel = this.getRunFunnel(r);
+            return Number(funnel?.verifiedWinners || 0) === 0 && Number(r.candidates_qualified || 0) === 0;
+          }).length;
+        },
+
+        async deletePastRun(run) {
+          if (!run || !run.id || this.isRunActiveStatus(run.status)) return;
+          const runId = Number(run.id);
+          if (this.confirmDeleteRunId !== runId) {
+            this.confirmDeleteRunId = runId;
+            return;
+          }
+          this.deletingRunId = runId;
+          try {
+            const { data } = await this.apiJson('/api/newborn/runs/' + encodeURIComponent(runId), {
+              method: 'DELETE'
+            });
+            this.confirmDeleteRunId = null;
+            if (Number(this.activeRunId) === runId) {
+              this.activeRunId = null;
+              this.activeRun = null;
+            }
+            const pruned = Number(data?.orphans_pruned || 0);
+            this.toast('Deleted Hunt #' + runId + (pruned > 0 ? (' (' + pruned + ' orphan pins cleaned)') : ''), 'success');
+            await Promise.all([this.loadOverviewAndRuns(), this.loadCandidates(true), this.loadCrossoverForActiveHunt()]);
+          } catch (err) {
+            this.toast('Delete failed: ' + err.message, 'error');
+          } finally {
+            this.deletingRunId = null;
+            this.refreshIcons();
+          }
+        },
+
+        async clearFailedAndEmptyRuns() {
+          if (this.isClearingRuns) return;
+          this.isClearingRuns = true;
+          try {
+            const { data } = await this.apiJson('/api/newborn/runs/clear-empty', {
+              method: 'POST',
+              body: JSON.stringify({
+                folder_id: this.scopedFolderId || null
+              })
+            });
+            const deletedRuns = Number(data?.deleted_runs || 0);
+            const deletedIds = Array.isArray(data?.deleted_run_ids) ? data.deleted_run_ids.map(Number) : [];
+            if (this.activeRunId && deletedIds.includes(Number(this.activeRunId))) {
+              this.activeRunId = null;
+              this.activeRun = null;
+            }
+            this.confirmDeleteRunId = null;
+            this.toast(
+              deletedRuns > 0
+                ? ('Cleared ' + deletedRuns + ' failed/empty hunt' + (deletedRuns === 1 ? '' : 's'))
+                : 'No failed or empty hunts to clear.',
+              deletedRuns > 0 ? 'success' : 'info'
+            );
+            await Promise.all([this.loadOverviewAndRuns(), this.loadCandidates(true), this.loadCrossoverForActiveHunt()]);
+          } catch (err) {
+            this.toast('Clear hunts failed: ' + err.message, 'error');
+          } finally {
+            this.isClearingRuns = false;
+            this.refreshIcons();
+          }
+        },
+
         toggleFilterFlag(key) {
           this.filters[key] = !this.filters[key];
+          if (key === 'linklessOnly') {
+            this.filters.linkFilter = this.filters.linklessOnly ? 'linkless' : 'all';
+          }
           this.onCandidateFilterChange();
         },
 
@@ -1624,7 +1709,11 @@ export function getNewbornClientAppScript() {
           const params = new URLSearchParams();
           if (this.activeRunId) params.set('run_id', String(this.activeRunId));
           if (this.scopedFolderId && !this.activeRunId) params.set('folder_id', String(this.scopedFolderId));
-          if (this.filters.linklessOnly) params.set('linkless_only', 'true');
+          if (this.filters.linkFilter && this.filters.linkFilter !== 'all') {
+            params.set('link_filter', String(this.filters.linkFilter));
+          } else if (this.filters.linklessOnly) {
+            params.set('link_filter', 'linkless');
+          }
           if (this.filters.surface) params.set('surface', String(this.filters.surface));
           if (this.filters.creationMethod) params.set('creation_method', String(this.filters.creationMethod));
           if (this.filters.repinFilter) params.set('repin_filter', String(this.filters.repinFilter));
@@ -1717,7 +1806,11 @@ export function getNewbornClientAppScript() {
             const params = new URLSearchParams({ limit: '30' });
             if (this.activeRunId) params.set('run_id', String(this.activeRunId));
             if (this.scopedFolderId && !this.activeRunId) params.set('folder_id', String(this.scopedFolderId));
-            if (this.filters.linklessOnly) params.set('linkless_only', 'true');
+            if (this.filters.linkFilter && this.filters.linkFilter !== 'all') {
+              params.set('link_filter', String(this.filters.linkFilter));
+            } else if (this.filters.linklessOnly) {
+              params.set('link_filter', 'linkless');
+            }
             if (this.filters.surface) params.set('surface', String(this.filters.surface));
             if (this.filters.creationMethod) params.set('creation_method', String(this.filters.creationMethod));
             if (this.filters.repinFilter) params.set('repin_filter', String(this.filters.repinFilter));

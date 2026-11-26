@@ -105,7 +105,7 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30) {
     if (!dbError && err) dbError = err;
   };
 
-  const [pinRows, trajectoryRows, serpRows, creatorRows] = await Promise.all([
+  const [pinRows, trajectoryRows, serpRows, creatorRows, trackedCampaignRows, newbornRows] = await Promise.all([
     sql`
       SELECT
         pin_id, creator_username, board_id, board_name, board_slug, title, domain, destination_url,
@@ -165,7 +165,57 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30) {
     `.catch((err) => {
       console.warn(`[dossier-reader] Creator profile enrichment query warning for pin ${cleanPinId}:`, err?.message || err);
       return [];
-    })
+    }),
+    sql`
+      SELECT
+        ctp.folder_id,
+        kf.name AS folder_name,
+        ctp.source_type,
+        ctp.seed_query,
+        ctp.added_at,
+        ctp.notes
+      FROM campaign_tracked_pins ctp
+      JOIN keyword_folders kf ON kf.id = ctp.folder_id
+      WHERE ctp.pin_id = ${cleanPinId}
+        AND ctp.is_active = TRUE
+      ORDER BY ctp.added_at DESC;
+    `.catch(async (err) => {
+      if (String(err?.code || '') === '42703') {
+        return sql`
+          SELECT
+            ctp.folder_id,
+            kf.name AS folder_name,
+            ctp.source_type,
+            NULL::text AS seed_query,
+            ctp.added_at,
+            ctp.notes
+          FROM campaign_tracked_pins ctp
+          JOIN keyword_folders kf ON kf.id = ctp.folder_id
+          WHERE ctp.pin_id = ${cleanPinId}
+            AND ctp.is_active = TRUE
+          ORDER BY ctp.added_at DESC;
+        `.catch(() => []);
+      }
+      return [];
+    }),
+    sql`
+      SELECT
+        nc.pin_id,
+        nc.seed_query,
+        nc.stage,
+        nc.discovery_surface,
+        nc.folder_id,
+        nc.first_seen_at,
+        nc.promoted_at,
+        nda.is_active AS anchor_active,
+        nda.baseline_saves AS anchor_baseline_saves,
+        nda.last_crawled_at AS anchor_last_crawled_at
+      FROM newborn_candidates nc
+      LEFT JOIN newborn_daily_anchors nda ON nda.pin_id = nc.pin_id
+      WHERE nc.pin_id = ${cleanPinId}
+      ORDER BY nc.promoted_at DESC NULLS LAST, nc.first_seen_at DESC NULLS LAST
+      LIMIT 1;
+    `.catch(() => [])
   ]);
 
   return {
@@ -173,6 +223,8 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30) {
     trajectoryRows: Array.isArray(trajectoryRows) ? trajectoryRows : [],
     serpRows: Array.isArray(serpRows) ? serpRows : [],
     creatorProfile: creatorRows?.[0] || null,
+    trackedCampaignRows: Array.isArray(trackedCampaignRows) ? trackedCampaignRows : [],
+    newbornContextRow: newbornRows?.[0] || null,
     dbError
   };
 }
@@ -180,7 +232,7 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30) {
 /**
  * Shared canonical dossier builder used by both `getPinDossier` and `fetchUniversalPinDossier`.
  */
-function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, dbError, cleanPinId }) {
+function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, trackedCampaignRows = [], newbornContextRow = null, dbError, cleanPinId }) {
   let masterRecord = null;
   if (pin) {
     const meta = normalizeMetadata(pin.metadata);
@@ -407,7 +459,7 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, db
   }
 
   if (masterRecord) {
-    const masterCrawlIso = formatUtcDate(masterRecord.last_scraped_at || masterRecord.updated_at || new Date());
+    const masterCrawlIso = formatUtcDate(masterRecord.last_scraped_at || masterRecord.updated_at);
     const hasDateInMap = masterCrawlIso && Array.from(snapshotMap.values()).some(s => formatUtcDate(s.snapshot_date) === masterCrawlIso);
     const shouldAppendMasterLive = snapshotMap.size === 0 || (
       masterCrawlIso &&
@@ -978,14 +1030,21 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, db
       updated_at: masterRecord?.updated_at || null,
       save_count: Math.max(0, Number(masterRecord?.save_count || 0), Number(hubSerpRows[0]?.save_count || 0), Number(dailyTrajectory[0]?.save_count || 0)),
       repin_count: Math.max(0, Number(masterRecord?.repin_count || 0), Number(hubSerpRows[0]?.repin_count || 0), Number(dailyTrajectory[0]?.repin_count || 0)),
-      daily_repin_velocity: Number(masterRecord?.daily_repin_velocity || hubSerpRows[0]?.daily_repin_velocity || dailyTrajectory[0]?.daily_repin_velocity || 0),
+      daily_repin_velocity: (() => {
+        const distinctDays = new Set(dailyTrajectory.map(d => String(d.snapshot_date || '').slice(0, 10)).filter(Boolean)).size;
+        if (distinctDays <= 1) return 0;
+        return Number(masterRecord?.daily_repin_velocity || hubSerpRows[0]?.daily_repin_velocity || dailyTrajectory[0]?.daily_repin_velocity || 0);
+      })(),
       comment_count: Number(masterRecord?.comment_count || dailyTrajectory[0]?.comment_count || hubSerpRows[0]?.comment_count || 0),
       share_count: Number(masterRecord?.share_count || dailyTrajectory[0]?.share_count || hubSerpRows[0]?.share_count || 0),
       reaction_count: resolvedReactionCount,
+      distinct_snapshot_days: new Set(dailyTrajectory.map(d => String(d.snapshot_date || '').slice(0, 10)).filter(Boolean)).size,
+      is_day1_baseline: new Set(dailyTrajectory.map(d => String(d.snapshot_date || '').slice(0, 10)).filter(Boolean)).size <= 1,
       daily_save_velocity: (() => {
+        const distinctDays = new Set(dailyTrajectory.map(d => String(d.snapshot_date || '').slice(0, 10)).filter(Boolean)).size;
+        if (distinctDays <= 1) return 0;
         const trajVel24h = Number(dailyTrajectory[0]?.window_24h_velocity ?? dailyTrajectory[0]?.daily_save_velocity ?? 0);
         const masterOrHubVel = Number(masterRecord?.daily_save_velocity || hubSerpRows[0]?.daily_save_velocity || 0);
-        const refSaves = Number(masterRecord?.save_count || hubSerpRows[0]?.save_count || dailyTrajectory[0]?.save_count || 0);
         const latestSnapDateStr = dailyTrajectory[0]?.snapshot_date ? String(dailyTrajectory[0].snapshot_date).slice(0, 10) : null;
         const latestSnapMs = latestSnapDateStr ? new Date(`${latestSnapDateStr}T00:00:00Z`).getTime() : NaN;
         const refNowRaw = masterRecord?.updated_at || hubSerpRows[0]?.crawled_at || hubSerpRows[0]?.updated_at || null;
@@ -993,9 +1052,6 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, db
         const isTrajectoryStale24h = Number.isFinite(latestSnapMs) && Number.isFinite(refNowMs) && ((refNowMs - latestSnapMs) / 86400000) > 2.5 && masterOrHubVel <= 0;
         if (isTrajectoryStale24h) return 0;
         if (trajVel24h > 0) return trajVel24h;
-        if (dailyTrajectory.length <= 1 && masterOrHubVel > 0 && (refSaves <= 0 || masterOrHubVel < refSaves)) {
-          return masterOrHubVel;
-        }
         return 0;
       })(),
       _trajectoryStale24h: (() => {
@@ -1007,8 +1063,12 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, db
         return Boolean(Number.isFinite(latestSnapMs) && Number.isFinite(refNowMs) && ((refNowMs - latestSnapMs) / 86400000) > 2.5 && masterOrHubVel <= 0);
       })(),
       first_discovered_pillar: masterRecord?.first_discovered_pillar || 'keyword',
-      delta_saves_24h: Number(masterRecord?.delta_saves_24h || 0),
-      delta_repins_24h: Number(masterRecord?.delta_repins_24h || 0),
+      delta_saves_24h: (new Set(dailyTrajectory.map(d => String(d.snapshot_date || '').slice(0, 10)).filter(Boolean)).size <= 1)
+        ? null
+        : Number(masterRecord?.delta_saves_24h || 0),
+      delta_repins_24h: (new Set(dailyTrajectory.map(d => String(d.snapshot_date || '').slice(0, 10)).filter(Boolean)).size <= 1)
+        ? null
+        : Number(masterRecord?.delta_repins_24h || 0),
       gains_5d: masterRecord?.gains_5d ?? null,
       gains_7d: masterRecord?.gains_7d ?? null,
       gains_10d: masterRecord?.gains_10d ?? null,
@@ -1017,6 +1077,26 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, db
       metadata: snapMeta
     },
     algorithmic_intelligence: algorithmicIntelligence,
+    tracked_campaigns: (Array.isArray(trackedCampaignRows) ? trackedCampaignRows : []).map((row) => ({
+      folder_id: Number(row.folder_id),
+      folder_name: row.folder_name || `Campaign #${row.folder_id}`,
+      source_type: String(row.source_type || 'manual').trim().toLowerCase(),
+      seed_query: row.seed_query ? String(row.seed_query).trim() : null,
+      added_at: repoSafeIsoDate(row.added_at),
+      notes: row.notes || null
+    })),
+    newborn_context: newbornContextRow ? {
+      pin_id: String(newbornContextRow.pin_id || cleanPinId),
+      seed_query: newbornContextRow.seed_query ? String(newbornContextRow.seed_query).trim() : null,
+      stage: String(newbornContextRow.stage || 'discovered').trim().toLowerCase(),
+      discovery_surface: newbornContextRow.discovery_surface || null,
+      folder_id: newbornContextRow.folder_id != null ? Number(newbornContextRow.folder_id) : null,
+      first_seen_at: repoSafeIsoDate(newbornContextRow.first_seen_at),
+      promoted_at: repoSafeIsoDate(newbornContextRow.promoted_at),
+      anchor_active: Boolean(newbornContextRow.anchor_active),
+      anchor_baseline_saves: newbornContextRow.anchor_baseline_saves != null ? Number(newbornContextRow.anchor_baseline_saves) : null,
+      anchor_last_crawled_at: repoSafeIsoDate(newbornContextRow.anchor_last_crawled_at)
+    } : null,
     pillar_1_creator_context: {
       creator_username: creatorUsername,
       creator_url: creatorUsername ? `https://www.pinterest.com/${creatorUsername}/` : null,
@@ -1039,6 +1119,14 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, db
     snapshots: enrichedSnapshots,
     serp_positions: hubSerpRows
   };
+
+  if (dossierResult.creative.is_day1_baseline && Array.isArray(dossierResult.daily_trajectory)) {
+    for (const dayRow of dossierResult.daily_trajectory) {
+      dayRow.daily_save_velocity = 0;
+      dayRow.window_24h_velocity = null;
+      dayRow.window_24h_delta = null;
+    }
+  }
 
   sanitizeDossierTrajectory(dossierResult);
   return dossierResult;

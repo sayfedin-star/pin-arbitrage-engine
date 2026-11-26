@@ -7,6 +7,7 @@
  */
 
 import { DEFAULT_NEWBORN_SETTINGS, normalizeNewbornSettings } from './settings.mjs';
+import { decodeHtmlEntities } from './surface-normalizers.mjs';
 
 const STOP_WORDS = new Set([
   'the', 'and', 'for', 'with', 'that', 'this', 'from', 'your', 'you', 'are', 'was',
@@ -719,7 +720,8 @@ export function buildNewbornCrossoverMatrix(candidates = [], { limit = 30 } = {}
 
     for (const rawAnn of (c.visual_annotations || [])) {
       const annObj = typeof rawAnn === 'object' && rawAnn !== null ? rawAnn : null;
-      const term = String(typeof rawAnn === 'string' ? rawAnn : (annObj?.name || '')).trim().toLowerCase();
+      const rawName = typeof rawAnn === 'string' ? rawAnn : (annObj?.name || '');
+      const term = decodeHtmlEntities(String(rawName || '')).trim().toLowerCase();
       if (!term || term.length < 2 || seenForPin.has(term)) continue;
       seenForPin.add(term);
 

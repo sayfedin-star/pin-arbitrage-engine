@@ -144,7 +144,14 @@ export async function fetchPinterestInterestVolume(term, options = {}) {
         if (!res.ok) return null;
         const json = await res.json();
         const data = json?.resource_response?.data;
-        if (!data) {
+        const rawInterestId = String(data?.id || '').trim();
+        const isOfficialInterest = Boolean(
+          data &&
+          data.is_interest !== false &&
+          /^\d+$/.test(rawInterestId) &&
+          rawInterestId !== '0'
+        );
+        if (!isOfficialInterest) {
           interestNegativeCache.set(slug, true, { ttlMs: INTEREST_NEGATIVE_TTL_MS });
           return null;
         }
@@ -155,7 +162,7 @@ export async function fetchPinterestInterestVolume(term, options = {}) {
 
         return {
           success: true,
-          id: String(data.id || ''),
+          id: rawInterestId,
           key: data.key || cleanTerm,
           url_name: data.url_name || slug,
           internal_search_count: Number(data.internal_search_count || 0),

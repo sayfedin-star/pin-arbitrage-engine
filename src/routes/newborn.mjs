@@ -46,6 +46,8 @@ import {
   deleteNewbornCandidate,
   listNewbornRookies,
   listNewbornRuns,
+  deleteNewbornRun,
+  clearFailedAndEmptyNewbornRuns,
   getNewbornRunById,
   listNewbornDailyAnchors,
   getNewbornCrossoverReport,
@@ -684,6 +686,7 @@ export async function handleNewbornRoutes({
       repin_filter: searchParams.get('repin_filter') || null,
       golden_only: searchParams.get('golden_only') || searchParams.get('golden') || null,
       rookie_only: searchParams.get('rookie_only') || searchParams.get('rookie') || null,
+      link_filter: searchParams.get('link_filter') || null,
       linkless_only: searchParams.get('linkless_only') || searchParams.get('linkless') || null,
       qualified_only: searchParams.get('qualified_only') || null,
       min_golden_score: searchParams.get('min_golden_score') || null,
@@ -696,7 +699,13 @@ export async function handleNewbornRoutes({
       offset: Math.max(0, parseInt(searchParams.get('offset') || '0', 10) || 0)
     };
     const cacheKey = buildCanonicalCacheKey(`newborn:candidates:ws${workspaceId}`, searchParams);
-    const bypassCache = Boolean(filters.run_id || filters.folder_id);
+    const bypassCache = Boolean(
+      filters.run_id ||
+      filters.folder_id ||
+      filters.annotation ||
+      (filters.link_filter && filters.link_filter !== 'all') ||
+      filters.linkless_only
+    );
     const data = bypassCache
       ? await listNewbornCandidates(sql, filters)
       : await getCachedOrFetch(cacheKey, () => listNewbornCandidates(sql, filters), 10_000);
@@ -808,6 +817,7 @@ export async function handleNewbornRoutes({
     const folderId = searchParams.get('folder_id') || null;
     const stage = searchParams.get('stage') || null;
     const goldenOnly = searchParams.get('golden_only') === 'true';
+    const linkFilter = searchParams.get('link_filter') || null;
     const linklessOnly = searchParams.get('linkless_only') === 'true' || searchParams.get('linkless') === 'true';
     const surface = searchParams.get('surface') || null;
     const creationMethod = searchParams.get('creation_method') || null;
@@ -820,6 +830,7 @@ export async function handleNewbornRoutes({
       folderId,
       stage,
       goldenOnly,
+      linkFilter,
       linklessOnly,
       surface,
       creationMethod,
@@ -828,7 +839,16 @@ export async function handleNewbornRoutes({
       limit
     };
     const cacheKey = buildCanonicalCacheKey(`newborn:crossover:ws${workspaceId}`, searchParams);
-    const bypassCache = Boolean(runId || folderId || linklessOnly || surface || creationMethod || repinFilter || search);
+    const bypassCache = Boolean(
+      runId ||
+      folderId ||
+      (linkFilter && linkFilter !== 'all') ||
+      linklessOnly ||
+      surface ||
+      creationMethod ||
+      repinFilter ||
+      search
+    );
     const report = bypassCache
       ? await getNewbornCrossoverReport(sql, reportOpts)
       : await getCachedOrFetch(
@@ -839,15 +859,31 @@ export async function handleNewbornRoutes({
     return jsonResponse({ success: true, ...report }, 200, bypassCache ? -1 : 15);
   }
 
-  // 8. /api/newborn/runs (GET) — strictly no-store
+  // 8. /api/newborn/runs (GET list, DELETE bulk clear failed & empty) — strictly no-store
   if (pathname === '/api/newborn/runs') {
-    if (method !== 'GET') {
-      return methodNotAllowedResponse('GET, OPTIONS');
+    if (method === 'GET') {
+      const limit = clampLimit(searchParams.get('limit'), 30, 100);
+      const folderId = searchParams.get('folder_id') || null;
+      const runs = await listNewbornRuns(sql, { limit, folderId, workspaceId });
+      return jsonResponse({ success: true, runs }, 200, -1);
     }
-    const limit = clampLimit(searchParams.get('limit'), 30, 100);
-    const folderId = searchParams.get('folder_id') || null;
-    const runs = await listNewbornRuns(sql, { limit, folderId, workspaceId });
-    return jsonResponse({ success: true, runs }, 200, -1);
+    if (method === 'DELETE') {
+      const folderId = searchParams.get('folder_id') || null;
+      const res = await clearFailedAndEmptyNewbornRuns(sql, { workspaceId, folderId });
+      return jsonResponse({ success: true, ...res }, 200, -1);
+    }
+    return methodNotAllowedResponse('GET, DELETE, OPTIONS');
+  }
+
+  // 8A. /api/newborn/runs/clear-empty (POST bulk clear failed & empty Past Hunts)
+  if (pathname === '/api/newborn/runs/clear-empty') {
+    if (method !== 'POST') {
+      return methodNotAllowedResponse('POST, OPTIONS');
+    }
+    const body = await request.json().catch(() => ({}));
+    const folderId = body?.folder_id ?? searchParams.get('folder_id') ?? null;
+    const res = await clearFailedAndEmptyNewbornRuns(sql, { workspaceId, folderId });
+    return jsonResponse({ success: true, ...res }, 200, -1);
   }
 
   // 8B0. /api/newborn/runs/:id/cancel (POST) — cooperative cancellation for Direct & Fleet runs
@@ -875,11 +911,11 @@ export async function handleNewbornRoutes({
     return jsonResponse({ success: true, ...cancelRes }, 200, -1);
   }
 
-  // 8B. /api/newborn/runs/:id (GET) — live progress polling (supports ?lite=1 sub-2ms cache hit), strictly no-store
+  // 8B. /api/newborn/runs/:id (GET live progress polling, DELETE Past Hunt) — strictly no-store
   const runDetailMatch = pathname.match(/^\/api\/newborn\/runs\/([^/]+)$/);
   if (runDetailMatch) {
-    if (method !== 'GET') {
-      return methodNotAllowedResponse('GET, OPTIONS');
+    if (method !== 'GET' && method !== 'DELETE') {
+      return methodNotAllowedResponse('GET, DELETE, OPTIONS');
     }
     const rawRunId = decodeURIComponent(runDetailMatch[1]).trim();
     if (!/^\d+$/.test(rawRunId)) {
@@ -888,6 +924,17 @@ export async function handleNewbornRoutes({
         error: 'BAD_REQUEST',
         message: `Invalid run ID "${rawRunId}". Expected a positive integer.`
       }, 400, -1);
+    }
+    if (method === 'DELETE') {
+      const delRes = await deleteNewbornRun(sql, Number(rawRunId), { workspaceId });
+      if (!delRes.ok) {
+        return jsonResponse({
+          success: false,
+          error: delRes.error || 'DELETE_FAILED',
+          message: delRes.message || `Failed to delete Hunt #${rawRunId}.`
+        }, delRes.status || 400, -1);
+      }
+      return jsonResponse({ success: true, ...delRes }, 200, -1);
     }
     const lite = searchParams.get('lite') === '1' || searchParams.get('lite') === 'true';
     const run = await getNewbornRunById(sql, Number(rawRunId), { lite, workspaceId });

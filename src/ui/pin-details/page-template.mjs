@@ -415,6 +415,35 @@ export function getPinDetailsBodyHtml(safePinId) {
           <span class="font-mono tabular-nums font-bold text-slate-800 dark:text-slate-200" x-text="formatStrictUniversalAge()"></span>
         </div>
 
+        <!-- Tracked Campaigns & Newborn Provenance Ledger -->
+        <template x-if="(dossier?.tracked_campaigns && dossier.tracked_campaigns.length > 0) || dossier?.newborn_context">
+          <div class="border-t border-slate-100 dark:border-[#1E1E22] pt-2.5 space-y-2">
+            <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Campaign &amp; Discovery Provenance</div>
+            <template x-if="dossier?.tracked_campaigns && dossier.tracked_campaigns.length > 0">
+              <div class="flex flex-wrap gap-1.5">
+                <template x-for="tc in dossier.tracked_campaigns" :key="tc.folder_id + '-' + tc.source_type">
+                  <a :href="'/folders/' + tc.folder_id"
+                     class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold border transition"
+                     :class="tc.source_type === 'newborn'
+                       ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30 hover:bg-rose-500/20'
+                       : 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30 hover:bg-indigo-500/20'">
+                    <span x-text="tc.folder_name"></span>
+                    <span class="opacity-75" x-text="'(' + tc.source_type + ')'"></span>
+                  </a>
+                </template>
+              </div>
+            </template>
+            <template x-if="dossier?.newborn_context">
+              <div class="flex items-center justify-between gap-2 text-[11px] bg-rose-50/70 dark:bg-rose-950/30 border border-rose-200/70 dark:border-rose-800/40 rounded-lg px-2.5 py-1.5">
+                <span class="font-semibold text-rose-700 dark:text-rose-300 truncate"
+                      x-text="dossier.newborn_context.seed_query ? ('Newborn · ' + dossier.newborn_context.seed_query) : 'Newborn Discovery'"></span>
+                <span class="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-white/80 dark:bg-[#18181B] text-rose-600 dark:text-rose-300 border border-rose-200/60 dark:border-rose-800/50 shrink-0"
+                      x-text="dossier.newborn_context.stage || 'discovered'"></span>
+              </div>
+            </template>
+          </div>
+        </template>
+
         <!-- Cross-Pillar Radar Action -->
         <div class="pt-2 space-y-1">
           <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Related Pins Semantic Radar</div>
@@ -721,9 +750,9 @@ export function getPinDetailsBodyHtml(safePinId) {
             </div>
           </div>
           <div class="mt-2">
-            <div class="flex items-baseline gap-1">
+            <div class="flex items-baseline gap-1.5">
               <span class="text-2xl font-black font-mono tabular-nums text-emerald-600 dark:text-emerald-400" x-text="formatLive24hVelocity()"></span>
-              <span class="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-mono">live 24h</span>
+              <span class="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-mono" x-text="isSingleDayBaseline() ? 'Day 1 Baseline' : 'live 24h'"></span>
             </div>
             <div class="text-[10.5px] text-slate-500 dark:text-slate-400 font-mono tabular-nums mt-0.5 truncate" x-text="formatLifetimeVelocityCaption()"></div>
           </div>

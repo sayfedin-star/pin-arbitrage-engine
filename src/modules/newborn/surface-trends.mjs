@@ -97,12 +97,13 @@ export async function resolveIdeaPageIntelligence(term, { router = null, country
 
     if (intRes.status === 'fulfilled' && intRes.value?.ok) {
       const data = intRes.value.data?.resource_response?.data || intRes.value.data?.data || null;
-      if (data && data.is_interest !== false && data.id && String(data.id) !== '0') {
+      const rawInterestId = String(data?.id || '').trim();
+      if (data && data.is_interest !== false && /^\d+$/.test(rawInterestId) && rawInterestId !== '0') {
         const rawRelated = Array.isArray(data.seo_related_interests) ? data.seo_related_interests : [];
         const rawPivots = Array.isArray(data.ideas_klp_pivots) ? data.ideas_klp_pivots : [];
         interestInfo = {
           success: true,
-          id: String(data.id),
+          id: rawInterestId,
           key: safeString(data.key || cleanTerm),
           url_name: safeString(data.url_name || slug),
           internal_search_count: Number(data.internal_search_count || 0),
@@ -151,7 +152,8 @@ export async function resolveIdeaPageIntelligence(term, { router = null, country
       fetchPinterestInterestVolume(cleanTerm),
       fetchPinterestBatchVelocity(cleanTerm, [cleanTerm], cleanCountry)
     ]);
-    if (intRes.status === 'fulfilled' && intRes.value && intRes.value.id && intRes.value.id !== '0') {
+    const resolvedId = intRes.status === 'fulfilled' ? String(intRes.value?.id || '').trim() : '';
+    if (intRes.status === 'fulfilled' && intRes.value && /^\d+$/.test(resolvedId) && resolvedId !== '0') {
       interestInfo = intRes.value;
     }
     if (velMapRes.status === 'fulfilled' && velMapRes.value instanceof Map) {

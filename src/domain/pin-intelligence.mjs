@@ -223,22 +223,26 @@ const IRREGULAR_LEMMAS = new Map([
   ['glasses', 'glass'],
   ['classes', 'class'],
   ['bushes', 'bush'],
-  ['brushes', 'brush']
+  ['brushes', 'brush'],
+  ['shoes', 'shoe'],
+  ['canoes', 'canoe'],
+  ['horseshoes', 'horseshoe'],
+  ['toes', 'toe']
 ]);
 
 const KEEP_S_WORDS = new Set([
   'glass', 'dress', 'class', 'grass', 'brass', 'pass', 'mass', 'bass', 'gas',
-  'canvas', 'christmas', 'texas', 'vegas', 'paris', 'hummus', 'asparagus',
+  'canvas', 'christmas', 'xmas', 'texas', 'vegas', 'paris', 'hummus', 'asparagus',
   'couscous', 'citrus', 'hibiscus', 'cactus', 'octopus', 'status', 'focus',
   'bonus', 'lotus', 'virus', 'genius', 'radius', 'census', 'chorus', 'circus',
   'clothes', 'pants', 'jeans', 'shorts', 'tights', 'leggings', 'scissors',
-  'glasses', 'sunglasses', 'stairs', 'outdoors', 'indoors', 'athletics',
+  'sunglasses', 'stairs', 'outdoors', 'indoors', 'athletics',
   'gymnastics', 'politics', 'economics', 'mathematics', 'physics', 'ethics',
   'news', 'series', 'species', 'means', 'lens', 'mess', 'stress', 'press',
   'success', 'process', 'access', 'address', 'express', 'mattress', 'waitress',
   'actress', 'princess', 'hostess', 'goddess', 'fitness', 'wellness', 'business',
   'darkness', 'kindness', 'happiness', 'illness', 'weakness', 'witness', 'awareness',
-  'oats', 'grits', 'greens', 'beans', 'lentils', 'noodles', 'tacos', 'nachos', 'tapas'
+  'grits', 'tapas'
 ]);
 
 const WORD_LEMMA_CACHE = new Map();
