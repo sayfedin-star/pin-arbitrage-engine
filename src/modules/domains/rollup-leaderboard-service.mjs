@@ -118,28 +118,48 @@ export function buildDomainAggregationCtes({
             WHEN LOWER(TRIM(COALESCE(ump.clean_domain, ''))) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic') THEN 'Uploaded by user'
             ELSE LOWER(TRIM(COALESCE(ump.clean_domain, '')))
           END AS clean_domain,
-          ksp_dedup.pin_id,
+          scoped_pins.pin_id,
           NULL::int AS keyword_id,
-          ksp_dedup.active_rank,
-          ksp_dedup.is_displaced,
+          scoped_pins.active_rank,
+          scoped_pins.is_displaced,
           ump.save_count::bigint AS saves,
           ump.repin_count::bigint AS repins,
           ump.daily_save_velocity::numeric AS velocity,
           LOWER(TRIM(REPLACE(COALESCE(ump.creator_username, ''), '@', ''))) AS username,
           COALESCE(NULLIF(REGEXP_REPLACE(LOWER(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(COALESCE(ump.destination_url, '')), '^(https?://)?(www\\.)?[^/]+', ''), '[?#].*$', '')), '/+$', ''), ''), '/') AS url_slug,
-          TRUE AS is_serp_ranked,
-          COALESCE(NULLIF(TRIM(ump.image_signature), ''), ksp_dedup.pin_id) AS creative_signature
+          scoped_pins.is_serp_ranked,
+          COALESCE(NULLIF(TRIM(ump.image_signature), ''), scoped_pins.pin_id) AS creative_signature
         FROM (
           SELECT
-            ksp.pin_id,
-            MIN(CASE WHEN ksp.is_displaced = FALSE THEN ksp.rank_position ELSE NULL END) AS active_rank,
-            BOOL_OR(ksp.is_displaced) AS is_displaced
-          FROM keyword_serp_positions ksp
-          WHERE (${fId}::int IS NULL OR ksp.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
-            AND (${kId}::int IS NULL OR ksp.keyword_id = ${kId})
-          GROUP BY ksp.pin_id
-        ) ksp_dedup
-        JOIN universal_master_pins ump ON ump.pin_id = ksp_dedup.pin_id
+            combined.pin_id,
+            MIN(combined.active_rank) AS active_rank,
+            BOOL_OR(combined.is_displaced) AND MIN(combined.active_rank) IS NULL AS is_displaced,
+            BOOL_OR(combined.is_serp_ranked) AS is_serp_ranked
+          FROM (
+            SELECT
+              ksp.pin_id,
+              CASE WHEN ksp.is_displaced = FALSE THEN ksp.rank_position ELSE NULL END AS active_rank,
+              COALESCE(ksp.is_displaced, FALSE) AS is_displaced,
+              TRUE AS is_serp_ranked
+            FROM keyword_serp_positions ksp
+            WHERE (${fId}::int IS NULL OR ksp.keyword_id IN (SELECT keyword_id FROM keyword_folder_items WHERE folder_id = ${fId}))
+              AND (${kId}::int IS NULL OR ksp.keyword_id = ${kId})
+            UNION ALL
+            SELECT
+              ctp.pin_id,
+              NULL::int AS active_rank,
+              FALSE AS is_displaced,
+              FALSE AS is_serp_ranked
+            FROM campaign_tracked_pins ctp
+            WHERE ${fId}::int IS NOT NULL
+              AND ${kId}::int IS NULL
+              AND ctp.folder_id = ${fId}
+              AND ctp.is_active = TRUE
+              AND ${pillar} <> 'displaced'
+          ) combined
+          GROUP BY combined.pin_id
+        ) scoped_pins
+        JOIN universal_master_pins ump ON ump.pin_id = scoped_pins.pin_id
         WHERE (${pillar} IN ('all', 'serp', 'competitors', 'displaced'))
       `);
 

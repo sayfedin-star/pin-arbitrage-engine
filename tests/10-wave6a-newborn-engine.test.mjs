@@ -576,6 +576,10 @@ function createStatefulNewbornSqlMock() {
       return [existing];
     }
     if (/FROM tracked_keywords/i.test(q)) {
+      if (/WHERE\s+LOWER\(keyword\)/i.test(q) && values.length >= 1) {
+        const targetKw = String(values[0] || '').trim().toLowerCase();
+        return Array.from(state.trackedKeywords.values()).filter((k) => k.keyword === targetKw);
+      }
       return Array.from(state.trackedKeywords.values()).filter((k) => k.is_active);
     }
     if (/FROM keyword_folders/i.test(q)) {
@@ -587,7 +591,11 @@ function createStatefulNewbornSqlMock() {
       return [];
     }
     if (/INSERT INTO keyword_folder_items/i.test(q)) {
-      state.folderItems.push({ folder_id: Number(values[0]), keyword_id: Number(values[1]) });
+      const folderIdVal = Number(values[0]);
+      const keywordIdVal = Number(values[1]);
+      if (!state.folderItems.some((item) => item.folder_id === folderIdVal && item.keyword_id === keywordIdVal)) {
+        state.folderItems.push({ folder_id: folderIdVal, keyword_id: keywordIdVal });
+      }
       return [];
     }
     if (/INSERT INTO keyword_serp_positions/i.test(q)) {

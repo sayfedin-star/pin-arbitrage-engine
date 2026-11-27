@@ -142,6 +142,8 @@ export async function buildFolderCrossoverMatrix({
     const rowIsNewbornTracked = Boolean(row.is_newborn_tracked || rowTrackedSources.includes('newborn'));
     const rowIsTrackedPin = Boolean(row.is_tracked_pin || rowIsNewbornTracked || rowTrackedSources.length > 0);
     const rowNewbornSeedQuery = row.newborn_seed_query ? decodeHtmlEntities(String(row.newborn_seed_query).trim()) : null;
+    const rowCreatorSourceRef = row.creator_source_ref ? String(row.creator_source_ref).trim().replace(/^@+/, '') : null;
+    const rowRelatedSourceRef = row.related_source_ref ? String(row.related_source_ref).trim() : null;
 
     if (rowRankings.length === 0 && !rowIsTrackedPin) {
       continue;
@@ -233,6 +235,8 @@ export async function buildFolderCrossoverMatrix({
         tracked_sources: rowTrackedSources,
         is_newborn_tracked: rowIsNewbornTracked,
         newborn_seed_query: rowNewbornSeedQuery,
+        creator_source_ref: rowCreatorSourceRef,
+        related_source_ref: rowRelatedSourceRef,
         rankings: []
       });
     } else {
@@ -241,6 +245,12 @@ export async function buildFolderCrossoverMatrix({
       if (rowIsNewbornTracked) existingPin.is_newborn_tracked = true;
       if (!existingPin.newborn_seed_query && rowNewbornSeedQuery) {
         existingPin.newborn_seed_query = rowNewbornSeedQuery;
+      }
+      if (!existingPin.creator_source_ref && rowCreatorSourceRef) {
+        existingPin.creator_source_ref = rowCreatorSourceRef;
+      }
+      if (!existingPin.related_source_ref && rowRelatedSourceRef) {
+        existingPin.related_source_ref = rowRelatedSourceRef;
       }
       if (rowTrackedSources.length > 0) {
         existingPin.tracked_sources = Array.from(new Set([...(existingPin.tracked_sources || []), ...rowTrackedSources]));
@@ -559,10 +569,25 @@ export async function buildFolderCrossoverMatrix({
   // DIMENSION B: UNIVERSAL TAG BRIDGES & 1-TAG POWER LEADERS (Unified SSOT)
   // =========================================================================
   const tagMap = new Map();
+  const distinctClusterTerms = new Set(
+    (folderKeywords || []).map((k) => String(k?.keyword || '').trim().toLowerCase()).filter(Boolean)
+  );
+  for (const pin of uniqueCreativePins) {
+    for (const r of (pin.rankings || [])) {
+      if (r?.keyword) distinctClusterTerms.add(String(r.keyword).trim().toLowerCase());
+    }
+    if (pin.newborn_seed_query) {
+      distinctClusterTerms.add(String(pin.newborn_seed_query).trim().toLowerCase());
+    }
+  }
+  const effectiveTotalTerms = Math.max(Number(totalKeywords) || 0, distinctClusterTerms.size, 1);
 
   for (const pin of uniqueCreativePins) {
     const rawTags = pin._canonical_tags || [];
-    const pinKeywords = pin.rankings.map(r => r.keyword).filter(Boolean);
+    const pinKeywords = (pin.rankings || []).map(r => r.keyword).filter(Boolean);
+    if (pin.newborn_seed_query) {
+      pinKeywords.push(pin.newborn_seed_query);
+    }
     const pinVel = Math.max(0, Number(pin.effective_velocity ?? pin.daily_save_velocity ?? pin.delta_saves_24h ?? 0));
     const pinSavesGain = Math.max(0, Number(pin.delta_saves_24h || pin.daily_save_velocity || 0));
     const pinRepinsGain = Math.max(0, Number(pin.delta_repins_24h || 0));
@@ -595,7 +620,14 @@ export async function buildFolderCrossoverMatrix({
 
   const allTagBridges = Array.from(tagMap.values()).map(t => {
     const kwCount = t.keywords_set.size;
-    const overlapPct = totalKeywords > 0 ? Math.round((kwCount / safeTotalKeywords) * 100) : 0;
+    const isSingleTermCluster = effectiveTotalTerms <= 1;
+    const overlapPct = isSingleTermCluster
+      ? Math.min(100, Math.round((t.pin_count / Math.max(1, uniqueCreativePins.length)) * 100))
+      : Math.round((kwCount / effectiveTotalTerms) * 100);
+    const isUniversal = isSingleTermCluster ? t.pin_count >= 2 : overlapPct >= 50;
+    const bridgeTier = isSingleTermCluster
+      ? (t.pin_count >= 5 ? 'Master Visual Anchor (5+ Pins)' : t.pin_count >= 2 ? 'Cluster Visual Bridge (2+ Pins)' : 'Single-Pin Tag')
+      : (overlapPct >= 80 ? 'Master Bridge (80%+)' : overlapPct >= 50 ? 'Strong Bridge (50%+)' : 'Secondary Bridge');
     const velGain = Number(t.velocity_gain.toFixed(1));
     const savesGain = Math.round(t.saves_gain);
     const repinsGain = Math.round(t.repins_gain);
@@ -618,8 +650,8 @@ export async function buildFolderCrossoverMatrix({
         velocity: velGain,
         repins: repinsGain
       },
-      is_universal: overlapPct >= 50,
-      bridge_tier: overlapPct >= 80 ? 'Master Bridge (80%+)' : overlapPct >= 50 ? 'Strong Bridge (50%+)' : 'Secondary Bridge'
+      is_universal: isUniversal,
+      bridge_tier: bridgeTier
     };
   })
   .sort((a, b) => {
@@ -891,6 +923,7 @@ export async function buildFolderCrossoverMatrix({
       cRec.pin_count++;
       cRec.total_saves += pin.save_count;
       for (const r of pin.rankings) cRec.keywords_set.add(r.keyword);
+      if (pin.newborn_seed_query) cRec.keywords_set.add(pin.newborn_seed_query);
       if (cRec.top_pins.length < 2) {
         cRec.top_pins.push({ pin_id: pin.pin_id, title: pin.title, image_url: pin.image_url, save_count: pin.save_count });
       }
@@ -1179,6 +1212,9 @@ export async function buildFolderCrossoverMatrix({
       for (const r of (p.rankings || [])) {
         if (r.keyword) cEntry.keywords_set.add(r.keyword);
       }
+      if (p.newborn_seed_query) {
+        cEntry.keywords_set.add(p.newborn_seed_query);
+      }
     }
   }
   const dominantColors = Array.from(colorMap.values())
@@ -1190,7 +1226,7 @@ export async function buildFolderCrossoverMatrix({
         count: c.pin_count,
         keywords_count: kwCount,
         keyword_overlap_count: kwCount,
-        overlap_percentage: totalKeywords > 0 ? Math.round((kwCount / safeTotalKeywords) * 100) : 0,
+        overlap_percentage: effectiveTotalTerms > 0 ? Math.round((kwCount / effectiveTotalTerms) * 100) : 0,
         keywords: Array.from(c.keywords_set),
         total_saves: c.total_saves,
         total_velocity: Math.round(c.total_velocity * 10) / 10,
@@ -1265,6 +1301,8 @@ export async function buildFolderCrossoverMatrix({
       vault_pins_count: allPins.filter(p => !p.has_active_rank && p.has_vault_rank).length,
       super_pins_count: superPins.length,
       newborn_pins_count: allPins.filter(p => p.is_newborn_tracked).length,
+      creator_pins_count: allPins.filter(p => Array.isArray(p.tracked_sources) && p.tracked_sources.includes('creator')).length,
+      related_pins_count: allPins.filter(p => Array.isArray(p.tracked_sources) && p.tracked_sources.includes('related')).length,
       tracked_pins_count: allPins.filter(p => p.is_tracked_pin).length,
       vacuum_pins_count: vacuumPinsCount,
       breakout_baby_domains_count: breakoutBabyDomainsCount,

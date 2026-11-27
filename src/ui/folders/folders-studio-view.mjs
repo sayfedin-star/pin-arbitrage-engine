@@ -94,39 +94,44 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
           <div class="p-3 rounded-xl bg-slate-50 dark:bg-[#18181B]/60 border border-slate-200/80 dark:border-[#27272A] flex flex-col gap-1">
             <span class="text-[10px] uppercase font-mono tabular-nums text-slate-500 dark:text-slate-400" x-text="selectedTimeWindow === 'all' ? 'Combined Reach (All-Time)' : ('Competitor Gains (' + selectedTimeWindow + ')')">Competitor Gains</span>
             <span class="text-base font-bold font-mono tabular-nums" :class="clusterCompetitorAudienceGains === null ? 'text-slate-400 dark:text-slate-500' : 'text-indigo-600 dark:text-indigo-400'" x-text="clusterCompetitorAudienceGains === null ? '—' : ((selectedTimeWindow === 'all' ? '' : '+') + formatNumber(clusterCompetitorAudienceGains))">+0</span>
-            <span class="text-[10px] text-slate-400" x-text="clusterCompetitorAudienceGains === null ? 'Tracked on 24h & 7d windows' : ((selectedTimeWindow === 'all' ? 'Total cluster reach (' : 'Cluster reach gain (') + formatNumber(crossoverData?.summary?.competitor_audience_gains?.matched_creators_count || (crossoverData?.top_creators?.length || 0)) + ' creators)')">Audience &amp; reach expansion</span>
+            <span class="text-[10px] text-slate-400" x-text="clusterCompetitorAudienceGains === null ? 'Tracked on 24h & 7d windows' : ((selectedTimeWindow === 'all' ? 'Total cluster reach (' : 'Cluster reach gain (') + formatNumber(crossoverData?.summary?.competitor_audience_gains?.matched_creators_count ?? 0) + ' creators)')">Audience &amp; reach expansion</span>
           </div>
         </div>
       </div>
 
-      <!-- SECTION 0B: Unified 4-Source Daily Tracked Pins & Pin Graph Queue -->
-      <div class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-4 shadow-sm space-y-3">
-        <div class="flex items-center justify-between flex-wrap gap-2">
-          <div class="flex items-center gap-2">
-            <i data-lucide="radar" class="w-4 h-4 text-indigo-500"></i>
-            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-100">Daily Tracked Pins (4 Sources)</h3>
+      <!-- SECTION 1: Unified All Cluster Pins Table (All 4 Sources + SERP + Vault) -->
+      <div id="pins-table-section" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl overflow-hidden shadow-sm dark:shadow-xl flex flex-col transition-colors">
+        
+        <!-- Table Title, Workflow Controls & Meta Bar -->
+        <div class="px-4 py-3.5 border-b border-slate-200 dark:border-[#27272A] flex items-center justify-between flex-wrap gap-2.5">
+          <div class="flex items-center gap-2 min-w-0">
+            <span x-show="scopeFilter === 'super_only'" class="inline-flex text-pink-500 shrink-0"><i data-lucide="star" class="w-4 h-4"></i></span><span x-show="scopeFilter === 'newborn_only'" class="inline-flex text-orange-500 shrink-0"><i data-lucide="flame" class="w-4 h-4"></i></span><span x-show="scopeFilter === 'creator_only' || scopeFilter === 'related_only'" class="inline-flex text-indigo-500 shrink-0"><i data-lucide="compass" class="w-4 h-4"></i></span><span x-show="scopeFilter === 'active_only'" class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block shrink-0" aria-hidden="true"></span><span x-show="scopeFilter === 'vault_only'" class="w-2.5 h-2.5 rounded-full bg-purple-500 inline-block shrink-0" aria-hidden="true"></span><span x-show="scopeFilter !== 'super_only' && scopeFilter !== 'newborn_only' && scopeFilter !== 'creator_only' && scopeFilter !== 'related_only' && scopeFilter !== 'active_only' && scopeFilter !== 'vault_only'" class="inline-flex text-indigo-500 shrink-0"><i data-lucide="pin" class="w-4 h-4"></i></span>
+            <h3 class="text-sm font-semibold text-slate-900 dark:text-white tracking-tight truncate" 
+                x-text="scopeFilter === 'super_only' ? 'Multi-Ranking Super-Pins' : (scopeFilter === 'newborn_only' ? 'Newborn Tracked Pins' : (scopeFilter === 'creator_only' ? 'Creator Tracked Pins' : (scopeFilter === 'related_only' ? 'Related Pins Tracked' : (scopeFilter === 'active_only' ? 'Active SERP Dominators' : (scopeFilter === 'vault_only' ? 'Displaced Vault Movers' : (scopeFilter === 'all' ? 'All Cluster Pins' : 'Pins: ' + scopeFilter))))))"></h3>
+            <span class="text-xs text-slate-500 dark:text-slate-400 hidden lg:inline truncate" 
+                  x-text="scopeFilter === 'super_only' ? '(>= 2 cluster search terms)' : (scopeFilter === 'newborn_only' ? '(Discover velocity radar)' : (scopeFilter === 'creator_only' ? '(Creator radar tracked)' : (scopeFilter === 'related_only' ? '(Related Pins graph)' : (scopeFilter === 'active_only' ? '(Actively ranking in SERPs)' : (scopeFilter === 'vault_only' ? '(Displaced organic vault pins)' : '(Unified SERP, Newborn, Creator & Related dataset)')))))"></span>
           </div>
-          <div class="flex items-center gap-2 flex-wrap">
-            <button type="button" @click="syncTopNSerpPins()" :disabled="syncingTopN" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"><i data-lucide="refresh-cw" class="w-3 h-3" :class="syncingTopN ? 'animate-spin' : ''"></i><span x-text="syncingTopN ? 'Syncing...' : ('Sync Top ' + (trackedPinsSummary.serp_top_n || folderSettings.serp_top_n || 20))"></span></button>
-            <button type="button" @click="pinGraphExpanded = !pinGraphExpanded; if (pinGraphExpanded) loadPinGraphSeeds()" class="px-2.5 py-1 rounded-lg text-xs font-semibold border transition cursor-pointer inline-flex items-center gap-1" :class="pinGraphExpanded ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-200 border-slate-200 dark:border-[#27272A]'"><i data-lucide="git-branch" class="w-3 h-3"></i><span x-text="'Pin Graph Seeds (' + formatNumber(pinGraphSeeds.length) + ')'"></span></button>
-            <button type="button" @click="trackedPinsExpanded = !trackedPinsExpanded" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-[#18181B] text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] cursor-pointer" x-text="trackedPinsExpanded ? 'Hide List' : ('Tracked (' + formatNumber(trackedPinsSummary.source_counts?.all || 0) + ')')"></button>
+          <div class="flex items-center gap-2 flex-wrap shrink-0">
+            <button type="button" @click="syncTopNSerpPins()" :disabled="syncingTopN" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-2xs" title="Sync Top-N ranking SERP pins into daily velocity tracking"><i data-lucide="refresh-cw" class="w-3 h-3" :class="syncingTopN ? 'animate-spin' : ''"></i><span x-text="syncingTopN ? 'Syncing...' : ('Sync Top ' + (trackedPinsSummary.serp_top_n || folderSettings.serp_top_n || 20))"></span></button>
+            <button type="button" @click="pinGraphExpanded = !pinGraphExpanded; if (pinGraphExpanded) loadPinGraphSeeds()" class="px-2.5 py-1 rounded-lg text-xs font-semibold border transition cursor-pointer inline-flex items-center gap-1" :class="pinGraphExpanded ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-[#18181B] text-slate-700 dark:text-slate-200 border-slate-200 dark:border-[#27272A] hover:bg-slate-100 dark:hover:bg-[#27272A]'" title="Manage Related Pins Graph Seeds for this Campaign"><i data-lucide="git-branch" class="w-3 h-3"></i><span x-text="'Pin Graph Seeds (' + formatNumber(pinGraphSeeds.length) + ')'"></span></button>
+            <span class="text-xs text-slate-300 dark:text-slate-600 hidden sm:inline">|</span>
+            <span class="text-xs font-mono tabular-nums text-indigo-600 dark:text-indigo-400 font-bold" x-text="formatNumber(filteredPinsList().length) + ' pins matching'"></span>
+            <span class="text-xs text-slate-300 dark:text-slate-600">|</span>
+            <span class="text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums" x-text="'Page ' + currentPage + ' of ' + totalPages()"></span>
           </div>
         </div>
-        <div class="flex items-center gap-1.5 flex-wrap">
-          <template x-for="src in [{k:'all',l:'All'},{k:'search',l:'Search Top-N'},{k:'newborn',l:'Newborn'},{k:'creator',l:'Creators'},{k:'related',l:'Related'}]" :key="src.k">
-            <button type="button" @click="applyTrackedSourceScope(src.k)" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition cursor-pointer" :class="trackedPinsSourceFilter === src.k ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-50 dark:bg-[#18181B] text-slate-700 dark:text-slate-300 border-slate-200 dark:border-[#27272A]'"><span x-text="src.l + ' (' + formatNumber(trackedPinsSummary.source_counts?.[src.k] || 0) + ')'"></span></button>
-          </template>
-        </div>
+
+        <!-- Collapsible Pin Graph Seeds Drawer -->
         <template x-if="pinGraphExpanded">
-          <div class="border-t border-slate-200 dark:border-[#27272A] pt-3 space-y-2.5">
+          <div class="px-4 py-3 bg-emerald-50/40 dark:bg-emerald-950/20 border-b border-emerald-200/70 dark:border-emerald-900/40 space-y-2.5">
             <div class="flex flex-col sm:flex-row sm:items-center gap-2">
-              <input type="text" x-model="manualPinGraphSeedInput" @keydown.enter.prevent="queueManualPinGraphSeeds()" placeholder="Paste Seed Pin ID(s) or URLs (comma-separated)..." class="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500">
+              <input type="text" x-model="manualPinGraphSeedInput" @keydown.enter.prevent="queueManualPinGraphSeeds()" placeholder="Paste Seed Pin ID(s) or URLs (comma-separated)..." class="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500">
               <button type="button" @click="queueManualPinGraphSeeds()" :disabled="queueingPinGraphSeeds" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"><i data-lucide="plus" class="w-3.5 h-3.5"></i><span x-text="queueingPinGraphSeeds ? 'Queueing...' : 'Queue Seed(s)'"></span></button>
             </div>
             <div x-show="!(pinGraphSeeds || []).length" class="text-xs text-slate-500">No Related Pins seeds queued yet for this campaign.</div>
             <div x-show="(pinGraphSeeds || []).length > 0" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 max-h-52 overflow-y-auto">
               <template x-for="seed in (pinGraphSeeds || [])" :key="seed.seed_pin_id">
-                <div class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/70 dark:bg-[#18181B]/70 flex items-center justify-between gap-2">
+                <div class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] flex items-center justify-between gap-2">
                   <div class="min-w-0">
                     <a :href="'/pin/' + seed.seed_pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '')" class="text-xs font-semibold text-slate-900 dark:text-white hover:text-emerald-500 truncate block" x-text="seed.title || ('Seed #' + seed.seed_pin_id)"></a>
                     <div class="flex items-center gap-1.5 mt-0.5 text-[10px] font-mono tabular-nums">
@@ -140,89 +145,55 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
             </div>
           </div>
         </template>
-        <template x-if="trackedPinsExpanded">
-          <div class="border-t border-slate-200 dark:border-[#27272A] pt-3">
-            <div x-show="trackedPinsLoading" class="text-xs text-slate-500">Loading tracked pins...</div>
-            <div x-show="!trackedPinsLoading && !(trackedPinsSummary.items || []).length" class="text-xs text-slate-500">No tracked pins in this source yet.</div>
-            <div x-show="!trackedPinsLoading && (trackedPinsSummary.items || []).length > 30" class="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 mb-2" x-text="'Showing top 30 of ' + formatNumber(trackedPinsSummary.total || (trackedPinsSummary.items || []).length) + ' tracked pins'"></div>
-            <div x-show="!trackedPinsLoading && (trackedPinsSummary.items || []).length > 0" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 max-h-60 overflow-y-auto">
-              <template x-for="tp in (trackedPinsSummary.items || []).slice(0, 30)" :key="tp.pin_id + ':' + tp.source_type">
-                <div class="p-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50/70 dark:bg-[#18181B]/70 flex items-center justify-between gap-2">
-                  <div class="min-w-0">
-                    <a :href="'/pin/' + tp.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '')" class="text-xs font-semibold text-slate-900 dark:text-white hover:text-indigo-500 truncate block" x-text="tp.title || ('Pin #' + tp.pin_id)"></a>
-                    <div class="flex items-center gap-1.5 flex-wrap mt-0.5 text-[10px] font-mono tabular-nums">
-                      <span class="uppercase" :class="tp.source_type === 'newborn' ? 'text-orange-600 dark:text-orange-400 font-semibold' : 'text-slate-500'" x-text="tp.source_type === 'newborn' ? ('🔥 Newborn' + (tp.seed_query ? ' · ' + tp.seed_query : '')) : tp.source_type"></span>
-                      <span class="text-emerald-600 dark:text-emerald-400" x-text="formatNumber(tp.save_count || 0) + ' saves'"></span>
-                      <span class="text-sky-600 dark:text-sky-400" x-text="formatNumber(tp.repin_count || 0) + ' rp'"></span>
-                      <span class="text-amber-600 dark:text-amber-400" x-text="formatPinWindowPrimary(tp)"></span>
-                    </div>
-                  </div>
-                  <div class="flex items-center gap-1 shrink-0">
-                    <button type="button" @click="queueSelectedForRelatedPins([tp.pin_id])" class="p-1 rounded text-slate-400 hover:text-emerald-500 cursor-pointer" title="Queue Related Pins Seed"><i data-lucide="git-branch" class="w-3.5 h-3.5"></i></button>
-                    <button type="button" @click="removeTrackedPin(tp.pin_id, tp.source_type)" class="p-1 rounded text-slate-400 hover:text-rose-500 cursor-pointer" title="Untrack"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
-                  </div>
-                </div>
-              </template>
-            </div>
-          </div>
-        </template>
-      </div>
-
-      <!-- SECTION 1: Full Pins Table (Paginated 1,788 Unique Pins / Super-Pins) -->
-      <div id="pins-table-section" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl overflow-hidden shadow-sm dark:shadow-xl flex flex-col transition-colors">
-        
-        <!-- Table Title & Meta Bar -->
-        <div class="p-4 border-b border-slate-200 dark:border-[#27272A] flex items-center justify-between flex-wrap gap-3">
-          <div class="flex items-center gap-2">
-            <span x-show="scopeFilter === 'super_only'" class="inline-flex text-pink-500"><i data-lucide="star" class="w-4 h-4"></i></span><span x-show="scopeFilter === 'newborn_only'" class="inline-flex text-orange-500"><i data-lucide="flame" class="w-4 h-4"></i></span><span x-show="scopeFilter === 'creator_only' || scopeFilter === 'related_only'" class="inline-flex text-indigo-500"><i data-lucide="compass" class="w-4 h-4"></i></span><span x-show="scopeFilter === 'active_only'" class="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block shrink-0" aria-hidden="true"></span><span x-show="scopeFilter === 'vault_only'" class="w-2.5 h-2.5 rounded-full bg-purple-500 inline-block shrink-0" aria-hidden="true"></span><span x-show="scopeFilter !== 'super_only' && scopeFilter !== 'newborn_only' && scopeFilter !== 'creator_only' && scopeFilter !== 'related_only' && scopeFilter !== 'active_only' && scopeFilter !== 'vault_only'" class="inline-flex text-indigo-500"><i data-lucide="pin" class="w-4 h-4"></i></span>
-            <h3 class="text-sm font-semibold text-slate-900 dark:text-white tracking-tight" 
-                x-text="scopeFilter === 'super_only' ? 'Multi-Ranking Super-Pins (Cross-SERP Dominators)' : (scopeFilter === 'newborn_only' ? 'Newborn Tracked Pins (Discover Velocity Radar)' : (scopeFilter === 'creator_only' ? 'Creator Tracked Pins' : (scopeFilter === 'related_only' ? 'Related Pins Tracked' : (scopeFilter === 'active_only' ? 'Active SERP Dominators (Live Ranking Pins)' : (scopeFilter === 'vault_only' ? 'Displaced Vault Movers (Organic Cluster Pins)' : (scopeFilter === 'all' ? 'All Cluster Pins (Full Snapshot Dataset)' : 'Pins ranking for: ' + scopeFilter))))))"></h3>
-            <span class="text-xs text-slate-500 dark:text-slate-400" 
-                  x-text="scopeFilter === 'super_only' ? '(Pins ranking across >= 2 cluster search terms)' : (scopeFilter === 'newborn_only' ? '(High-signal Newborn pins tracked daily in this campaign)' : (scopeFilter === 'creator_only' ? '(Pins tracked daily from Creator radar)' : (scopeFilter === 'related_only' ? '(Pins tracked daily from Related Pins graph)' : (scopeFilter === 'active_only' ? '(Pins actively ranking in live SERPs)' : (scopeFilter === 'vault_only' ? '(High-signal displaced organic pins in vault)' : '(Every verified pin across cluster search snapshots)')))))"></span>
-          </div>
-          <div class="flex items-center gap-3">
-            <span class="text-xs font-mono tabular-nums text-indigo-600 dark:text-indigo-400 font-bold" x-text="formatNumber(filteredPinsList().length) + ' pins matching'"></span>
-            <span class="text-xs text-slate-300 dark:text-slate-600">|</span>
-            <span class="text-xs text-slate-500 dark:text-slate-400 font-mono tabular-nums" x-text="'Page ' + currentPage + ' of ' + totalPages()"></span>
-          </div>
-        </div>
 
         <!-- Integrated Toolbar: Exclusive Scope Row + Stackable Signals, Sort & Search Row -->
         <div class="p-3.5 bg-slate-50/80 dark:bg-slate-950/60 border-b border-slate-200 dark:border-[#27272A] flex flex-col gap-2.5">
           <!-- Row 1: Exclusive Scope + Keyword Selector -->
           <div class="flex items-center justify-between flex-wrap gap-2">
-            <div class="flex items-center gap-2 flex-wrap">
-              <span class="text-xs font-medium text-slate-500 dark:text-slate-400 mr-1">Scope:</span>
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span class="text-[11px] font-medium text-slate-500 dark:text-slate-400 mr-0.5">Scope:</span>
               <button @click="scopeFilter = 'all'; currentPage = 1" 
-                      class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                      class="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer"
                       :class="scopeFilter === 'all' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
                 All Cluster Pins (<span x-text="formatNumber(crossoverData?.summary?.total_unique_pins ?? (crossoverData?.all_pins?.length || 0))"></span>)
               </button>
               <button @click="scopeFilter = 'active_only'; currentPage = 1" 
-                      class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
+                      class="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors flex items-center gap-1 cursor-pointer"
                       :title="crossoverData?.summary?.active_serp_slots_count ? ('Unique active SERP pins (' + formatNumber(crossoverData.summary.active_serp_slots_count) + ' ranked slots)') : 'Unique active SERP pins'"
                       :class="scopeFilter === 'active_only' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
-                <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0" aria-hidden="true"></span> Active SERP (<span x-text="formatNumber(crossoverData?.summary?.active_pins_count ?? (crossoverData?.all_pins?.filter(p => p.has_active_rank)?.length || 0))"></span>)
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block shrink-0" aria-hidden="true"></span> Active SERP (<span x-text="formatNumber(crossoverData?.summary?.active_pins_count ?? (crossoverData?.all_pins?.filter(p => p.has_active_rank)?.length || 0))"></span>)
               </button>
               <button @click="scopeFilter = 'vault_only'; currentPage = 1" 
-                      class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
+                      class="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors flex items-center gap-1 cursor-pointer"
                       :class="scopeFilter === 'vault_only' ? 'bg-purple-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
-                <span class="w-2 h-2 rounded-full bg-purple-500 inline-block shrink-0" aria-hidden="true"></span> Vault Movers (<span x-text="formatNumber(crossoverData?.summary?.vault_pins_count ?? (crossoverData?.all_pins?.filter(p => !p.has_active_rank && p.has_vault_rank)?.length || 0))"></span>)
+                <span class="w-1.5 h-1.5 rounded-full bg-purple-500 inline-block shrink-0" aria-hidden="true"></span> Vault Movers (<span x-text="formatNumber(crossoverData?.summary?.vault_pins_count ?? (crossoverData?.all_pins?.filter(p => !p.has_active_rank && p.has_vault_rank)?.length || 0))"></span>)
               </button>
               <button @click="scopeFilter = 'super_only'; currentPage = 1" 
-                      class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
+                      class="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors flex items-center gap-1 cursor-pointer"
                       title="All pins appearing in >= 2 keywords across Active SERP and Vault"
                       :class="scopeFilter === 'super_only' ? 'bg-pink-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
-                <i data-lucide="star" class="w-3.5 h-3.5 shrink-0"></i> Super-Pins Only (<span x-text="formatNumber(crossoverData?.summary?.super_pins_count ?? (crossoverData?.all_pins?.filter(p => p.is_super_pin || (p.overlap_count || 0) >= 2)?.length || 0))"></span>)
+                <i data-lucide="star" class="w-3 h-3 shrink-0"></i> Super-Pins (<span x-text="formatNumber(crossoverData?.summary?.super_pins_count ?? (crossoverData?.all_pins?.filter(p => p.is_super_pin || (p.overlap_count || 0) >= 2)?.length || 0))"></span>)
               </button>
               <button @click="scopeFilter = 'newborn_only'; currentPage = 1" 
-                      class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
+                      class="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors flex items-center gap-1 cursor-pointer"
                       title="Newborn pins tracked daily in this campaign"
                       :class="scopeFilter === 'newborn_only' ? 'bg-orange-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
-                <i data-lucide="flame" class="w-3.5 h-3.5 shrink-0"></i> Newborn (<span x-text="formatNumber(crossoverData?.summary?.newborn_pins_count ?? (crossoverData?.all_pins?.filter(p => p.is_newborn_tracked)?.length || 0))"></span>)
+                <i data-lucide="flame" class="w-3 h-3 shrink-0"></i> Newborn (<span x-text="formatNumber(crossoverData?.summary?.newborn_pins_count ?? (crossoverData?.all_pins?.filter(p => p.is_newborn_tracked)?.length || 0))"></span>)
+              </button>
+              <button @click="scopeFilter = 'creator_only'; currentPage = 1" 
+                      class="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+                      title="Creator radar pins tracked daily in this campaign"
+                      :class="scopeFilter === 'creator_only' ? 'bg-sky-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
+                <i data-lucide="users" class="w-3 h-3 shrink-0"></i> Creators (<span x-text="formatNumber(crossoverData?.summary?.creator_pins_count ?? (crossoverData?.all_pins?.filter(p => (p.tracked_sources || []).includes('creator'))?.length || 0))"></span>)
+              </button>
+              <button @click="scopeFilter = 'related_only'; currentPage = 1" 
+                      class="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+                      title="Related Pins graph pins tracked daily in this campaign"
+                      :class="scopeFilter === 'related_only' ? 'bg-teal-600 text-white shadow-sm' : 'bg-white dark:bg-[#18181B] text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-[#27272A] border border-slate-200 dark:border-[#27272A]'">
+                <i data-lucide="git-branch" class="w-3 h-3 shrink-0"></i> Related (<span x-text="formatNumber(crossoverData?.summary?.related_pins_count ?? (crossoverData?.all_pins?.filter(p => (p.tracked_sources || []).includes('related'))?.length || 0))"></span>)
               </button>
               <template x-if="activeFolder?.items?.length">
-                <select x-model="scopeFilter" @change="currentPage = 1" class="bg-white dark:bg-[#18181B] text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] rounded-lg text-xs py-1.5 px-2.5 font-mono tabular-nums shadow-sm cursor-pointer">
+                <select x-model="scopeFilter" @change="currentPage = 1" class="bg-white dark:bg-[#18181B] text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-[#27272A] rounded-lg text-[11px] py-1 px-2 font-mono tabular-nums shadow-sm cursor-pointer">
                   <option value="all">Filter by Keyword (All)</option>
                   <template x-for="item in activeFolder.items" :key="item.keyword">
                     <option :value="item.keyword" x-text="item.keyword"></option>
@@ -425,6 +396,16 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                              <span x-text="sp.newborn_seed_query ? ('Newborn · ' + sp.newborn_seed_query) : 'Newborn'"></span>
                            </span>
                          </template>
+                         <template x-if="(sp.tracked_sources || []).includes('creator')">
+                           <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold border bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/30 inline-flex items-center gap-1" :title="sp.creator_source_ref ? ('Creator Radar: @' + sp.creator_source_ref) : 'Tracked from Creator Radar'">
+                             <span x-text="sp.creator_source_ref ? ('Creator · @' + sp.creator_source_ref) : 'Creator'"></span>
+                           </span>
+                         </template>
+                         <template x-if="(sp.tracked_sources || []).includes('related')">
+                           <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold border bg-teal-500/10 text-teal-700 dark:text-teal-300 border-teal-500/30 inline-flex items-center gap-1" :title="sp.related_source_ref ? ('Related Pin Graph: ' + sp.related_source_ref) : 'Tracked from Related Pins Graph'">
+                             <span x-text="sp.related_source_ref ? ('Related · ' + sp.related_source_ref) : 'Related Graph'"></span>
+                           </span>
+                         </template>
                          <template x-for="rk in (expandedPinRanks[sp.pin_id] ? getSortedPinRankings(sp) : getSortedPinRankings(sp).slice(0, 4))" :key="rk.keyword_id || rk.keyword">
                            <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums border flex items-center gap-1"
                                  :class="rk.is_displaced
@@ -527,6 +508,11 @@ export function getFoldersStudioViewHtml({ activeRoom = 'crossover', safeFolderI
                          <i data-lucide="zap" class="w-3 h-3 shrink-0"></i>
                          <span>Blueprint</span>
                        </button>
+                       <template x-if="sp.is_tracked_pin">
+                         <button type="button" @click="removeTrackedPin(sp.pin_id)" class="p-1.5 rounded-lg bg-slate-100 hover:bg-rose-600 hover:text-white dark:bg-[#18181B] dark:hover:bg-rose-600 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-[#27272A] transition-colors inline-flex items-center cursor-pointer shadow-2xs" title="Remove Pin from Campaign Daily Tracking">
+                           <i data-lucide="x" class="w-3 h-3 shrink-0"></i>
+                         </button>
+                       </template>
                        <a :href="'/pin/' + sp.pin_id + '?folder_id=' + encodeURIComponent(activeFolder?.id || activeFolderId || '') + '&folder=' + encodeURIComponent(activeFolder?.name || '') + '&return_url=' + encodeURIComponent('/folders/' + (activeFolder?.id || activeFolderId || ''))" class="px-2 py-1 rounded-lg bg-slate-100 dark:bg-[#18181B] hover:bg-indigo-600 hover:text-white dark:hover:bg-indigo-600 text-slate-700 dark:text-slate-300 text-xs font-semibold border border-slate-200 dark:border-[#27272A] transition-colors inline-flex items-center gap-1 shadow-2xs" title="Open Full Pin Dossier">
                          <span>↗</span>
                        </a>

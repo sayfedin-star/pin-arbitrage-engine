@@ -847,8 +847,8 @@ test('Batch 5.3 (Bugs #4, #5, #6): Room 1 seed_query/repins display, keyword fil
   );
 
   const foldersHtml = getCampaignFoldersPageHtml({ initialFolderId: 5 });
-  assert.ok(foldersHtml.includes("🔥 Newborn"), 'Room 1 tracked pin card must render Newborn seed badge');
-  assert.ok(foldersHtml.includes("tp.repin_count || 0) + ' rp'"), 'Room 1 tracked pin card must render repin_count');
+  assert.ok(foldersHtml.includes("Newborn · "), 'Room 1 unified All Cluster Pins table must render Newborn seed provenance badge');
+  assert.ok(foldersHtml.includes("repins ("), 'Room 1 unified All Cluster Pins table must render repins telemetry');
 
   // Bug #5: folders-client-app.mjs scopeFilter keyword match retains Newborn pins by newborn_seed_query
   const rawFoldersScript = getFoldersClientAppScript().trim();

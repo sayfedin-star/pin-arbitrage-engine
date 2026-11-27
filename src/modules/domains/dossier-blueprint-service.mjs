@@ -427,41 +427,85 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       ORDER BY ksp.is_displaced ASC, ksp.rank_position ASC NULLS LAST, ump.save_count DESC NULLS LAST
       LIMIT 5000;
     `.catch(err => guardQueryTimeout(err, 'keyword_serp_positions')),
-    (fId === null && kId === null) ? sql`
-      SELECT
-        ump.pin_id,
-        ump.title,
-        ump.destination_url,
-        ump.image_url,
-        COALESCE(ump.creator_username, '') AS creator_username,
-        ump.board_name,
-        ump.save_count::bigint AS saves,
-        ump.repin_count::bigint AS repins,
-        ump.comment_count::int AS comments,
-        ump.share_count::int AS shares,
-        ump.reaction_count::int AS reactions,
-        ump.url_global_saves::bigint AS url_global_saves,
-        ump.daily_save_velocity::numeric AS velocity,
-        ump.daily_repin_velocity::numeric AS repin_velocity,
-        ump.delta_saves_24h::bigint AS delta_saves_24h,
-        ump.delta_repins_24h::bigint AS delta_repins_24h,
-        ump.gains_5d::bigint AS gains_5d,
-        ump.gains_7d::bigint AS gains_7d,
-        ump.gains_10d::bigint AS gains_10d,
-        ump.gains_15d::bigint AS gains_15d,
-        ump.dominant_color,
-        COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
-        ump.created_at_pinterest,
-        ump.first_discovered_at,
-        ump.creation_method,
-        ump.is_video,
-        ump.alt_text,
-        COALESCE(ump.metadata->>'aspect_ratio', '2:3') AS aspect_ratio
-      FROM universal_master_pins ump
-      WHERE (ump.clean_domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND (ump.clean_domain IS NULL OR LOWER(TRIM(ump.clean_domain)) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic'))))
-      ORDER BY ump.save_count DESC NULLS LAST
-      LIMIT 5000;
-    `.catch(err => guardQueryTimeout(err, 'universal_master_pins')) : Promise.resolve([])
+    (fId === null && kId === null)
+      ? sql`
+          SELECT
+            ump.pin_id,
+            ump.title,
+            ump.destination_url,
+            ump.image_url,
+            COALESCE(ump.creator_username, '') AS creator_username,
+            ump.board_name,
+            ump.save_count::bigint AS saves,
+            ump.repin_count::bigint AS repins,
+            ump.comment_count::int AS comments,
+            ump.share_count::int AS shares,
+            ump.reaction_count::int AS reactions,
+            ump.url_global_saves::bigint AS url_global_saves,
+            ump.daily_save_velocity::numeric AS velocity,
+            ump.daily_repin_velocity::numeric AS repin_velocity,
+            ump.delta_saves_24h::bigint AS delta_saves_24h,
+            ump.delta_repins_24h::bigint AS delta_repins_24h,
+            ump.gains_5d::bigint AS gains_5d,
+            ump.gains_7d::bigint AS gains_7d,
+            ump.gains_10d::bigint AS gains_10d,
+            ump.gains_15d::bigint AS gains_15d,
+            ump.dominant_color,
+            COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
+            ump.created_at_pinterest,
+            ump.first_discovered_at,
+            ump.creation_method,
+            ump.is_video,
+            ump.alt_text,
+            COALESCE(ump.metadata->>'aspect_ratio', '2:3') AS aspect_ratio
+          FROM universal_master_pins ump
+          WHERE (ump.clean_domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND (ump.clean_domain IS NULL OR LOWER(TRIM(ump.clean_domain)) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic'))))
+          ORDER BY ump.save_count DESC NULLS LAST
+          LIMIT 5000;
+        `.catch(err => guardQueryTimeout(err, 'universal_master_pins'))
+      : (fId !== null && kId === null)
+        ? sql`
+            SELECT DISTINCT ON (ump.pin_id)
+              ump.pin_id,
+              ump.title,
+              ump.destination_url,
+              ump.image_url,
+              COALESCE(ump.creator_username, '') AS creator_username,
+              ump.board_name,
+              ump.save_count::bigint AS saves,
+              ump.repin_count::bigint AS repins,
+              ump.comment_count::int AS comments,
+              ump.share_count::int AS shares,
+              ump.reaction_count::int AS reactions,
+              ump.url_global_saves::bigint AS url_global_saves,
+              ump.daily_save_velocity::numeric AS velocity,
+              ump.daily_repin_velocity::numeric AS repin_velocity,
+              ump.delta_saves_24h::bigint AS delta_saves_24h,
+              ump.delta_repins_24h::bigint AS delta_repins_24h,
+              ump.gains_5d::bigint AS gains_5d,
+              ump.gains_7d::bigint AS gains_7d,
+              ump.gains_10d::bigint AS gains_10d,
+              ump.gains_15d::bigint AS gains_15d,
+              ump.dominant_color,
+              COALESCE(ump.visual_annotations, '[]'::jsonb) AS visual_annotations,
+              ump.created_at_pinterest,
+              ump.first_discovered_at,
+              ump.creation_method,
+              ump.is_video,
+              ump.alt_text,
+              COALESCE(ump.metadata->>'aspect_ratio', '2:3') AS aspect_ratio
+            FROM campaign_tracked_pins ctp
+            JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
+            WHERE ctp.folder_id = ${fId}
+              AND ctp.is_active = TRUE
+              AND (ump.clean_domain = ${cleanDomain} OR (${isOrganicVault}::boolean AND (ump.clean_domain IS NULL OR LOWER(TRIM(ump.clean_domain)) IN ('', 'uploaded by user', 'uploaded-by-user', 'organic'))))
+            ORDER BY ump.pin_id, ump.save_count DESC NULLS LAST
+            LIMIT 2000;
+          `.catch(err => {
+            if (String(err?.code || '') === '42P01') return [];
+            return guardQueryTimeout(err, 'campaign_tracked_pins');
+          })
+        : Promise.resolve([])
   ]);
 
   const { ageInfo, adInfo } = rollupBundle || {};
@@ -806,7 +850,11 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
     }
   };
 
-  if (pinsMap.size > 0 || fId !== null || kId !== null) {
+  if (fId !== null && kId === null) {
+    // Folder-scoped active campaign_tracked_pins (Newborn, Creator, Related, Search Top-N)
+    // are first-class campaign pins — register them directly alongside SERP pins.
+    for (const r of (umpPins || [])) registerPin(r, 'tracked');
+  } else if (pinsMap.size > 0 || kId !== null) {
     for (const r of (umpPins || [])) enrichOrCollectCatalogRow(r, 'master');
   } else {
     // Fallback only for catalog-only domains that have 0 SERP/Vault occurrences globally

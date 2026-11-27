@@ -296,7 +296,8 @@ test('Phase 1 & 2: foldersApp enforces zero fake extrapolation, authentic Breako
   assert.equal(html.includes('UNIVERSAL BRIDGES'), false, 'redundant 6-KPI row removed');
   assert.ok(html.includes('Breakout Baby Domains'), 'Breakout Baby Domains signal button present');
   assert.ok(html.includes('Linkless Vacuums'), 'Linkless Vacuums signal button present');
-  assert.ok(html.includes('Showing top 30 of'), 'Tracked Pins 30-item truncation indicator present');
+  assert.equal(html.includes('Daily Tracked Pins (4 Sources)'), false, 'redundant Daily Tracked Pins (4 Sources) section removed');
+  assert.ok(html.includes('Sync Top '), 'Sync Top N control consolidated into All Cluster Pins header');
 
   // Verify zero fake extrapolation when multi-window data is missing
   const pinMissing10d15d = {

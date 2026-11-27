@@ -128,15 +128,21 @@ export function getPinDetailsBodyHtml(safePinId) {
         <span class="hidden md:inline" x-text="v4WatchlistBusy ? (isWatchlisted ? 'Removing...' : 'Saving...') : (isWatchlisted ? 'Watchlisted' : 'Watchlist')"></span>
       </button>
 
-      <!-- V4 Campaign Track / Pin Graph Seed CTA -->
+      <!-- Stateful Campaign Membership CTA -->
       <button
         type="button"
         @click="openV4CampaignModal()"
-        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 text-xs font-semibold transition cursor-pointer"
-        title="Add Pin to a Campaign or queue as a Related Pins Graph Seed"
+        :aria-pressed="isInCampaign ? 'true' : 'false'"
+        :data-in-campaign="isInCampaign ? 'true' : 'false'"
+        :class="isInCampaign
+          ? 'border-indigo-500/70 bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs'
+          : 'border-indigo-500/40 bg-white dark:bg-[#18181B] hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300'"
+        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer max-w-[220px]"
+        :title="isInCampaign ? 'Manage Campaign memberships for this Pin' : 'Add this Pin to a Campaign Folder for daily velocity tracking'"
       >
-        <i data-lucide="folder-plus" class="w-3.5 h-3.5"></i>
-        <span class="hidden md:inline">Campaign / Seed</span>
+        <svg x-show="isInCampaign" class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="m9 13 2 2 4-4"/></svg>
+        <svg x-show="!isInCampaign" class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+        <span class="hidden md:inline truncate" x-text="campaignButtonLabel">+ Add to Campaign</span>
       </button>
 
       <!-- Live Deep Sync CTA -->
@@ -1571,33 +1577,67 @@ export function getPinDetailsBodyHtml(safePinId) {
     </div>
   </div>
 
-  <!-- V4 CAMPAIGN TRACK / PIN GRAPH SEED MODAL -->
+  <!-- CAMPAIGN MEMBERSHIP & RELATED GRAPH SEED MODAL -->
   <div x-show="v4CampaignModalOpen" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4" x-cloak>
     <div @click.away="v4CampaignModalOpen = false" class="bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <i data-lucide="folder-plus" class="w-4 h-4 text-indigo-500"></i>
-          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Send Pin to Campaign</h3>
+          <i data-lucide="folder-kanban" class="w-4 h-4 text-indigo-500"></i>
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Campaign Membership</h3>
         </div>
-        <button type="button" @click="v4CampaignModalOpen = false" class="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><i data-lucide="x" class="w-4 h-4"></i></button>
+        <button type="button" @click="v4CampaignModalOpen = false" class="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer" aria-label="Close Campaign Modal"><i data-lucide="x" class="w-4 h-4"></i></button>
       </div>
+
+      <!-- Active Campaign Memberships -->
+      <template x-if="trackedCampaigns.length > 0">
+        <div class="space-y-1.5">
+          <div class="text-[10px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">Active Campaigns</div>
+          <div class="space-y-1.5 max-h-40 overflow-y-auto">
+            <template x-for="tc in trackedCampaigns" :key="tc.folder_id + '-' + (tc.source_type || 'manual')">
+              <div class="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B]">
+                <div class="flex items-center gap-2 min-w-0">
+                  <a :href="'/folders/' + tc.folder_id" class="text-xs font-semibold text-slate-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 truncate" x-text="tc.folder_name || ('Campaign #' + tc.folder_id)"></a>
+                  <span class="px-1.5 py-0.5 rounded text-[10px] font-mono uppercase border shrink-0"
+                        :class="tc.source_type === 'newborn' ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30' : 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30'"
+                        x-text="tc.source_type || 'tracked'"></span>
+                </div>
+                <button type="button"
+                        @click="removePinFromCampaign(tc.folder_id, tc.source_type)"
+                        :disabled="v4CampaignActionBusy"
+                        class="px-2 py-1 rounded-lg text-[11px] font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200/80 dark:border-rose-900/50 transition cursor-pointer disabled:opacity-40 shrink-0">
+                  Remove
+                </button>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+
+      <!-- Add to Target Campaign -->
       <div class="space-y-2">
-        <label class="text-[11px] font-mono uppercase text-slate-500">Target Campaign</label>
-        <select x-model="v4SelectedFolderId" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-xs text-slate-900 dark:text-white">
-          <option value="">Select a campaign...</option>
-          <template x-for="f in v4CampaignFolders" :key="f.id">
-            <option :value="String(f.id)" x-text="f.name"></option>
-          </template>
-        </select>
+        <label class="text-[11px] font-mono uppercase text-slate-500">Add to Campaign</label>
+        <div class="flex items-center gap-2">
+          <select x-model="v4SelectedFolderId" class="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-xs text-slate-900 dark:text-white">
+            <option value="">Select a campaign...</option>
+            <template x-for="f in v4CampaignFolders" :key="f.id">
+              <option :value="String(f.id)" x-text="f.name"></option>
+            </template>
+          </select>
+          <button type="button" @click="addPinToCampaignTracked()" :disabled="!v4SelectedFolderId || v4CampaignActionBusy" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold cursor-pointer disabled:opacity-40 inline-flex items-center justify-center gap-1.5 shrink-0">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+            <span x-text="v4CampaignActionBusy ? 'Saving...' : 'Add to Campaign'"></span>
+          </button>
+        </div>
       </div>
-      <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
-        <button type="button" @click="addPinToCampaignTracked()" :disabled="!v4SelectedFolderId || v4CampaignActionBusy" class="flex-1 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold cursor-pointer disabled:opacity-40 inline-flex items-center justify-center gap-1.5">
-          <i data-lucide="radar" class="w-3.5 h-3.5"></i>
-          <span>Add to Campaign Tracking</span>
-        </button>
-        <button type="button" @click="queuePinAsGraphSeed()" :disabled="!v4SelectedFolderId || v4CampaignActionBusy" class="flex-1 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer disabled:opacity-40 inline-flex items-center justify-center gap-1.5">
-          <i data-lucide="git-branch" class="w-3.5 h-3.5"></i>
-          <span>Queue Pin Graph Seed</span>
+
+      <!-- Secondary Action: Queue as Related Pin Graph Seed -->
+      <div class="pt-3 border-t border-slate-200 dark:border-[#27272A] flex items-center justify-between gap-2">
+        <div class="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">
+          Need similar pins? Queue this Pin as a Related Graph crawl seed in the selected campaign.
+        </div>
+        <button type="button" @click="queuePinAsGraphSeed()" :disabled="!v4SelectedFolderId || v4CampaignActionBusy" class="px-2.5 py-1.5 rounded-lg border border-emerald-500/40 bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-600 hover:text-white text-emerald-700 dark:text-emerald-300 text-[11px] font-semibold cursor-pointer disabled:opacity-40 inline-flex items-center gap-1.5 shrink-0 transition">
+          <i data-lucide="git-branch" class="w-3 h-3"></i>
+          <span>Queue as Related Pin Graph Seed</span>
         </button>
       </div>
     </div>

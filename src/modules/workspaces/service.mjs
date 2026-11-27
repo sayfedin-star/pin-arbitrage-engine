@@ -14,9 +14,12 @@ import { decodeHtmlEntities } from '../newborn/surface-normalizers.mjs';
 import {
   normalizeCandidateForMasterIngest,
   enrollCampaignTrackedPinsTx,
-  syncNewbornAnchorsAndPromoteTx
+  syncNewbornAnchorsAndPromoteTx,
+  ensureFolderKeywordsLinkedTx,
+  normalizeFolderLinkKeyword
 } from '../newborn/promotions.mjs';
 import { ingestPinsBatch } from '../pins/repository.mjs';
+import { invalidateFolderCache } from '../keywords/folders-crossover.mjs';
 
 export const DEFAULT_WORKSPACE_ID = 1;
 export const WORKSPACE_COOKIE_NAME = 'pae_workspace_id';
@@ -910,7 +913,29 @@ export async function addCampaignTrackedPins(sql, { folderId, workspaceId, pinId
       seedQueryByPin,
       defaultSeedQuery: cleanSource === 'newborn' && cleanRef ? cleanRef : null
     });
+
+    // Unify Keywords Fleet: auto-link authentic seed queries into tracked_keywords + keyword_folder_items
+    // whenever Discover/Newborn pins carry a source keyword (never fabricating SERP positions).
+    const seedTermsToLink = [];
+    for (const sq of seedQueryByPin.values()) {
+      const normalized = normalizeFolderLinkKeyword(sq);
+      if (normalized) seedTermsToLink.push(normalized);
+    }
+    if (cleanSource === 'newborn' && cleanRef) {
+      const normalizedRef = normalizeFolderLinkKeyword(cleanRef);
+      if (normalizedRef) seedTermsToLink.push(normalizedRef);
+    }
+    if (seedTermsToLink.length > 0) {
+      await ensureFolderKeywordsLinkedTx(tx, {
+        folderId: fid,
+        keywords: seedTermsToLink,
+        category: 'Newborn Breakout',
+        notes: 'Auto-linked from Campaign promotion'
+      });
+    }
   });
+
+  invalidateFolderCache(fid, wid);
 
   return {
     added: addedCount,
@@ -1178,6 +1203,7 @@ export async function removeCampaignTrackedPin(sql, { folderId, workspaceId, pin
     RETURNING pin_id, source_type;
   `;
 
+  invalidateFolderCache(fid, wid);
   return { removed: Array.isArray(deleted) ? deleted.length : 0, pin_id: cleanPinId };
 }
 

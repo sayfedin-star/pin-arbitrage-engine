@@ -255,6 +255,17 @@ export async function listFolders(sql, { projectId = 'default', workspaceId = DE
       JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
       WHERE (ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL AND ksp.rank_position >= 1)
          OR ksp.is_displaced = TRUE
+      UNION ALL
+      SELECT
+        ctp.folder_id,
+        ctp.pin_id,
+        'tracked' AS item_source,
+        FALSE AS is_displaced,
+        COALESCE(ump.clean_domain, '') AS clean_domain,
+        LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
+      FROM campaign_tracked_pins ctp
+      JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
+      WHERE ctp.is_active = TRUE
     ),
     pin_status AS (
       SELECT
@@ -387,6 +398,17 @@ export async function listFolders(sql, { projectId = 'default', workspaceId = DE
         JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
         WHERE (ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL AND ksp.rank_position >= 1)
            OR ksp.is_displaced = TRUE
+        UNION ALL
+        SELECT
+          ctp.folder_id,
+          ctp.pin_id,
+          'tracked' AS item_source,
+          FALSE AS is_displaced,
+          LOWER(TRIM(COALESCE(ump.clean_domain, ''))) AS clean_domain,
+          LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
+        FROM campaign_tracked_pins ctp
+        JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
+        WHERE ctp.is_active = TRUE
       ),
       pin_status AS (
         SELECT
@@ -537,6 +559,18 @@ export async function getFolder(sql, folderId, { workspaceId = DEFAULT_WORKSPACE
         JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
         WHERE kfi.folder_id = ${fid}
           AND ((ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL AND ksp.rank_position >= 1) OR ksp.is_displaced = TRUE)
+        UNION ALL
+        SELECT
+          ctp.folder_id,
+          ctp.pin_id,
+          'tracked' AS item_source,
+          FALSE AS is_displaced,
+          COALESCE(ump.clean_domain, '') AS clean_domain,
+          LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
+        FROM campaign_tracked_pins ctp
+        JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
+        WHERE ctp.folder_id = ${fid}
+          AND ctp.is_active = TRUE
       ),
       pin_status AS (
         SELECT
@@ -644,6 +678,18 @@ export async function getFolder(sql, folderId, { workspaceId = DEFAULT_WORKSPACE
         JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
         WHERE kfi.folder_id = ${fid}
           AND ((ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL AND ksp.rank_position >= 1) OR ksp.is_displaced = TRUE)
+        UNION ALL
+        SELECT
+          ctp.folder_id,
+          ctp.pin_id,
+          'tracked' AS item_source,
+          FALSE AS is_displaced,
+          LOWER(TRIM(COALESCE(ump.clean_domain, ''))) AS clean_domain,
+          LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
+        FROM campaign_tracked_pins ctp
+        JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
+        WHERE ctp.folder_id = ${fid}
+          AND ctp.is_active = TRUE
       ),
       pin_status AS (
         SELECT
@@ -1416,6 +1462,22 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
         )
         AND ump.creator_username IS NOT NULL AND ump.creator_username <> ''
         AND LOWER(TRIM(ump.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+      UNION ALL
+      SELECT
+        ctp.folder_id,
+        NULL::int AS keyword_id,
+        ctp.pin_id,
+        LOWER(TRIM(ump.creator_username)) AS clean_username,
+        ump.save_count,
+        ump.daily_save_velocity,
+        NULL::int AS current_rank,
+        FALSE AS is_displaced
+      FROM campaign_tracked_pins ctp
+      JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
+      WHERE ctp.folder_id = ${fid}
+        AND ctp.is_active = TRUE
+        AND ump.creator_username IS NOT NULL AND ump.creator_username <> ''
+        AND LOWER(TRIM(ump.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
     ),
     aggregated_creators AS (
       SELECT
@@ -1496,6 +1558,18 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
           SELECT 1 FROM keyword_ignored_pins kip
           WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
         )
+        AND ump.creator_username IS NOT NULL AND ump.creator_username <> ''
+      UNION ALL
+      SELECT
+        ctp.pin_id,
+        LOWER(TRIM(ump.creator_username)) AS clean_username,
+        ump.save_count,
+        ump.daily_save_velocity,
+        FALSE AS is_displaced
+      FROM campaign_tracked_pins ctp
+      JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
+      WHERE ctp.folder_id = ${fid}
+        AND ctp.is_active = TRUE
         AND ump.creator_username IS NOT NULL AND ump.creator_username <> ''
     ),
     aggregated_creators AS (

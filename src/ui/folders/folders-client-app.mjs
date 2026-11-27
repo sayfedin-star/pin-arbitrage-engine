@@ -263,6 +263,9 @@ export function getFoldersClientAppScript() {
             if (res.ok && data.success) {
               this.showToast('Synced ' + (data.synced || 0) + ' Top-' + (data.top_n || topN) + ' SERP pins into daily tracking', 'success');
               await this.loadTrackedPinsSummary(this.trackedPinsSourceFilter);
+              if (typeof this.loadActiveFolder === 'function') {
+                await this.loadActiveFolder(true);
+              }
             } else {
               this.showToast(data.error || 'Failed to sync Top-N SERP pins', 'error');
             }
@@ -275,14 +278,50 @@ export function getFoldersClientAppScript() {
 
         async removeTrackedPin(pinId, sourceType = null) {
           if (!this.activeFolderId || !pinId) return;
+          const targetId = String(pinId);
           try {
             const qs = sourceType ? ('?source_type=' + encodeURIComponent(sourceType)) : '';
-            const res = await (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId + '/tracked-pins/' + encodeURIComponent(pinId) + qs, {
+            const res = await (window.safeApiFetch || fetch)('/api/folders/' + this.activeFolderId + '/tracked-pins/' + encodeURIComponent(targetId) + qs, {
               method: 'DELETE'
             });
             if (res.ok) {
-              this.showToast('Removed Pin #' + pinId + ' from campaign daily tracking', 'info');
+              if (this.crossoverData && Array.isArray(this.crossoverData.all_pins)) {
+                this.crossoverData.all_pins = this.crossoverData.all_pins.reduce((acc, p) => {
+                  if (String(p.pin_id) !== targetId) {
+                    acc.push(p);
+                    return acc;
+                  }
+                  const hasRankings = Array.isArray(p.rankings) && p.rankings.length > 0;
+                  if (sourceType) {
+                    const nextSources = (Array.isArray(p.tracked_sources) ? p.tracked_sources : []).filter((s) => s !== sourceType);
+                    if (nextSources.length > 0 || hasRankings) {
+                      acc.push({
+                        ...p,
+                        tracked_sources: nextSources,
+                        is_tracked_pin: nextSources.length > 0,
+                        is_newborn_tracked: nextSources.includes('newborn')
+                      });
+                    }
+                  } else if (hasRankings) {
+                    acc.push({
+                      ...p,
+                      tracked_sources: [],
+                      is_tracked_pin: false,
+                      is_newborn_tracked: false,
+                      newborn_seed_query: null,
+                      creator_source_ref: null,
+                      related_source_ref: null
+                    });
+                  }
+                  return acc;
+                }, []);
+                this._pinsCacheKey = '';
+              }
+              this.showToast('Removed Pin #' + targetId + ' from campaign daily tracking', 'info');
               await this.loadTrackedPinsSummary(this.trackedPinsSourceFilter);
+              if (typeof this.loadActiveFolder === 'function') {
+                await this.loadActiveFolder(true);
+              }
             }
           } catch (err) {
             this.showToast('Failed to remove tracked pin: ' + err.message, 'error');

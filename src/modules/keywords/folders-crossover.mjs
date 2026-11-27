@@ -352,6 +352,8 @@ async function queryAggregatedFolderPins(sql, fid) {
         ARRAY_AGG(DISTINCT ctp.source_type ORDER BY ctp.source_type) AS tracked_sources,
         BOOL_OR(ctp.source_type = 'newborn') AS is_newborn_tracked,
         MAX(COALESCE(NULLIF(TRIM(ctp.seed_query), ''), NULLIF(TRIM(nda.seed_query), ''), NULLIF(TRIM(nc.seed_query), ''))) AS newborn_seed_query,
+        MAX(NULLIF(TRIM(ctp.source_ref), '')) FILTER (WHERE ctp.source_type = 'creator') AS creator_source_ref,
+        MAX(NULLIF(TRIM(ctp.source_ref), '')) FILTER (WHERE ctp.source_type = 'related') AS related_source_ref,
         MIN(ctp.added_at) AS tracked_added_at
       FROM campaign_tracked_pins ctp
       LEFT JOIN newborn_daily_anchors nda ON nda.pin_id = ctp.pin_id
@@ -373,7 +375,9 @@ async function queryAggregatedFolderPins(sql, fid) {
         (ta.pin_id IS NOT NULL) AS is_tracked_pin,
         COALESCE(ta.tracked_sources, ARRAY[]::text[]) AS tracked_sources,
         COALESCE(ta.is_newborn_tracked, FALSE) AS is_newborn_tracked,
-        ta.newborn_seed_query
+        ta.newborn_seed_query,
+        ta.creator_source_ref,
+        ta.related_source_ref
       FROM pin_agg pa
       FULL OUTER JOIN tracked_agg ta ON ta.pin_id = pa.pin_id
     )
@@ -390,6 +394,8 @@ async function queryAggregatedFolderPins(sql, fid) {
       cp.tracked_sources,
       cp.is_newborn_tracked,
       cp.newborn_seed_query,
+      cp.creator_source_ref,
+      cp.related_source_ref,
       ump.title,
       COALESCE(ump.clean_domain, '') AS domain,
       ump.destination_url,
@@ -469,6 +475,8 @@ async function queryAggregatedFolderPins(sql, fid) {
         ARRAY_AGG(DISTINCT ctp.source_type ORDER BY ctp.source_type) AS tracked_sources,
         BOOL_OR(ctp.source_type = 'newborn') AS is_newborn_tracked,
         MAX(COALESCE(NULLIF(TRIM(nda.seed_query), ''), NULLIF(TRIM(nc.seed_query), ''))) AS newborn_seed_query,
+        MAX(NULLIF(TRIM(ctp.source_ref), '')) FILTER (WHERE ctp.source_type = 'creator') AS creator_source_ref,
+        MAX(NULLIF(TRIM(ctp.source_ref), '')) FILTER (WHERE ctp.source_type = 'related') AS related_source_ref,
         MIN(ctp.added_at) AS tracked_added_at
       FROM campaign_tracked_pins ctp
       LEFT JOIN newborn_daily_anchors nda ON nda.pin_id = ctp.pin_id
@@ -490,7 +498,9 @@ async function queryAggregatedFolderPins(sql, fid) {
         (ta.pin_id IS NOT NULL) AS is_tracked_pin,
         COALESCE(ta.tracked_sources, ARRAY[]::text[]) AS tracked_sources,
         COALESCE(ta.is_newborn_tracked, FALSE) AS is_newborn_tracked,
-        ta.newborn_seed_query
+        ta.newborn_seed_query,
+        ta.creator_source_ref,
+        ta.related_source_ref
       FROM pin_agg pa
       FULL OUTER JOIN tracked_agg ta ON ta.pin_id = pa.pin_id
     )
@@ -507,6 +517,8 @@ async function queryAggregatedFolderPins(sql, fid) {
       cp.tracked_sources,
       cp.is_newborn_tracked,
       cp.newborn_seed_query,
+      cp.creator_source_ref,
+      cp.related_source_ref,
       ump.title,
       COALESCE(ump.clean_domain, '') AS domain,
       ump.destination_url,
@@ -593,6 +605,8 @@ async function queryAggregatedFolderPins(sql, fid) {
       ARRAY[]::text[] AS tracked_sources,
       FALSE AS is_newborn_tracked,
       NULL::text AS newborn_seed_query,
+      NULL::text AS creator_source_ref,
+      NULL::text AS related_source_ref,
       ump.title,
       COALESCE(ump.clean_domain, '') AS domain,
       ump.destination_url,
@@ -698,6 +712,8 @@ async function _executeFolderCrossover(sql, fid, workspaceId = null) {
         total_unique_pins: 0,
         super_pins_count: 0,
         newborn_pins_count: 0,
+        creator_pins_count: 0,
+        related_pins_count: 0,
         tracked_pins_count: 0,
         vacuum_pins_count: 0,
         breakout_baby_domains_count: 0,

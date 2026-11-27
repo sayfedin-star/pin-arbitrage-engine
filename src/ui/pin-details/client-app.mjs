@@ -54,6 +54,7 @@ export function getPinDetailsClientAppScripts() {
         v4CampaignActionBusy: false,
         v4CampaignFolders: [],
         v4SelectedFolderId: '',
+        trackedCampaigns: [],
         annotationsIntelOpen: false,
         annotationsIntelLoading: false,
         annotationsIntelError: '',
@@ -624,6 +625,7 @@ export function getPinDetailsClientAppScripts() {
               this.dossier = data;
               this.isWatchlisted = Boolean(data?.is_watchlisted || data?.watchlist?.is_watchlisted);
               this.watchlistItemId = data?.watchlist_item_id ?? data?.watchlist?.item_id ?? null;
+              this.trackedCampaigns = Array.isArray(data?.tracked_campaigns) ? data.tracked_campaigns : [];
               this.isDbBusy = Boolean(data?.is_degraded);
               this.rebuildDateMapCache();
 
@@ -1614,10 +1616,36 @@ export function getPinDetailsClientAppScripts() {
           }
         },
 
+        get uniqueTrackedCampaigns() {
+          const list = Array.isArray(this.trackedCampaigns) ? this.trackedCampaigns : [];
+          const seen = new Map();
+          for (const item of list) {
+            const fid = Number(item?.folder_id);
+            if (!Number.isInteger(fid) || fid <= 0) continue;
+            if (!seen.has(fid)) seen.set(fid, item);
+          }
+          return Array.from(seen.values());
+        },
+
+        get isInCampaign() {
+          return this.uniqueTrackedCampaigns.length > 0;
+        },
+
+        get campaignButtonLabel() {
+          const unique = this.uniqueTrackedCampaigns;
+          if (unique.length === 0) return '+ Add to Campaign';
+          if (unique.length === 1) {
+            const name = String(unique[0].folder_name || ('Campaign #' + unique[0].folder_id)).trim();
+            return 'In Campaign: ' + name;
+          }
+          return 'In ' + unique.length + ' Campaigns';
+        },
+
         async addPinToCampaignTracked() {
           if (!this.v4SelectedFolderId || this.v4CampaignActionBusy) return;
           this.v4CampaignActionBusy = true;
           try {
+            const fid = Number(this.v4SelectedFolderId);
             const res = await (window.safeApiFetch || fetch)('/api/folders/' + encodeURIComponent(this.v4SelectedFolderId) + '/tracked-pins', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -1625,13 +1653,60 @@ export function getPinDetailsClientAppScripts() {
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok && data?.success) {
-              this.showToast('Pin #' + this.pinId + ' added to Campaign daily tracking');
-              this.v4CampaignModalOpen = false;
+              const matchedFolder = (this.v4CampaignFolders || []).find((f) => Number(f.id) === fid);
+              const folderName = matchedFolder?.name || ('Campaign #' + fid);
+              const exists = (this.trackedCampaigns || []).some((tc) => Number(tc.folder_id) === fid && String(tc.source_type || '') === 'related');
+              if (!exists && Number.isInteger(fid) && fid > 0) {
+                const entry = {
+                  folder_id: fid,
+                  folder_name: folderName,
+                  source_type: 'related',
+                  seed_query: null,
+                  added_at: new Date().toISOString(),
+                  notes: null
+                };
+                this.trackedCampaigns = [...(this.trackedCampaigns || []), entry];
+                if (this.dossier) {
+                  this.dossier.tracked_campaigns = [...this.trackedCampaigns];
+                }
+              }
+              this.showToast('Pin #' + this.pinId + ' added to ' + folderName);
             } else {
               this.showToast(data?.error || 'Failed to add pin to Campaign', 'error');
             }
           } catch (err) {
             this.showToast('Campaign tracking error: ' + err.message, 'error');
+          } finally {
+            this.v4CampaignActionBusy = false;
+          }
+        },
+
+        async removePinFromCampaign(folderId, sourceType = null) {
+          const fid = Number(folderId);
+          if (!Number.isInteger(fid) || fid <= 0 || this.v4CampaignActionBusy) return;
+          this.v4CampaignActionBusy = true;
+          try {
+            const qs = sourceType ? ('?source_type=' + encodeURIComponent(sourceType)) : '';
+            const res = await (window.safeApiFetch || fetch)('/api/folders/' + encodeURIComponent(fid) + '/tracked-pins/' + encodeURIComponent(String(this.pinId)) + qs, {
+              method: 'DELETE',
+              headers: { Accept: 'application/json' }
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data?.success !== false) {
+              this.trackedCampaigns = (this.trackedCampaigns || []).filter((tc) => {
+                if (Number(tc.folder_id) !== fid) return true;
+                if (sourceType && String(tc.source_type || '') !== String(sourceType)) return true;
+                return false;
+              });
+              if (this.dossier) {
+                this.dossier.tracked_campaigns = [...this.trackedCampaigns];
+              }
+              this.showToast('Removed Pin #' + this.pinId + ' from campaign');
+            } else {
+              this.showToast(data?.error || 'Failed to remove pin from Campaign', 'error');
+            }
+          } catch (err) {
+            this.showToast('Campaign removal error: ' + err.message, 'error');
           } finally {
             this.v4CampaignActionBusy = false;
           }

@@ -123,6 +123,92 @@ export async function enrollCampaignTrackedPinsTx(tx, {
   return Array.isArray(trackedRows) ? trackedRows.length : sortedIds.length;
 }
 
+const NON_KEYWORD_SOURCE_REFS = new Set([
+  'manual',
+  'discover_promote',
+  'pin_dossier',
+  'campaign_send',
+  'newborn',
+  'creator',
+  'related',
+  'search',
+  'watchlist',
+  'ui'
+]);
+
+/**
+ * Normalizes a candidate keyword term and rejects synthetic source_ref identifiers.
+ */
+export function normalizeFolderLinkKeyword(raw) {
+  if (!raw || typeof raw !== 'string') return '';
+  const cleaned = raw.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (cleaned.length < 2 || cleaned.length > 200) return '';
+  if (NON_KEYWORD_SOURCE_REFS.has(cleaned)) return '';
+  if (/^(snowball|related|creator|board|pin|seed|run|kw|url|https?):/i.test(cleaned)) return '';
+  if (/^serp_top_\d+$/i.test(cleaned)) return '';
+  if (/^\d{6,30}$/.test(cleaned)) return '';
+  return cleaned;
+}
+
+/**
+ * Shared atomic helper: upserts normalized keywords into `tracked_keywords` (reusing existing
+ * canonical_keyword/keyword rows cleanly) and links them to `keyword_folder_items` inside an
+ * active transaction. Strictly NEVER fabricates `keyword_serp_positions` rows.
+ */
+export async function ensureFolderKeywordsLinkedTx(tx, {
+  folderId,
+  keywords = [],
+  category = 'Newborn Breakout',
+  notes = 'Auto-linked from Discover promotion'
+} = {}) {
+  const fid = Number(folderId);
+  if (!fid || !Number.isInteger(fid) || fid <= 0) return [];
+
+  const normalizedTerms = Array.from(new Set(
+    (Array.isArray(keywords) ? keywords : [keywords])
+      .map((k) => normalizeFolderLinkKeyword(k))
+      .filter(Boolean)
+  )).sort((a, b) => a.localeCompare(b));
+
+  if (normalizedTerms.length === 0) return [];
+
+  const linked = [];
+  for (const kwTerm of normalizedTerms) {
+    const cleanSlug = kwTerm.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    let kwRow = null;
+    try {
+      const existingRows = await tx`
+        SELECT id, keyword
+        FROM tracked_keywords
+        WHERE LOWER(keyword) = ${kwTerm}
+           OR (${cleanSlug} <> '' AND canonical_keyword = ${cleanSlug})
+        ORDER BY id ASC
+        LIMIT 1;
+      `;
+      if (Array.isArray(existingRows) && existingRows[0]?.id) {
+        kwRow = existingRows[0];
+      }
+    } catch (_) {
+      // Minimal test mocks without canonical_keyword column fall through cleanly to addKeyword
+    }
+
+    if (!kwRow || !kwRow.id) {
+      kwRow = await addKeyword(tx, { keyword: kwTerm, category });
+    }
+
+    if (kwRow && kwRow.id) {
+      const kwId = Number(kwRow.id);
+      await tx`
+        INSERT INTO keyword_folder_items (folder_id, keyword_id, notes, added_at)
+        VALUES (${fid}, ${kwId}, ${String(notes || 'Auto-linked from Discover promotion').slice(0, 255)}, NOW())
+        ON CONFLICT (folder_id, keyword_id) DO NOTHING;
+      `;
+      linked.push({ id: kwId, keyword: kwRow.keyword || kwTerm });
+    }
+  }
+  return linked;
+}
+
 /**
  * Shared transaction helper to hydrate Newborn candidates into SSOT (`universal_master_pins` +
  * `pins_daily_metrics`), enroll active `newborn_daily_anchors`, and mark `stage = 'promoted'`.
@@ -275,9 +361,12 @@ export async function promoteNewbornCandidates(sql, options = {}) {
       });
     }
 
-    // 2A. Explicit Keyword linking ONLY when requested (never fabricate fake keyword_serp_positions)
+    // 2A. Auto-link source keywords whenever promoting into a Campaign Folder OR explicitly requested.
+    // Strictly NEVER fabricate fake `keyword_serp_positions` rows — only authentic `tracked_keywords` + `keyword_folder_items`.
+    const linkedKeywordIds = new Set();
+    const unifiedKeywordsToLink = new Set();
+
     if (promoteKeyword) {
-      const keywordTermsSet = new Set();
       for (const c of candidateRows) {
         const derivedKw = explicitKeyword ||
           c.crossover_blueprint?.primary_keyword ||
@@ -285,24 +374,43 @@ export async function promoteNewbornCandidates(sql, options = {}) {
             ? String(typeof c.visual_annotations[0] === 'string' ? c.visual_annotations[0] : (c.visual_annotations[0]?.name || '')).trim().toLowerCase()
             : '') ||
           String(c.seed_query || '').trim().toLowerCase();
-        if (derivedKw) keywordTermsSet.add(derivedKw);
+        const normalized = normalizeFolderLinkKeyword(derivedKw);
+        if (normalized) unifiedKeywordsToLink.add(normalized);
       }
+    } else if (numericFolderId !== null) {
+      const normalizedExplicit = normalizeFolderLinkKeyword(explicitKeyword);
+      if (normalizedExplicit) unifiedKeywordsToLink.add(normalizedExplicit);
+      for (const c of candidateRows) {
+        const sq = normalizeFolderLinkKeyword(String(c.seed_query || c.crossover_blueprint?.primary_keyword || '').trim());
+        if (sq) unifiedKeywordsToLink.add(sq);
+      }
+    }
 
-      for (const kwTerm of keywordTermsSet) {
-        const kwRow = await addKeyword(tx, { keyword: kwTerm, category: 'Newborn Breakout' });
-        if (kwRow && kwRow.id) {
-          createdKeywords.push({ id: Number(kwRow.id), keyword: kwRow.keyword || kwTerm });
-          if (numericFolderId !== null) {
-            await tx`
-              INSERT INTO keyword_folder_items (folder_id, keyword_id, notes, added_at)
-              VALUES (${numericFolderId}, ${Number(kwRow.id)}, 'Promoted from Newborn Studio', NOW())
-              ON CONFLICT (folder_id, keyword_id) DO NOTHING;
-            `;
+    if (unifiedKeywordsToLink.size > 0) {
+      if (numericFolderId !== null) {
+        const linkedRows = await ensureFolderKeywordsLinkedTx(tx, {
+          folderId: numericFolderId,
+          keywords: Array.from(unifiedKeywordsToLink),
+          category: 'Newborn Breakout',
+          notes: 'Promoted from Newborn Studio'
+        });
+        for (const kw of linkedRows) {
+          if (!linkedKeywordIds.has(kw.id)) {
+            linkedKeywordIds.add(kw.id);
+            createdKeywords.push(kw);
+          }
+        }
+      } else {
+        for (const kwTerm of unifiedKeywordsToLink) {
+          const kwRow = await addKeyword(tx, { keyword: kwTerm, category: 'Newborn Breakout' });
+          if (kwRow && kwRow.id && !linkedKeywordIds.has(Number(kwRow.id))) {
+            linkedKeywordIds.add(Number(kwRow.id));
+            createdKeywords.push({ id: Number(kwRow.id), keyword: kwRow.keyword || kwTerm });
           }
         }
       }
-      if (createdKeywords.length > 0) appliedDestinations.push('tracked_keywords');
     }
+    if (createdKeywords.length > 0) appliedDestinations.push('tracked_keywords');
 
     // 2B. Campaign Folder tracking (independent of promoteKeyword; clean schema, zero catch in tx)
     if (numericFolderId !== null) {
