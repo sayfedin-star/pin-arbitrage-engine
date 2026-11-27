@@ -333,7 +333,9 @@ export async function handlePinsRoutes({
             pinResult.pin.annotations_with_links = resourcePin.annotations_with_links || [];
             pinResult.pin.has_linked_annotations = Boolean(resourcePin.has_linked_annotations);
           }
-        } catch (_) {}
+        } catch (resourceErr) {
+          console.warn(`[pins.sync] PinResource linked-annotations fallback warning for pin ${pinId}:`, resourceErr?.message || resourceErr);
+        }
       }
       const syncResult = await syncPinAcrossAllFourPillars({
         sql,

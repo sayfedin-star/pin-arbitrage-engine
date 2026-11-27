@@ -274,6 +274,15 @@ export async function handleCreatorsRoutes(routeCtx) {
     try {
       const updated = await syncCompetitorProfile(sql, username, cookie, { disableGlobalCookieFallback: true });
       invalidateCreatorsCache();
+      if (updated?.pruned) {
+        return jsonResponse({
+          success: true,
+          pruned: true,
+          deleted: true,
+          profile: updated,
+          message: `Creator @${updated.username} had ${updated.monthly_reach} audience and ${updated.profile_views} impressions and was permanently removed.`
+        });
+      }
       return jsonResponse({ success: true, profile: updated });
     } catch (err) {
       if (err.message && (err.message.includes('429') || err.message.includes('rate limit'))) {

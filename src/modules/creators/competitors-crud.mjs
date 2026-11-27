@@ -15,7 +15,156 @@ import { getEffectivePinterestCookie } from '../keywords/settings.mjs';
 import { pruneOrphanCandidateGraphNodes } from '../related-pins/graph-writer.mjs';
 
 export const GLOBAL_QUALIFICATION_RULES_KEY = 'pin_qualification_rules';
+export const PROTECTED_CREATOR_ACCOUNT_TYPES = new Set(['own', 'my_account', 'system']);
 export { PINTEREST_CEILING_VALUE, normalizeCeilingMetric, sanitizeCeilingDelta, sanitizeStoredCeilingDelta };
+
+
+/**
+ * Pure canonical predicate identifying permanently dead competitor accounts
+ * whose synced Pinterest telemetry resolves to (Total Audience = 0, Impressions = 0)
+ * OR (Total Audience = 1, Impressions = 1).
+ *
+ * Strictly preserves:
+ *  - Own / my_account / system profiles
+ *  - Unsynced profiles awaiting initial telemetry
+ *  - Asymmetric profiles with real impressions or audience (e.g. 1/424208, 1/47, 1/0)
+ */
+export function isDeadZeroOrOneCreator({
+  monthly_reach = 0,
+  profile_views = 0,
+  account_type = 'competitor',
+  last_synced_at = null,
+  is_synced = undefined
+} = {}) {
+  const normalizedType = String(account_type || 'competitor').trim().toLowerCase();
+  if (PROTECTED_CREATOR_ACCOUNT_TYPES.has(normalizedType)) return false;
+
+  const synced = is_synced !== undefined ? Boolean(is_synced) : Boolean(last_synced_at);
+  if (!synced) return false;
+
+  const reach = Number(monthly_reach ?? 0);
+  const views = Number(profile_views ?? 0);
+  if (!Number.isFinite(reach) || !Number.isFinite(views)) return false;
+
+  return (reach === 0 && views === 0) || (reach === 1 && views === 1);
+}
+
+
+/**
+ * Atomically and permanently purges synced non-own/non-system competitor profiles
+ * matching (monthly_reach = 0 AND profile_views = 0) OR (monthly_reach = 1 AND profile_views = 1),
+ * cascading all child tables and cleaning matching creator workspace_watchlist rows.
+ */
+export async function pruneDeadZeroOneCreators(sql, { competitorIds = null } = {}) {
+  if (!sql) return { deleted_count: 0, deleted_ids: [], deleted_usernames: [], deleted_watchlist_count: 0 };
+
+  const scopedIds = Array.isArray(competitorIds)
+    ? [...new Set(competitorIds.map(Number).filter((id) => Number.isInteger(id) && id > 0))]
+    : null;
+  if (Array.isArray(competitorIds) && scopedIds.length === 0) {
+    return { deleted_count: 0, deleted_ids: [], deleted_usernames: [], deleted_watchlist_count: 0 };
+  }
+
+  const runInTx = async (fn) => (typeof sql?.begin === 'function' ? sql.begin(fn) : fn(sql));
+  let deletedRows = [];
+  let deletedWatchlistCount = 0;
+
+  await runInTx(async (tx) => {
+    const doomedRows = scopedIds
+      ? await tx`
+          SELECT id, username
+          FROM competitor_profiles
+          WHERE id = ANY(${scopedIds}::int[])
+            AND COALESCE(account_type, 'competitor') NOT IN ('own', 'my_account', 'system')
+            AND (
+              (COALESCE(monthly_reach, 0) = 0 AND COALESCE(profile_views, 0) = 0)
+              OR (COALESCE(monthly_reach, 0) = 1 AND COALESCE(profile_views, 0) = 1)
+            );
+        `
+      : await tx`
+          SELECT id, username
+          FROM competitor_profiles
+          WHERE last_synced_at IS NOT NULL
+            AND COALESCE(account_type, 'competitor') NOT IN ('own', 'my_account', 'system')
+            AND (
+              (COALESCE(monthly_reach, 0) = 0 AND COALESCE(profile_views, 0) = 0)
+              OR (COALESCE(monthly_reach, 0) = 1 AND COALESCE(profile_views, 0) = 1)
+            );
+        `;
+
+    if (!Array.isArray(doomedRows) || doomedRows.length === 0) {
+      return;
+    }
+
+    const idsToDelete = doomedRows.map((r) => Number(r.id)).filter((id) => Number.isInteger(id) && id > 0);
+    const usernamesToDelete = [...new Set(
+      doomedRows.map((r) => normalizePinterestUsername(r.username)).filter(Boolean)
+    )];
+
+    const execOptionalCleanup = async (spName, fn) => {
+      const canSavepoint = typeof tx?.unsafe === 'function';
+      if (canSavepoint) await tx.unsafe(`SAVEPOINT ${spName};`);
+      try {
+        const res = await fn();
+        if (canSavepoint) await tx.unsafe(`RELEASE SAVEPOINT ${spName};`);
+        return res;
+      } catch (err) {
+        if (canSavepoint) await tx.unsafe(`ROLLBACK TO SAVEPOINT ${spName};`);
+        const code = String(err?.code || '');
+        const msg = String(err?.message || '');
+        if (code === '42P01' || code === '42703' || /does\s+not\s+exist/i.test(msg)) {
+          return [];
+        }
+        throw err;
+      }
+    };
+
+    if (idsToDelete.length > 0) {
+      const deletedSeeds = await tx`
+        DELETE FROM competitor_seed_pins
+        WHERE competitor_id = ANY(${idsToDelete}::int[])
+        RETURNING pin_id;
+      `.catch((err) => {
+        if (String(err?.code || '') === '42P01') return [];
+        throw err;
+      });
+      if (Array.isArray(deletedSeeds) && deletedSeeds.length > 0) {
+        await pruneOrphanCandidateGraphNodes(tx, deletedSeeds.map((r) => r.pin_id));
+      }
+
+      await execOptionalCleanup('sp_prune_dead_rookies', () => tx`
+        UPDATE newborn_rookie_accounts
+        SET promoted_competitor_id = NULL, updated_at = NOW()
+        WHERE promoted_competitor_id = ANY(${idsToDelete}::int[]);
+      `);
+
+      if (usernamesToDelete.length > 0) {
+        const wwDeleted = await execOptionalCleanup('sp_prune_dead_watchlist', () => tx`
+          DELETE FROM workspace_watchlist
+          WHERE entity_type = 'creator'
+            AND LOWER(LTRIM(BTRIM(entity_key), '@')) = ANY(${usernamesToDelete}::text[])
+          RETURNING id;
+        `);
+        deletedWatchlistCount = Array.isArray(wwDeleted) ? wwDeleted.length : 0;
+      }
+
+      deletedRows = await tx`
+        DELETE FROM competitor_profiles
+        WHERE id = ANY(${idsToDelete}::int[])
+        RETURNING id, username;
+      `;
+    }
+  });
+
+  return {
+    deleted_count: Array.isArray(deletedRows) ? deletedRows.length : 0,
+    deleted_ids: (Array.isArray(deletedRows) ? deletedRows : []).map((r) => Number(r.id)),
+    deleted_usernames: (Array.isArray(deletedRows) ? deletedRows : [])
+      .map((r) => normalizePinterestUsername(r.username))
+      .filter(Boolean),
+    deleted_watchlist_count: deletedWatchlistCount
+  };
+}
 
 
 /**
@@ -249,13 +398,17 @@ export async function listCompetitors(sql, { account_type = 'all', search = '', 
 /**
  * Track a new competitor handle
  */
-export async function trackCompetitor(sql, { username, display_name, account_type = 'competitor', is_active = true, auto_archive_winning = true }) {
+export async function trackCompetitor(sql, { username, display_name, account_type = 'competitor', is_active = true, auto_archive_winning = true, tracking_mode = null }) {
   const cleanUsername = normalizePinterestUsername(username);
   if (!cleanUsername) throw new Error('Username is required.');
   if (cleanUsername.startsWith('__system_')) throw new Error('Reserved system profile.');
 
+  const resolvedTrackingMode = (tracking_mode === 'pulse_only' || tracking_mode === 'full')
+    ? tracking_mode
+    : 'full';
   const metaPayload = {
-    auto_archive_winning: auto_archive_winning !== false
+    auto_archive_winning: auto_archive_winning !== false,
+    ...(resolvedTrackingMode === 'pulse_only' ? { profile_pulse_only: true } : {})
   };
 
   const [row] = await sql`
@@ -263,6 +416,7 @@ export async function trackCompetitor(sql, { username, display_name, account_typ
       username,
       display_name,
       account_type,
+      tracking_mode,
       is_active,
       metadata,
       updated_at
@@ -270,12 +424,14 @@ export async function trackCompetitor(sql, { username, display_name, account_typ
       ${cleanUsername},
       ${display_name || cleanUsername},
       ${account_type},
+      ${resolvedTrackingMode},
       ${is_active !== false},
       ${JSON.stringify(metaPayload)}::jsonb,
       NOW()
     )
     ON CONFLICT (username) DO UPDATE SET
       account_type = EXCLUDED.account_type,
+      tracking_mode = COALESCE(NULLIF(${tracking_mode || ''}, ''), competitor_profiles.tracking_mode, EXCLUDED.tracking_mode),
       is_active = EXCLUDED.is_active,
       metadata = COALESCE(competitor_profiles.metadata, '{}'::jsonb) || EXCLUDED.metadata,
       updated_at = NOW()
@@ -300,7 +456,7 @@ export async function syncCompetitorProfile(sql, username, cookie = '', options 
   if (!cleanUsername) throw new Error('Username is required.');
 
   const [existingProfile] = await sql`
-    SELECT id, tracking_mode, custom_label, source_folder_id,
+    SELECT id, account_type, tracking_mode, custom_label, source_folder_id,
            avatar_url, display_name, monthly_reach, profile_views,
            total_pins, total_boards, follower_count,
            (metadata->>'profile_pulse_only')::boolean AS profile_pulse_only
@@ -352,6 +508,27 @@ export async function syncCompetitorProfile(sql, username, cookie = '', options 
   const totalPins = rawPins > 0 ? Math.max(rawPins, prevExistingPins) : prevExistingPins;
   const totalBoards = rawBoards > 0 ? Math.max(rawBoards, prevExistingBoards) : prevExistingBoards;
   const followers = rawFollowers > 0 ? rawFollowers : prevExistingFollowers;
+
+  // Permanently prune synced competitor accounts whose resolved telemetry is strictly (0, 0) or (1, 1)
+  const effectiveAccountType = existingProfile?.account_type || options.account_type || 'competitor';
+  if (isDeadZeroOrOneCreator({
+    monthly_reach: monthlyReach,
+    profile_views: profileViews,
+    account_type: effectiveAccountType,
+    is_synced: true
+  })) {
+    if (existingProfile?.id) {
+      await deleteCompetitor(sql, existingProfile.id);
+    }
+    return {
+      pruned: true,
+      deleted: true,
+      username: cleanUsername,
+      monthly_reach: monthlyReach,
+      profile_views: profileViews,
+      reason: 'DEAD_ZERO_OR_ONE_CREATOR'
+    };
+  }
 
   // [INVARIANT: LIGHTWEIGHT-CREATOR-PULSE]
   // 1. Query prior 24h snapshot and 7d baseline in 1 single roundtrip via CTE

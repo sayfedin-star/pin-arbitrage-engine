@@ -32,7 +32,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   syncCompetitorProfile,
-  normalizePinterestUsername
+  normalizePinterestUsername,
+  isDeadZeroOrOneCreator,
+  pruneDeadZeroOneCreators
 } from '../src/modules/creators/competitors-crud.mjs';
 import {
   syncCompetitorBoards,
@@ -1126,7 +1128,7 @@ async function run() {
     let myAccounts = [];
     if (myAccountIds.length > 0) {
       myAccounts = await sql`
-        SELECT id, username, display_name, avatar_url, monthly_reach, profile_views,
+        SELECT id, username, display_name, avatar_url, account_type, monthly_reach, profile_views,
                total_pins, total_boards, follower_count, tracking_mode, custom_label,
                source_folder_id, metadata,
                (metadata->'qualification_rules') AS qualification_rules,
@@ -1226,6 +1228,7 @@ async function run() {
       const formattedCookie = '';
       const PULSE_BATCH_SIZE = 100;
       let pulseBuffer = [];
+      const deadPruneIds = [];
 
       const flushPulseBatch = async (chunk) => {
         if (!chunk || chunk.length === 0) return;
@@ -1397,6 +1400,15 @@ async function run() {
 
           const monthlyReach = normalizeCeilingMetric(rawReach, prevExistingReach, priorReach, baselineReach);
           const profileViews = normalizeCeilingMetric(rawViews, prevExistingViews, priorViews, baselineViews);
+          if (isDeadZeroOrOneCreator({
+            monthly_reach: monthlyReach,
+            profile_views: profileViews,
+            account_type: acc.account_type || 'competitor',
+            is_synced: true
+          })) {
+            deadPruneIds.push(Number(acc.id));
+            return;
+          }
           const totalPins = rawPins > 0 ? Math.max(rawPins, prevExistingPins) : prevExistingPins;
           const totalBoards = rawBoards > 0 ? Math.max(rawBoards, prevExistingBoards) : prevExistingBoards;
           const followers = rawFollowers > 0 ? rawFollowers : prevExistingFollowers;
@@ -1492,6 +1504,14 @@ async function run() {
       if (pulseBuffer.length > 0) {
         await flushPulseBatch(pulseBuffer);
       }
+      if (deadPruneIds.length > 0) {
+        try {
+          const pruneRes = await pruneDeadZeroOneCreators(sql, { competitorIds: deadPruneIds });
+          console.log(`[✓] [Phase 1A] Permanently pruned ${pruneRes.deleted_count} dead (0/0 or 1/1) creator account(s).`);
+        } catch (pruneErr) {
+          console.warn(`[!] [Phase 1A] Dead creator prune warning:`, redactSecrets(pruneErr?.message || String(pruneErr)));
+        }
+      }
       console.log(`[✓] [Phase 1A] Completed batch pulse for ${pulseAccounts.length} accounts.`);
     }
 
@@ -1515,10 +1535,14 @@ async function run() {
 
       try {
         console.log(`[*] Updating reach & impressions for @${cleanUser}...`);
-        await syncCompetitorProfile(sql, cleanUser, syncConfig.cookie || null, {
+        const syncRes = await syncCompetitorProfile(sql, cleanUser, syncConfig.cookie || null, {
           pulseOnly: false,
           disableGlobalCookieFallback: Boolean(syncConfig.workspaceId && syncConfig.workspaceId > 1)
         });
+        if (syncRes?.pruned) {
+          console.log(`[*] Permanently pruned dead (${syncRes.monthly_reach}/${syncRes.profile_views}) creator @${cleanUser}; skipping board crawl.`);
+          return;
+        }
       } catch (pErr) {
         console.warn(`[!] Profile sync warning for @${cleanUser}:`, redactSecrets(pErr?.message || String(pErr)));
       }

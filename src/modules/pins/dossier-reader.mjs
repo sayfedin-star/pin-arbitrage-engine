@@ -411,23 +411,58 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30, worksp
       ORDER BY ksp.is_displaced ASC, ksp.rank_position ASC NULLS LAST;
     `.catch((err) => { captureDbErr(err); return []; }),
     sql`
-      SELECT cp.id, cp.username, cp.display_name, cp.is_active, cp.metadata
+      SELECT
+        cp.id,
+        cp.username,
+        cp.display_name,
+        cp.avatar_url,
+        cp.account_type,
+        cp.tracking_mode,
+        cp.is_active,
+        cp.monthly_reach,
+        cp.delta_reach_24h,
+        cp.reach_delta_7d,
+        cp.profile_views,
+        cp.delta_views_24h,
+        cp.views_delta_7d,
+        cp.total_pins,
+        cp.delta_pins_24h,
+        cp.pins_delta_7d,
+        cp.total_boards,
+        cp.delta_boards_24h,
+        cp.boards_delta_7d,
+        cp.follower_count,
+        cp.activity_status,
+        cp.last_synced_at,
+        cp.metadata
       FROM competitor_profiles cp
       JOIN (
-        SELECT creator_username AS username, 1 AS priority
+        SELECT NULLIF(LTRIM(BTRIM(creator_username), '@'), '') AS username, 1 AS priority
         FROM public.universal_master_pins
-        WHERE pin_id = ${cleanPinId} AND creator_username IS NOT NULL AND btrim(creator_username) <> ''
+        WHERE pin_id = ${cleanPinId}
+          AND creator_username IS NOT NULL
+          AND btrim(creator_username) <> ''
         UNION ALL
         SELECT COALESCE(
-          NULLIF(btrim(effective_creator_username), ''),
-          NULLIF(btrim(origin_creator_username), ''),
-          NULLIF(btrim(pinner_username), '')
+          NULLIF(LTRIM(BTRIM(metadata->'pinner'->>'username'), '@'), ''),
+          NULLIF(LTRIM(BTRIM(metadata->'origin_pinner'->>'username'), '@'), ''),
+          NULLIF(LTRIM(BTRIM(metadata->'domain_official_user'->>'username'), '@'), '')
         ) AS username, 2 AS priority
+        FROM public.universal_master_pins
+        WHERE pin_id = ${cleanPinId}
+          AND jsonb_typeof(metadata) = 'object'
+        UNION ALL
+        SELECT COALESCE(
+          NULLIF(LTRIM(BTRIM(effective_creator_username), '@'), ''),
+          NULLIF(LTRIM(BTRIM(origin_creator_username), '@'), ''),
+          NULLIF(LTRIM(BTRIM(pinner_username), '@'), '')
+        ) AS username, 3 AS priority
         FROM public.newborn_candidates
         WHERE pin_id = ${cleanPinId}
-      ) pc ON LOWER(cp.username) = LOWER(pc.username)
+      ) pc ON LOWER(LTRIM(BTRIM(cp.username), '@')) = LOWER(LTRIM(BTRIM(pc.username), '@'))
       WHERE pc.username IS NOT NULL AND btrim(pc.username) <> ''
-      ORDER BY pc.priority ASC
+        AND COALESCE(cp.account_type, 'competitor') <> 'system'
+      ORDER BY pc.priority ASC, cp.last_synced_at DESC NULLS LAST, cp.id ASC
       LIMIT 1;
     `.catch((err) => {
       console.warn(`[dossier-reader] Creator profile enrichment query warning for pin ${cleanPinId}:`, err?.message || err);
@@ -541,7 +576,10 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30, worksp
         AND entity_type = 'pin'
         AND entity_key = ${cleanPinId}
       LIMIT 1;
-    `.catch(() => [])
+    `.catch((err) => {
+      console.warn(`[dossier-reader] Watchlist lookup warning for pin ${cleanPinId}:`, err?.message || err);
+      return [];
+    })
   ]);
 
   return {
@@ -1121,16 +1159,46 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, tr
     });
 
   const competitorInfo = creatorProfile
-    ? {
-        id: creatorProfile.id,
-        competitor_id: creatorProfile.id,
-        username: creatorProfile.username,
-        competitor_username: creatorProfile.username,
-        display_name: creatorProfile.display_name || null,
-        is_active: creatorProfile.is_active,
-        competitor_active: creatorProfile.is_active,
-        metadata: creatorProfile.metadata || null
-      }
+    ? (() => {
+        const monthlyReach = creatorProfile.monthly_reach != null ? Number(creatorProfile.monthly_reach) : null;
+        const profileViews = creatorProfile.profile_views != null ? Number(creatorProfile.profile_views) : null;
+        const totalPins = creatorProfile.total_pins != null ? Number(creatorProfile.total_pins) : null;
+        const totalBoards = creatorProfile.total_boards != null ? Number(creatorProfile.total_boards) : null;
+        const followerCount = creatorProfile.follower_count != null ? Number(creatorProfile.follower_count) : null;
+        const lastSyncedAt = repoSafeIsoDate(creatorProfile.last_synced_at);
+        return {
+          id: creatorProfile.id,
+          competitor_id: creatorProfile.id,
+          username: creatorProfile.username,
+          competitor_username: creatorProfile.username,
+          display_name: creatorProfile.display_name || null,
+          avatar_url: creatorProfile.avatar_url || null,
+          account_type: creatorProfile.account_type || 'competitor',
+          tracking_mode: creatorProfile.tracking_mode || 'pulse_only',
+          is_active: creatorProfile.is_active !== false,
+          competitor_active: creatorProfile.is_active !== false,
+          monthly_reach: monthlyReach,
+          total_audience: monthlyReach,
+          profile_views: profileViews,
+          impressions: profileViews,
+          total_pins: totalPins,
+          total_boards: totalBoards,
+          follower_count: followerCount,
+          followers: followerCount,
+          delta_reach_24h: creatorProfile.delta_reach_24h != null ? Number(creatorProfile.delta_reach_24h) : 0,
+          reach_delta_7d: creatorProfile.reach_delta_7d != null ? Number(creatorProfile.reach_delta_7d) : 0,
+          delta_views_24h: creatorProfile.delta_views_24h != null ? Number(creatorProfile.delta_views_24h) : 0,
+          views_delta_7d: creatorProfile.views_delta_7d != null ? Number(creatorProfile.views_delta_7d) : 0,
+          delta_pins_24h: creatorProfile.delta_pins_24h != null ? Number(creatorProfile.delta_pins_24h) : 0,
+          pins_delta_7d: creatorProfile.pins_delta_7d != null ? Number(creatorProfile.pins_delta_7d) : 0,
+          delta_boards_24h: creatorProfile.delta_boards_24h != null ? Number(creatorProfile.delta_boards_24h) : 0,
+          boards_delta_7d: creatorProfile.boards_delta_7d != null ? Number(creatorProfile.boards_delta_7d) : 0,
+          activity_status: creatorProfile.activity_status || null,
+          last_synced_at: lastSyncedAt,
+          is_synced: Boolean(lastSyncedAt),
+          metadata: creatorProfile.metadata || null
+        };
+      })()
     : null;
 
   if (!masterRecord && snapshots.length === 0 && rankingKeywordsFromMem.length === 0) {
@@ -1433,7 +1501,11 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, tr
       upload_provenance: newbornContextRow.upload_provenance || null,
       raw_creation_method: newbornContextRow.raw_creation_method
         ? normalizeCanonicalCreationMethod(newbornContextRow.raw_creation_method, { isHydrated: Boolean(newbornContextRow.is_hydrated) })
-        : null
+        : null,
+      creator_monthly_reach: newbornContextRow.creator_monthly_reach != null ? Number(newbornContextRow.creator_monthly_reach) : null,
+      creator_profile_views: newbornContextRow.creator_profile_views != null ? Number(newbornContextRow.creator_profile_views) : null,
+      creator_pin_count: newbornContextRow.creator_pin_count != null ? Number(newbornContextRow.creator_pin_count) : null,
+      effective_creator_followers: newbornContextRow.effective_creator_followers != null ? Number(newbornContextRow.effective_creator_followers) : null
     } : null,
     pillar_1_creator_context: {
       creator_username: creatorUsername,
@@ -1441,6 +1513,7 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, tr
       board_name: decodeHtmlEntities(boardName || ''),
       board_slug: boardSlug,
       board_url: snapMeta.board_url || ((creatorUsername && boardSlug) ? `https://www.pinterest.com/${creatorUsername}/${boardSlug}/` : null),
+      is_tracked_competitor: Boolean(competitorInfo),
       competitor_tracked: Boolean(competitorInfo),
       competitor_profile: competitorInfo
     },

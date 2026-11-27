@@ -30,6 +30,7 @@ export function getPinDetailsClientAppScripts() {
         },
         loading: true,
         isDbBusy: false,
+        errorMessage: '',
         isSilentRefreshing: false,
         dossier: null,
         activeTab: 'ledger',
@@ -565,7 +566,7 @@ export function getPinDetailsClientAppScripts() {
           // [INVARIANT-LOCK: DO NOT REMOVE - ENFORCED BY verify_regression_locks.mjs] Lock 5: Untracked Creator Shield
           if (!this.originCreator && !this.originKeyword && !this.originFolderId && !this.originDomain && !this.originReturnUrl) {
             const creatorCtx = this.dossier?.pillar_1_creator_context;
-            if (creatorCtx?.is_tracked_competitor) {
+            if (creatorCtx?.is_tracked_competitor || creatorCtx?.competitor_tracked) {
               const creatorUser = creatorCtx?.creator_username || this.dossier?.creative?.creator_username;
               if (creatorUser) {
                 this.originCreator = String(creatorUser).replace(/^@+/, '').trim();
@@ -608,21 +609,101 @@ export function getPinDetailsClientAppScripts() {
           }, 3500);
         },
 
+        isTrackedCreator() {
+          const ctx = this.dossier?.pillar_1_creator_context;
+          return Boolean(ctx?.is_tracked_competitor || ctx?.competitor_tracked || ctx?.competitor_profile?.id);
+        },
+
+        isCreatorCeilingMetric(val) {
+          const n = Number(val);
+          return Number.isFinite(n) && n >= 10000001;
+        },
+
+        formatCreatorMetric(val) {
+          if (val === null || val === undefined || val === '') return '--';
+          const n = Number(val);
+          if (!Number.isFinite(n)) return '--';
+          if (n >= 10000001) return '10M+';
+          return this.formatNumber(n);
+        },
+
+        getCreatorDbMetrics() {
+          const ctx = this.dossier?.pillar_1_creator_context || {};
+          const cp = ctx.competitor_profile || null;
+          const nb = this.dossier?.newborn_context || null;
+          const ai = this.dossier?.algorithmic_intelligence || {};
+
+          const pickNum = (...vals) => {
+            for (const v of vals) {
+              if (v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v))) {
+                return Number(v);
+              }
+            }
+            return null;
+          };
+
+          const totalAudience = pickNum(cp?.total_audience, cp?.monthly_reach, nb?.creator_monthly_reach);
+          const impressions = pickNum(cp?.impressions, cp?.profile_views, nb?.creator_profile_views);
+          const totalPins = pickNum(cp?.total_pins, nb?.creator_pin_count);
+          const totalBoards = pickNum(cp?.total_boards);
+          const followers = pickNum(cp?.follower_count, cp?.followers, ai?.origin_pinner_followers, nb?.effective_creator_followers);
+          const isTracked = this.isTrackedCreator();
+          const isSynced = Boolean(cp?.is_synced || cp?.last_synced_at);
+
+          const hasMetrics = Boolean(
+            (totalAudience !== null && totalAudience > 0) ||
+            (impressions !== null && impressions > 0) ||
+            (totalPins !== null && totalPins > 0) ||
+            (isTracked && isSynced && (totalAudience !== null || impressions !== null || totalPins !== null))
+          );
+
+          return {
+            hasMetrics,
+            isTracked,
+            isSynced,
+            totalAudience,
+            impressions,
+            totalPins,
+            totalBoards,
+            followers,
+            deltaReach24h: Number(cp?.delta_reach_24h || 0),
+            deltaViews24h: Number(cp?.delta_views_24h || 0),
+            trackingMode: cp?.tracking_mode || 'pulse_only',
+            lastSyncedAt: cp?.last_synced_at || null,
+            displayName: cp?.display_name || null
+          };
+        },
+
         async loadDossier(forceRefresh = false, silent = false) {
-          if (!silent) this.loading = true;
+          if (!silent) {
+            this.loading = true;
+            this.errorMessage = '';
+          }
           if (silent) this.isSilentRefreshing = true;
+          const requestPinId = this.pinId;
           try {
             const fetcher = typeof window !== 'undefined' ? (window.safeApiFetch || fetch) : fetch;
             if (!fetcher) return;
             const qs = forceRefresh ? ('?refresh=true&_ts=' + Date.now()) : ('?_ts=' + Date.now());
-            const res = await fetcher('/api/pins/' + encodeURIComponent(this.pinId) + qs, {
+            const res = await fetcher('/api/pins/' + encodeURIComponent(requestPinId) + qs, {
               cache: 'no-store',
               headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
               signal: (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') ? AbortSignal.timeout(12000) : undefined
             });
+            if (requestPinId !== this.pinId) return;
             if (res.ok) {
-              const data = await res.json();
+              const data = await res.json().catch(() => null);
+              if (!data || data.success === false) {
+                this.isDbBusy = Boolean(data?.error === 'DB_UNAVAILABLE');
+                this.errorMessage = data?.message || data?.error || 'Failed to parse pin dossier response.';
+                if (!silent) {
+                  this.dossier = null;
+                  this.showToast(this.errorMessage, 'error');
+                }
+                return;
+              }
               this.dossier = data;
+              this.errorMessage = '';
               this.isWatchlisted = Boolean(data?.is_watchlisted || data?.watchlist?.is_watchlisted);
               this.watchlistItemId = data?.watchlist_item_id ?? data?.watchlist?.item_id ?? null;
               this.trackedCampaigns = Array.isArray(data?.tracked_campaigns) ? data.tracked_campaigns : [];
@@ -636,20 +717,29 @@ export function getPinDetailsClientAppScripts() {
                 if (this._autoRefreshAttempts <= 3) {
                   const delayMs = this._autoRefreshAttempts === 1 ? 1200 : (this._autoRefreshAttempts === 2 ? 3000 : 5000);
                   setTimeout(() => {
-                    this.loadDossier(true, true);
+                    if (this.pinId === requestPinId) {
+                      this.loadDossier(true, true);
+                    }
                   }, delayMs);
                 }
               } else {
                 this._autoRefreshAttempts = 0;
               }
               if (this.dossier?.creative?.destination_url && this.dossier.creative.url_global_saves == null) {
-                this.hydrateUrlGlobalSaves(this.dossier.creative.destination_url);
+                this.hydrateUrlGlobalSaves(this.dossier.creative.destination_url, requestPinId);
               }
             } else {
+              const errData = await res.json().catch(() => ({}));
               this.isDbBusy = (res.status === 503);
+              const defaultMsg = res.status === 503
+                ? 'Database is temporarily busy. Please retry.'
+                : (res.status === 404
+                  ? ('Pin #' + requestPinId + ' was not found in any intelligence pillar.')
+                  : ('Failed to load pin dossier (HTTP ' + res.status + ').'));
+              this.errorMessage = errData?.message || errData?.error || defaultMsg;
               if (!silent) {
                 this.dossier = null;
-                this.showToast(res.status === 503 ? 'Database is temporarily busy. Please retry.' : 'Pin not found.', 'error');
+                this.showToast(this.errorMessage, 'error');
               }
             }
           } catch (e) {
@@ -657,6 +747,7 @@ export function getPinDetailsClientAppScripts() {
             if (!silent) {
               this.dossier = null;
               this.isDbBusy = false;
+              this.errorMessage = e?.message || 'Network error loading pin dossier.';
               this.showToast('Network error loading pin dossier', 'error');
             }
           } finally {
@@ -682,27 +773,38 @@ export function getPinDetailsClientAppScripts() {
         },
 
         async downloadHdAsset(url, pinId) {
-          if (!url) return;
-          const originalUrl = this.resolveLosslessImageUrl(url);
-          const hdUrl = this.resolveHdImageUrl(url);
+          if (!url) {
+            this.showToast('No image asset URL available for this pin.', 'error');
+            return;
+          }
+          const originalUrl = this.safeUrl(this.resolveLosslessImageUrl(url));
+          const hdUrl = this.safeUrl(this.resolveHdImageUrl(url));
+          const targetUrl = (originalUrl && originalUrl !== '#') ? originalUrl : hdUrl;
+          if (!targetUrl || targetUrl === '#') {
+            this.showToast('Asset URL is invalid or unsafe to download.', 'error');
+            return;
+          }
           try {
             const a = document.createElement('a');
-            a.href = originalUrl;
+            a.href = targetUrl;
             a.download = 'pin_' + (pinId || 'hd') + '_asset.jpg';
             a.target = '_blank';
+            a.rel = 'noopener noreferrer';
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
-          } catch (_) {
-            const safeHd = this.safeUrl(hdUrl);
-            if (safeHd && safeHd !== '#') {
+          } catch (err) {
+            console.warn('[PinDossier] Primary HD download fallback triggered:', err?.message || err);
+            if (hdUrl && hdUrl !== '#') {
               const fallbackLink = document.createElement('a');
-              fallbackLink.href = safeHd;
+              fallbackLink.href = hdUrl;
               fallbackLink.target = '_blank';
               fallbackLink.rel = 'noopener noreferrer';
               document.body.appendChild(fallbackLink);
               fallbackLink.click();
               document.body.removeChild(fallbackLink);
+            } else {
+              this.showToast('Could not trigger HD asset download.', 'error');
             }
           }
         },
@@ -713,21 +815,29 @@ export function getPinDetailsClientAppScripts() {
           return (globalSaves / pinSaves).toFixed(1);
         },
 
-        async hydrateUrlGlobalSaves(url) {
+        async hydrateUrlGlobalSaves(url, expectedPinId = null) {
           if (!url) return;
+          const targetPinId = expectedPinId || this.pinId;
           try {
-            const res = await (window.safeApiFetch || fetch)('/api/urls/global-saves?url=' + encodeURIComponent(url));
-            if (res.ok) {
-              const data = await res.json();
-              if (data && data.global_saves !== undefined) {
-                if (this.dossier?.creative) {
-                  this.dossier.creative.url_global_saves = Number(data.global_saves || 0);
-                } else if (this.dossier) {
-                  this.dossier.url_global_saves = Number(data.global_saves || 0);
-                }
+            const fetcher = typeof window !== 'undefined' ? (window.safeApiFetch || fetch) : fetch;
+            if (!fetcher) return;
+            const res = await fetcher('/api/urls/global-saves?url=' + encodeURIComponent(url));
+            if (targetPinId !== this.pinId) return;
+            if (!res.ok) {
+              console.warn('[PinDossier] Global URL saves lookup returned HTTP ' + res.status);
+              return;
+            }
+            const data = await res.json().catch(() => null);
+            if (data && data.global_saves !== undefined) {
+              if (this.dossier?.creative) {
+                this.dossier.creative.url_global_saves = Number(data.global_saves || 0);
+              } else if (this.dossier) {
+                this.dossier.url_global_saves = Number(data.global_saves || 0);
               }
             }
-          } catch (_) {}
+          } catch (err) {
+            console.warn('[PinDossier] Global URL saves lookup failed:', err?.message || err);
+          }
         },
 
         async trackCreatorPulse(username) {
@@ -735,7 +845,9 @@ export function getPinDetailsClientAppScripts() {
           this.isTrackingCreator = true;
           try {
             const cleanUser = String(username).replace(/^@+/, '').trim();
-            const res = await (window.safeApiFetch || fetch)('/api/creators', {
+            const fetcher = typeof window !== 'undefined' ? (window.safeApiFetch || fetch) : fetch;
+            if (!fetcher) return;
+            const res = await fetcher('/api/creators', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -745,20 +857,36 @@ export function getPinDetailsClientAppScripts() {
                 is_active: true
               })
             });
-            if (res.ok) {
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data?.success !== false) {
               if (this.dossier?.pillar_1_creator_context) {
                 this.dossier.pillar_1_creator_context.is_tracked_competitor = true;
+                this.dossier.pillar_1_creator_context.competitor_tracked = true;
+                if (data?.competitor) {
+                  this.dossier.pillar_1_creator_context.competitor_profile = {
+                    ...(this.dossier.pillar_1_creator_context.competitor_profile || {}),
+                    ...data.competitor,
+                    total_audience: data.competitor.monthly_reach ?? null,
+                    impressions: data.competitor.profile_views ?? null,
+                    followers: data.competitor.follower_count ?? null,
+                    is_synced: Boolean(data.competitor.last_synced_at)
+                  };
+                }
               }
               this.showToast('Creator @' + cleanUser + ' added with 24h Pulse tracking!', 'success');
+              await this.loadDossier(true, true);
             } else {
-              const err = await res.json().catch(() => ({}));
-              this.showToast('Failed to track creator: ' + (err.error || res.statusText), 'error');
+              this.showToast('Failed to track creator: ' + (data?.message || data?.error || res.statusText || ('HTTP ' + res.status)), 'error');
             }
           } catch (err) {
             this.showToast('Network error: ' + err.message, 'error');
           } finally {
             this.isTrackingCreator = false;
-            this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+            if (typeof this.$nextTick === 'function') {
+              this.$nextTick(() => {
+                if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons();
+              });
+            }
           }
         },
 
@@ -1406,30 +1534,33 @@ export function getPinDetailsClientAppScripts() {
           this.deleteModalOpen = true;
         },
 
-        async executeDeleteSnapshot() {
-          if (!this.snapshotToDelete || this.isDeleting) return;
-          this.isDeleting = true;
+        async executeDeleteSnapshot(options = {}) {
+          const skipLockCheck = Boolean(options?.skipLockCheck);
+          const targetSnapshotId = this.snapshotToDelete ?? this.itemToDelete?.snapshotId;
+          if (!targetSnapshotId || (!skipLockCheck && this.isDeleting)) return;
+          if (!skipLockCheck) this.isDeleting = true;
           try {
             const fetcher = typeof window !== 'undefined' ? (window.safeApiFetch || fetch) : fetch;
             if (!fetcher) return;
-            const res = await fetcher('/api/pins/' + encodeURIComponent(this.pinId) + '/snapshots/' + encodeURIComponent(this.snapshotToDelete), {
+            const res = await fetcher('/api/pins/' + encodeURIComponent(this.pinId) + '/snapshots/' + encodeURIComponent(targetSnapshotId), {
               method: 'DELETE'
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok && data?.success) {
               if (Array.isArray(this.dossier?.snapshots)) {
-                this.dossier.snapshots = this.dossier.snapshots.filter(s => s.id !== this.snapshotToDelete);
+                this.dossier.snapshots = this.dossier.snapshots.filter(s => String(s.id) !== String(targetSnapshotId));
               }
-              this.showToast('Snapshot #' + this.snapshotToDelete + ' deleted successfully');
+              this.showToast('Snapshot #' + targetSnapshotId + ' deleted successfully');
               this.deleteModalOpen = false;
               this.snapshotToDelete = null;
+              await this.loadDossier(true);
             } else {
               this.showToast(data?.message || data?.error || 'Error deleting snapshot', 'error');
             }
           } catch (err) {
             this.showToast('Error: ' + err.message, 'error');
           } finally {
-            this.isDeleting = false;
+            if (!skipLockCheck) this.isDeleting = false;
           }
         },
 
@@ -1455,9 +1586,11 @@ export function getPinDetailsClientAppScripts() {
           if (this.isDeleting || !this.itemToDelete) return;
           this.isDeleting = true;
           try {
+            const fetcher = typeof window !== 'undefined' ? (window.safeApiFetch || fetch) : fetch;
+            if (!fetcher) return;
             if (this.deleteType === 'SERP_BADGE') {
               const { keywordId, keywordName, date } = this.itemToDelete;
-              const res = await (window.safeApiFetch || fetch)('/api/pins/' + encodeURIComponent(this.pinId) + '/serp-positions', {
+              const res = await fetcher('/api/pins/' + encodeURIComponent(this.pinId) + '/serp-positions', {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ keyword_id: keywordId, snapshot_date: date })
@@ -1472,7 +1605,7 @@ export function getPinDetailsClientAppScripts() {
               }
             } else if (this.deleteType === 'DAY') {
               const { date } = this.itemToDelete;
-              const res = await (window.safeApiFetch || fetch)('/api/pins/' + encodeURIComponent(this.pinId) + '/daily-metrics/' + encodeURIComponent(date), {
+              const res = await fetcher('/api/pins/' + encodeURIComponent(this.pinId) + '/daily-metrics/' + encodeURIComponent(date), {
                 method: 'DELETE'
               });
               const data = await res.json().catch(() => ({}));
@@ -1484,9 +1617,9 @@ export function getPinDetailsClientAppScripts() {
                 this.showToast(data?.message || data?.error || 'Error deleting day', 'error');
               }
             } else if (this.deleteType === 'SNAPSHOT') {
-              await this.executeDeleteSnapshot();
+              await this.executeDeleteSnapshot({ skipLockCheck: true });
             } else if (this.deleteType === 'PIN') {
-              const res = await (window.safeApiFetch || fetch)('/api/pins/' + encodeURIComponent(this.pinId), {
+              const res = await fetcher('/api/pins/' + encodeURIComponent(this.pinId), {
                 method: 'DELETE'
               });
               const data = await res.json().catch(() => ({}));
@@ -1512,22 +1645,29 @@ export function getPinDetailsClientAppScripts() {
         async savePinToWatchlist() {
           if (this.v4WatchlistBusy || !this.pinId) return;
           this.v4WatchlistBusy = true;
-          const fetcher = (window.safeApiFetch || fetch);
+          const fetcher = typeof window !== 'undefined' ? (window.safeApiFetch || fetch) : fetch;
+          if (!fetcher) {
+            this.v4WatchlistBusy = false;
+            return;
+          }
           try {
             if (this.isWatchlisted) {
               let itemId = this.watchlistItemId;
               if (!itemId) {
                 const listRes = await fetcher('/api/watchlist?entity_type=pin', { headers: { Accept: 'application/json' } });
-                if (listRes.ok) {
-                  const listData = await listRes.json().catch(() => ({}));
-                  const found = (listData?.items || []).find((it) => String(it?.entity_key || '') === String(this.pinId));
-                  if (found?.id != null) itemId = found.id;
+                if (!listRes.ok) {
+                  const errBody = await listRes.json().catch(() => ({}));
+                  this.showToast(errBody?.message || errBody?.error || ('Failed to resolve watchlist entry (HTTP ' + listRes.status + ')'), 'error');
+                  return;
                 }
+                const listData = await listRes.json().catch(() => ({}));
+                const found = (listData?.items || []).find((it) => String(it?.entity_key || '') === String(this.pinId));
+                if (found?.id != null) itemId = found.id;
               }
               if (!itemId) {
                 this.isWatchlisted = false;
                 this.watchlistItemId = null;
-                this.showToast('Pin #' + this.pinId + ' removed from Workspace Watchlist');
+                this.showToast('Pin #' + this.pinId + ' is no longer in Workspace Watchlist');
                 return;
               }
               const delRes = await fetcher('/api/watchlist/' + encodeURIComponent(String(itemId)), {

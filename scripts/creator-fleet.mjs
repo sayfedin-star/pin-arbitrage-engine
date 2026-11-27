@@ -13,7 +13,7 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { normalizePinterestUsername } from '../src/modules/creators/competitors-crud.mjs';
+import { normalizePinterestUsername, pruneDeadZeroOneCreators } from '../src/modules/creators/competitors-crud.mjs';
 import { normalizeFolderMetadata } from '../src/modules/keywords/folders-crossover.mjs';
 import { PINTEREST_CEILING_VALUE } from '../src/core/pinterest/index.mjs';
 import {
@@ -609,6 +609,15 @@ export async function runCreatorFleetConsolidate({ sql, env = process.env }) {
   let mdReport = '';
 
   await healCreatorSequencesAndCeilings(sql, { includeSnapshots: true });
+
+  try {
+    const pruneRes = await pruneDeadZeroOneCreators(sql);
+    if (pruneRes.deleted_count > 0) {
+      console.log(`[*] Permanently purged ${pruneRes.deleted_count} dead (0/0 or 1/1) synced creator account(s) (watchlist cleaned: ${pruneRes.deleted_watchlist_count}).`);
+    }
+  } catch (pruneErr) {
+    console.warn('[!] Dead creator auto-prune warning:', pruneErr?.message || pruneErr);
+  }
 
   console.log('[*] Compiling Creator Hub performance matrix...');
   const activeProfiles = await sql`
