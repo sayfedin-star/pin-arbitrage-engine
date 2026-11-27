@@ -1781,6 +1781,27 @@ export function getPinDetailsClientAppScripts() {
           return 'In ' + unique.length + ' Campaigns';
         },
 
+        formatCampaignSourceBadge(tc) {
+          if (!tc) return 'tracked';
+          const src = String(tc.source_type || 'tracked').trim().toLowerCase();
+          const kwCount = Number(tc.keyword_count || 0);
+          const bestRank = Number(tc.best_rank || 0);
+          if (kwCount > 0) {
+            const kwLabel = kwCount + ' ' + (kwCount === 1 ? 'kw' : 'kws');
+            return bestRank > 0 ? (src + ' · ' + kwLabel + ' · #' + bestRank) : (src + ' · ' + kwLabel);
+          }
+          return src;
+        },
+
+        formatCampaignSelectOption(folder) {
+          if (!folder) return '';
+          const fid = Number(folder.id);
+          const name = String(folder.name || ('Campaign #' + fid));
+          const existing = (this.trackedCampaigns || []).find((tc) => Number(tc.folder_id) === fid);
+          if (!existing) return name;
+          return existing.can_remove === false ? (name + ' (In Cluster)') : (name + ' (Tracked)');
+        },
+
         async addPinToCampaignTracked() {
           if (!this.v4SelectedFolderId || this.v4CampaignActionBusy) return;
           this.v4CampaignActionBusy = true;
@@ -1797,15 +1818,21 @@ export function getPinDetailsClientAppScripts() {
               const folderName = matchedFolder?.name || ('Campaign #' + fid);
               const exists = (this.trackedCampaigns || []).some((tc) => Number(tc.folder_id) === fid && String(tc.source_type || '') === 'related');
               if (!exists && Number.isInteger(fid) && fid > 0) {
+                const clusterRow = (this.trackedCampaigns || []).find((tc) => Number(tc.folder_id) === fid && tc.can_remove === false);
                 const entry = {
                   folder_id: fid,
                   folder_name: folderName,
                   source_type: 'related',
                   seed_query: null,
                   added_at: new Date().toISOString(),
-                  notes: null
+                  notes: null,
+                  membership_type: 'tracked',
+                  can_remove: true,
+                  keyword_count: clusterRow ? Number(clusterRow.keyword_count || 0) : 0,
+                  best_rank: clusterRow ? (clusterRow.best_rank ?? null) : null
                 };
-                this.trackedCampaigns = [...(this.trackedCampaigns || []), entry];
+                const remaining = (this.trackedCampaigns || []).filter((tc) => !(Number(tc.folder_id) === fid && tc.can_remove === false));
+                this.trackedCampaigns = [...remaining, entry];
                 if (this.dossier) {
                   this.dossier.tracked_campaigns = [...this.trackedCampaigns];
                 }

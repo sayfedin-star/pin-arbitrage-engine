@@ -7,12 +7,29 @@ import {
   normalizePinterestUsername,
   RESERVED_PINTEREST_PATHS,
   syncCompetitorProfile,
-  sanitizeStoredCeilingDelta
+  sanitizeStoredCeilingDelta,
+  PROTECTED_CREATOR_ACCOUNT_TYPES
 } from '../creators/competitors-crud.mjs';
 import { normalizeFolderMetadata, invalidateFolderCache } from './folders-crossover.mjs';
 import { ignoreAndRemoveSerpPin } from './displaced-and-tombstones.mjs';
 import { safeWaitUntil } from '../../http/security-and-response.mjs';
 import { DEFAULT_WORKSPACE_ID, parsePositiveWorkspaceId, resolveWorkspaceRawCookie } from '../workspaces/service.mjs';
+
+/**
+ * Canonical predicate for alive folder creators (Room 3 & folder rollups).
+ * Strictly excludes non-own/non-system accounts whose effective telemetry is
+ * (0, 0) or (1, 1), while preserving own/system accounts, asymmetric live
+ * accounts (e.g. 1/424208, 1/47, 1/0), and Newborn-enriched real creators.
+ */
+export function isAliveFolderCreatorRow(row) {
+  if (!row) return false;
+  const accountType = String(row.account_type || 'competitor').trim().toLowerCase();
+  if (PROTECTED_CREATOR_ACCOUNT_TYPES.has(accountType)) return true;
+  const reach = Number(row.monthly_reach ?? 0);
+  const views = Number(row.profile_views ?? 0);
+  if (!Number.isFinite(reach) || !Number.isFinite(views)) return false;
+  return (reach > 0 || views > 0) && !(reach === 1 && views === 1);
+}
 
 function isMissingWorkspaceColumnError(err) {
   return /column\s+"?(?:workspace_id|serp_top_n|pin_graph_rules)"?\s+does\s+not\s+exist/i.test(err?.message || '');
@@ -231,12 +248,39 @@ export async function listFolders(sql, { projectId = 'default', workspaceId = DE
       FROM keyword_folder_items GROUP BY folder_id
     ),
     creator_counts AS (
-      SELECT folder_id, COUNT(competitor_id)::int AS creator_count
-      FROM folder_competitor_items GROUP BY folder_id
+      SELECT fci.folder_id, COUNT(fci.competitor_id)::int AS creator_count
+      FROM folder_competitor_items fci
+      JOIN competitor_profiles cp ON cp.id = fci.competitor_id
+      WHERE COALESCE(cp.account_type, 'competitor') IN ('own', 'my_account', 'system')
+         OR (
+           (COALESCE(cp.monthly_reach, 0) > 0 OR COALESCE(cp.profile_views, 0) > 0)
+           AND NOT (COALESCE(cp.monthly_reach, 0) = 1 AND COALESCE(cp.profile_views, 0) = 1)
+         )
+      GROUP BY fci.folder_id
     ),
     pinned_counts AS (
       SELECT folder_id, COUNT(id)::int AS pinned_domain_count
       FROM folder_pinned_domains GROUP BY folder_id
+    ),
+    alive_creator_handles AS (
+      SELECT LOWER(LTRIM(BTRIM(username), '@')) AS clean_username
+      FROM competitor_profiles
+      WHERE username IS NOT NULL AND BTRIM(username) <> ''
+        AND (
+          COALESCE(account_type, 'competitor') IN ('own', 'my_account', 'system')
+          OR (
+            (COALESCE(monthly_reach, 0) > 0 OR COALESCE(profile_views, 0) > 0)
+            AND NOT (COALESCE(monthly_reach, 0) = 1 AND COALESCE(profile_views, 0) = 1)
+          )
+        )
+      UNION
+      SELECT LOWER(LTRIM(BTRIM(COALESCE(NULLIF(effective_creator_username, ''), NULLIF(origin_creator_username, ''), pinner_username)), '@')) AS clean_username
+      FROM newborn_candidates
+      WHERE COALESCE(NULLIF(effective_creator_username, ''), NULLIF(origin_creator_username, ''), pinner_username) IS NOT NULL
+        AND (
+          (COALESCE(creator_monthly_reach, 0) > 0 OR COALESCE(creator_profile_views, 0) > 0)
+          AND NOT (COALESCE(creator_monthly_reach, 0) = 1 AND COALESCE(creator_profile_views, 0) = 1)
+        )
     ),
     folder_pins AS (
       SELECT
@@ -249,7 +293,7 @@ export async function listFolders(sql, { projectId = 'default', workspaceId = DE
         END AS item_source,
         ksp.is_displaced,
         COALESCE(ump.clean_domain, '') AS clean_domain,
-        LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
+        LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) AS clean_username
       FROM keyword_folder_items kfi
       JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
       JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
@@ -262,7 +306,7 @@ export async function listFolders(sql, { projectId = 'default', workspaceId = DE
         'tracked' AS item_source,
         FALSE AS is_displaced,
         COALESCE(ump.clean_domain, '') AS clean_domain,
-        LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
+        LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) AS clean_username
       FROM campaign_tracked_pins ctp
       JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
       WHERE ctp.is_active = TRUE
@@ -287,27 +331,29 @@ export async function listFolders(sql, { projectId = 'default', workspaceId = DE
     ),
     entity_counts AS (
       SELECT
-        folder_id,
-        COUNT(DISTINCT clean_domain) FILTER (
-          WHERE clean_domain IS NOT NULL AND clean_domain <> ''
-            AND clean_domain NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pin.it')
-            AND clean_domain !~ '(^|\\.)pinterest\\.[a-z.]+$'
-            AND clean_domain !~ '(^|\\.)pinimg\\.com$'
-            AND POSITION('.' IN clean_domain) > 0
+        comb.folder_id,
+        COUNT(DISTINCT comb.clean_domain) FILTER (
+          WHERE comb.clean_domain IS NOT NULL AND comb.clean_domain <> ''
+            AND comb.clean_domain NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pin.it')
+            AND comb.clean_domain !~ '(^|\\.)pinterest\\.[a-z.]+$'
+            AND comb.clean_domain !~ '(^|\\.)pinimg\\.com$'
+            AND POSITION('.' IN comb.clean_domain) > 0
         )::int AS domain_count,
-        COUNT(DISTINCT clean_username) FILTER (
-          WHERE clean_username IS NOT NULL AND clean_username <> ''
-            AND clean_username NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+        COUNT(DISTINCT comb.clean_username) FILTER (
+          WHERE comb.clean_username IS NOT NULL AND comb.clean_username <> ''
+            AND comb.clean_username NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+            AND ach.clean_username IS NOT NULL
         )::int AS discovered_creator_count
       FROM (
         SELECT folder_id, clean_domain, clean_username FROM folder_pins
         UNION ALL
-        SELECT fci.folder_id, NULL AS clean_domain, LOWER(TRIM(cp.username)) AS clean_username
+        SELECT fci.folder_id, NULL AS clean_domain, LOWER(LTRIM(BTRIM(cp.username), '@')) AS clean_username
         FROM folder_competitor_items fci
         JOIN competitor_profiles cp ON cp.id = fci.competitor_id
         WHERE cp.username IS NOT NULL AND cp.username <> ''
       ) comb
-      GROUP BY folder_id
+      LEFT JOIN alive_creator_handles ach ON ach.clean_username = comb.clean_username
+      GROUP BY comb.folder_id
     ),
     combined_summary AS (
       SELECT
@@ -374,12 +420,39 @@ export async function listFolders(sql, { projectId = 'default', workspaceId = DE
         FROM keyword_folder_items GROUP BY folder_id
       ),
       creator_counts AS (
-        SELECT folder_id, COUNT(competitor_id)::int AS creator_count
-        FROM folder_competitor_items GROUP BY folder_id
+        SELECT fci.folder_id, COUNT(fci.competitor_id)::int AS creator_count
+        FROM folder_competitor_items fci
+        JOIN competitor_profiles cp ON cp.id = fci.competitor_id
+        WHERE COALESCE(cp.account_type, 'competitor') IN ('own', 'my_account', 'system')
+           OR (
+             (COALESCE(cp.monthly_reach, 0) > 0 OR COALESCE(cp.profile_views, 0) > 0)
+             AND NOT (COALESCE(cp.monthly_reach, 0) = 1 AND COALESCE(cp.profile_views, 0) = 1)
+           )
+        GROUP BY fci.folder_id
       ),
       pinned_counts AS (
         SELECT folder_id, COUNT(id)::int AS pinned_domain_count
         FROM folder_pinned_domains GROUP BY folder_id
+      ),
+      alive_creator_handles AS (
+        SELECT LOWER(LTRIM(BTRIM(username), '@')) AS clean_username
+        FROM competitor_profiles
+        WHERE username IS NOT NULL AND BTRIM(username) <> ''
+          AND (
+            COALESCE(account_type, 'competitor') IN ('own', 'my_account', 'system')
+            OR (
+              (COALESCE(monthly_reach, 0) > 0 OR COALESCE(profile_views, 0) > 0)
+              AND NOT (COALESCE(monthly_reach, 0) = 1 AND COALESCE(profile_views, 0) = 1)
+            )
+          )
+        UNION
+        SELECT LOWER(LTRIM(BTRIM(COALESCE(NULLIF(effective_creator_username, ''), NULLIF(origin_creator_username, ''), pinner_username)), '@')) AS clean_username
+        FROM newborn_candidates
+        WHERE COALESCE(NULLIF(effective_creator_username, ''), NULLIF(origin_creator_username, ''), pinner_username) IS NOT NULL
+          AND (
+            (COALESCE(creator_monthly_reach, 0) > 0 OR COALESCE(creator_profile_views, 0) > 0)
+            AND NOT (COALESCE(creator_monthly_reach, 0) = 1 AND COALESCE(creator_profile_views, 0) = 1)
+          )
       ),
       folder_pins AS (
         SELECT
@@ -392,7 +465,7 @@ export async function listFolders(sql, { projectId = 'default', workspaceId = DE
           END AS item_source,
           ksp.is_displaced,
           LOWER(TRIM(COALESCE(ump.clean_domain, ''))) AS clean_domain,
-          LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
+          LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) AS clean_username
         FROM keyword_folder_items kfi
         JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
         JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
@@ -405,7 +478,7 @@ export async function listFolders(sql, { projectId = 'default', workspaceId = DE
           'tracked' AS item_source,
           FALSE AS is_displaced,
           LOWER(TRIM(COALESCE(ump.clean_domain, ''))) AS clean_domain,
-          LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
+          LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) AS clean_username
         FROM campaign_tracked_pins ctp
         JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
         WHERE ctp.is_active = TRUE
@@ -430,25 +503,27 @@ export async function listFolders(sql, { projectId = 'default', workspaceId = DE
       ),
       entity_counts AS (
         SELECT
-          folder_id,
-          COUNT(DISTINCT clean_domain) FILTER (
-            WHERE clean_domain IS NOT NULL AND clean_domain <> ''
-              AND clean_domain NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pinterest.com', 'www.pinterest.com', 'pin.it')
-              AND POSITION('.' IN clean_domain) > 0
+          comb.folder_id,
+          COUNT(DISTINCT comb.clean_domain) FILTER (
+            WHERE comb.clean_domain IS NOT NULL AND comb.clean_domain <> ''
+              AND comb.clean_domain NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pinterest.com', 'www.pinterest.com', 'pin.it')
+              AND POSITION('.' IN comb.clean_domain) > 0
           )::int AS domain_count,
-          COUNT(DISTINCT clean_username) FILTER (
-            WHERE clean_username IS NOT NULL AND clean_username <> ''
-              AND clean_username NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+          COUNT(DISTINCT comb.clean_username) FILTER (
+            WHERE comb.clean_username IS NOT NULL AND comb.clean_username <> ''
+              AND comb.clean_username NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+              AND ach.clean_username IS NOT NULL
           )::int AS discovered_creator_count
         FROM (
           SELECT folder_id, clean_domain, clean_username FROM folder_pins
           UNION ALL
-          SELECT fci.folder_id, NULL AS clean_domain, LOWER(TRIM(cp.username)) AS clean_username
+          SELECT fci.folder_id, NULL AS clean_domain, LOWER(LTRIM(BTRIM(cp.username), '@')) AS clean_username
           FROM folder_competitor_items fci
           JOIN competitor_profiles cp ON cp.id = fci.competitor_id
           WHERE cp.username IS NOT NULL AND cp.username <> ''
         ) comb
-        GROUP BY folder_id
+        LEFT JOIN alive_creator_handles ach ON ach.clean_username = comb.clean_username
+        GROUP BY comb.folder_id
       ),
       combined_summary AS (
         SELECT
@@ -535,12 +610,42 @@ export async function getFolder(sql, folderId, { workspaceId = DEFAULT_WORKSPACE
         FROM keyword_folder_items WHERE folder_id = ${fid} GROUP BY folder_id
       ),
       creator_counts AS (
-        SELECT folder_id, COUNT(competitor_id)::int AS creator_count
-        FROM folder_competitor_items WHERE folder_id = ${fid} GROUP BY folder_id
+        SELECT fci.folder_id, COUNT(fci.competitor_id)::int AS creator_count
+        FROM folder_competitor_items fci
+        JOIN competitor_profiles cp ON cp.id = fci.competitor_id
+        WHERE fci.folder_id = ${fid}
+          AND (
+            COALESCE(cp.account_type, 'competitor') IN ('own', 'my_account', 'system')
+            OR (
+              (COALESCE(cp.monthly_reach, 0) > 0 OR COALESCE(cp.profile_views, 0) > 0)
+              AND NOT (COALESCE(cp.monthly_reach, 0) = 1 AND COALESCE(cp.profile_views, 0) = 1)
+            )
+          )
+        GROUP BY fci.folder_id
       ),
       pinned_counts AS (
         SELECT folder_id, COUNT(id)::int AS pinned_domain_count
         FROM folder_pinned_domains WHERE folder_id = ${fid} GROUP BY folder_id
+      ),
+      alive_creator_handles AS (
+        SELECT LOWER(LTRIM(BTRIM(username), '@')) AS clean_username
+        FROM competitor_profiles
+        WHERE username IS NOT NULL AND BTRIM(username) <> ''
+          AND (
+            COALESCE(account_type, 'competitor') IN ('own', 'my_account', 'system')
+            OR (
+              (COALESCE(monthly_reach, 0) > 0 OR COALESCE(profile_views, 0) > 0)
+              AND NOT (COALESCE(monthly_reach, 0) = 1 AND COALESCE(profile_views, 0) = 1)
+            )
+          )
+        UNION
+        SELECT LOWER(LTRIM(BTRIM(COALESCE(NULLIF(effective_creator_username, ''), NULLIF(origin_creator_username, ''), pinner_username)), '@')) AS clean_username
+        FROM newborn_candidates
+        WHERE COALESCE(NULLIF(effective_creator_username, ''), NULLIF(origin_creator_username, ''), pinner_username) IS NOT NULL
+          AND (
+            (COALESCE(creator_monthly_reach, 0) > 0 OR COALESCE(creator_profile_views, 0) > 0)
+            AND NOT (COALESCE(creator_monthly_reach, 0) = 1 AND COALESCE(creator_profile_views, 0) = 1)
+          )
       ),
       folder_pins AS (
         SELECT
@@ -553,7 +658,7 @@ export async function getFolder(sql, folderId, { workspaceId = DEFAULT_WORKSPACE
           END AS item_source,
           ksp.is_displaced,
           COALESCE(ump.clean_domain, '') AS clean_domain,
-          LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
+          LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) AS clean_username
         FROM keyword_folder_items kfi
         JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
         JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
@@ -566,7 +671,7 @@ export async function getFolder(sql, folderId, { workspaceId = DEFAULT_WORKSPACE
           'tracked' AS item_source,
           FALSE AS is_displaced,
           COALESCE(ump.clean_domain, '') AS clean_domain,
-          LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
+          LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) AS clean_username
         FROM campaign_tracked_pins ctp
         JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
         WHERE ctp.folder_id = ${fid}
@@ -592,27 +697,29 @@ export async function getFolder(sql, folderId, { workspaceId = DEFAULT_WORKSPACE
       ),
       entity_counts AS (
         SELECT
-          folder_id,
-          COUNT(DISTINCT clean_domain) FILTER (
-            WHERE clean_domain IS NOT NULL AND clean_domain <> ''
-              AND clean_domain NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pin.it')
-              AND clean_domain !~ '(^|\\.)pinterest\\.[a-z.]+$'
-              AND clean_domain !~ '(^|\\.)pinimg\\.com$'
-              AND POSITION('.' IN clean_domain) > 0
+          comb.folder_id,
+          COUNT(DISTINCT comb.clean_domain) FILTER (
+            WHERE comb.clean_domain IS NOT NULL AND comb.clean_domain <> ''
+              AND comb.clean_domain NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pin.it')
+              AND comb.clean_domain !~ '(^|\\.)pinterest\\.[a-z.]+$'
+              AND comb.clean_domain !~ '(^|\\.)pinimg\\.com$'
+              AND POSITION('.' IN comb.clean_domain) > 0
           )::int AS domain_count,
-          COUNT(DISTINCT clean_username) FILTER (
-            WHERE clean_username IS NOT NULL AND clean_username <> ''
-              AND clean_username NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+          COUNT(DISTINCT comb.clean_username) FILTER (
+            WHERE comb.clean_username IS NOT NULL AND comb.clean_username <> ''
+              AND comb.clean_username NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+              AND ach.clean_username IS NOT NULL
           )::int AS discovered_creator_count
         FROM (
           SELECT folder_id, clean_domain, clean_username FROM folder_pins
           UNION ALL
-          SELECT fci.folder_id, NULL AS clean_domain, LOWER(TRIM(cp.username)) AS clean_username
+          SELECT fci.folder_id, NULL AS clean_domain, LOWER(LTRIM(BTRIM(cp.username), '@')) AS clean_username
           FROM folder_competitor_items fci
           JOIN competitor_profiles cp ON cp.id = fci.competitor_id
           WHERE fci.folder_id = ${fid} AND cp.username IS NOT NULL AND cp.username <> ''
         ) comb
-        GROUP BY folder_id
+        LEFT JOIN alive_creator_handles ach ON ach.clean_username = comb.clean_username
+        GROUP BY comb.folder_id
       ),
       combined_summary AS (
         SELECT
@@ -654,12 +761,42 @@ export async function getFolder(sql, folderId, { workspaceId = DEFAULT_WORKSPACE
         FROM keyword_folder_items WHERE folder_id = ${fid} GROUP BY folder_id
       ),
       creator_counts AS (
-        SELECT folder_id, COUNT(competitor_id)::int AS creator_count
-        FROM folder_competitor_items WHERE folder_id = ${fid} GROUP BY folder_id
+        SELECT fci.folder_id, COUNT(fci.competitor_id)::int AS creator_count
+        FROM folder_competitor_items fci
+        JOIN competitor_profiles cp ON cp.id = fci.competitor_id
+        WHERE fci.folder_id = ${fid}
+          AND (
+            COALESCE(cp.account_type, 'competitor') IN ('own', 'my_account', 'system')
+            OR (
+              (COALESCE(cp.monthly_reach, 0) > 0 OR COALESCE(cp.profile_views, 0) > 0)
+              AND NOT (COALESCE(cp.monthly_reach, 0) = 1 AND COALESCE(cp.profile_views, 0) = 1)
+            )
+          )
+        GROUP BY fci.folder_id
       ),
       pinned_counts AS (
         SELECT folder_id, COUNT(id)::int AS pinned_domain_count
         FROM folder_pinned_domains WHERE folder_id = ${fid} GROUP BY folder_id
+      ),
+      alive_creator_handles AS (
+        SELECT LOWER(LTRIM(BTRIM(username), '@')) AS clean_username
+        FROM competitor_profiles
+        WHERE username IS NOT NULL AND BTRIM(username) <> ''
+          AND (
+            COALESCE(account_type, 'competitor') IN ('own', 'my_account', 'system')
+            OR (
+              (COALESCE(monthly_reach, 0) > 0 OR COALESCE(profile_views, 0) > 0)
+              AND NOT (COALESCE(monthly_reach, 0) = 1 AND COALESCE(profile_views, 0) = 1)
+            )
+          )
+        UNION
+        SELECT LOWER(LTRIM(BTRIM(COALESCE(NULLIF(effective_creator_username, ''), NULLIF(origin_creator_username, ''), pinner_username)), '@')) AS clean_username
+        FROM newborn_candidates
+        WHERE COALESCE(NULLIF(effective_creator_username, ''), NULLIF(origin_creator_username, ''), pinner_username) IS NOT NULL
+          AND (
+            (COALESCE(creator_monthly_reach, 0) > 0 OR COALESCE(creator_profile_views, 0) > 0)
+            AND NOT (COALESCE(creator_monthly_reach, 0) = 1 AND COALESCE(creator_profile_views, 0) = 1)
+          )
       ),
       folder_pins AS (
         SELECT
@@ -672,7 +809,7 @@ export async function getFolder(sql, folderId, { workspaceId = DEFAULT_WORKSPACE
           END AS item_source,
           ksp.is_displaced,
           LOWER(TRIM(COALESCE(ump.clean_domain, ''))) AS clean_domain,
-          LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
+          LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) AS clean_username
         FROM keyword_folder_items kfi
         JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
         JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
@@ -685,7 +822,7 @@ export async function getFolder(sql, folderId, { workspaceId = DEFAULT_WORKSPACE
           'tracked' AS item_source,
           FALSE AS is_displaced,
           LOWER(TRIM(COALESCE(ump.clean_domain, ''))) AS clean_domain,
-          LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
+          LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) AS clean_username
         FROM campaign_tracked_pins ctp
         JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
         WHERE ctp.folder_id = ${fid}
@@ -711,25 +848,27 @@ export async function getFolder(sql, folderId, { workspaceId = DEFAULT_WORKSPACE
       ),
       entity_counts AS (
         SELECT
-          folder_id,
-          COUNT(DISTINCT clean_domain) FILTER (
-            WHERE clean_domain IS NOT NULL AND clean_domain <> ''
-              AND clean_domain NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pinterest.com', 'www.pinterest.com', 'pin.it')
-              AND POSITION('.' IN clean_domain) > 0
+          comb.folder_id,
+          COUNT(DISTINCT comb.clean_domain) FILTER (
+            WHERE comb.clean_domain IS NOT NULL AND comb.clean_domain <> ''
+              AND comb.clean_domain NOT IN ('uploaded by user', 'uploaded-by-user', 'organic', 'pinterest.com', 'www.pinterest.com', 'pin.it')
+              AND POSITION('.' IN comb.clean_domain) > 0
           )::int AS domain_count,
-          COUNT(DISTINCT clean_username) FILTER (
-            WHERE clean_username IS NOT NULL AND clean_username <> ''
-              AND clean_username NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+          COUNT(DISTINCT comb.clean_username) FILTER (
+            WHERE comb.clean_username IS NOT NULL AND comb.clean_username <> ''
+              AND comb.clean_username NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+              AND ach.clean_username IS NOT NULL
           )::int AS discovered_creator_count
         FROM (
           SELECT folder_id, clean_domain, clean_username FROM folder_pins
           UNION ALL
-          SELECT fci.folder_id, NULL AS clean_domain, LOWER(TRIM(cp.username)) AS clean_username
+          SELECT fci.folder_id, NULL AS clean_domain, LOWER(LTRIM(BTRIM(cp.username), '@')) AS clean_username
           FROM folder_competitor_items fci
           JOIN competitor_profiles cp ON cp.id = fci.competitor_id
           WHERE fci.folder_id = ${fid} AND cp.username IS NOT NULL AND cp.username <> ''
         ) comb
-        GROUP BY folder_id
+        LEFT JOIN alive_creator_handles ach ON ach.clean_username = comb.clean_username
+        GROUP BY comb.folder_id
       ),
       combined_summary AS (
         SELECT
@@ -1404,14 +1543,23 @@ export async function listFolderCreators(sql, folderId) {
       cp.total_pins,
       cp.total_boards,
       cp.follower_count,
-      cp.activity_status
+      cp.activity_status,
+      cp.last_synced_at,
+      COALESCE(cp.account_type, 'competitor') AS account_type
     FROM folder_competitor_items fci
     JOIN competitor_profiles cp ON cp.id = fci.competitor_id
     WHERE fci.folder_id = ${fid}
+      AND (
+        COALESCE(cp.account_type, 'competitor') IN ('own', 'my_account', 'system')
+        OR (
+          (COALESCE(cp.monthly_reach, 0) > 0 OR COALESCE(cp.profile_views, 0) > 0)
+          AND NOT (COALESCE(cp.monthly_reach, 0) = 1 AND COALESCE(cp.profile_views, 0) = 1)
+        )
+      )
     ORDER BY fci.added_at DESC;
   `;
 
-  return rows;
+  return (rows || []).filter(isAliveFolderCreatorRow);
 }
 
 /**
@@ -1440,14 +1588,14 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
     };
   }
 
-  // Extract unique creators from active SERP (WHERE is_displaced = FALSE) and displaced vault pins
+  // Extract unique alive creators from active SERP (WHERE is_displaced = FALSE), displaced vault pins, and active campaign_tracked_pins
   const rows = await sql`
     WITH all_folder_pins AS (
       SELECT
         kfi.folder_id,
         ksp.keyword_id,
         ksp.pin_id,
-        LOWER(TRIM(ump.creator_username)) AS clean_username,
+        LOWER(LTRIM(BTRIM(ump.creator_username), '@')) AS clean_username,
         ump.save_count,
         ump.daily_save_velocity,
         COALESCE(ksp.rank_position, ksp.last_known_rank) AS current_rank,
@@ -1460,14 +1608,14 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
           SELECT 1 FROM keyword_ignored_pins kip
           WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
         )
-        AND ump.creator_username IS NOT NULL AND ump.creator_username <> ''
-        AND LOWER(TRIM(ump.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+        AND ump.creator_username IS NOT NULL AND BTRIM(ump.creator_username) <> ''
+        AND LOWER(LTRIM(BTRIM(ump.creator_username), '@')) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
       UNION ALL
       SELECT
         ctp.folder_id,
         NULL::int AS keyword_id,
         ctp.pin_id,
-        LOWER(TRIM(ump.creator_username)) AS clean_username,
+        LOWER(LTRIM(BTRIM(ump.creator_username), '@')) AS clean_username,
         ump.save_count,
         ump.daily_save_velocity,
         NULL::int AS current_rank,
@@ -1476,8 +1624,8 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
       JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
       WHERE ctp.folder_id = ${fid}
         AND ctp.is_active = TRUE
-        AND ump.creator_username IS NOT NULL AND ump.creator_username <> ''
-        AND LOWER(TRIM(ump.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+        AND ump.creator_username IS NOT NULL AND BTRIM(ump.creator_username) <> ''
+        AND LOWER(LTRIM(BTRIM(ump.creator_username), '@')) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
     ),
     aggregated_creators AS (
       SELECT
@@ -1501,6 +1649,18 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
          OR pin_count >= 2
          OR top_pin_saves >= 5
          OR min_rank <= 50
+    ),
+    newborn_creator_metrics AS (
+      SELECT
+        LOWER(LTRIM(BTRIM(COALESCE(NULLIF(effective_creator_username, ''), NULLIF(origin_creator_username, ''), pinner_username)), '@')) AS clean_username,
+        MAX(COALESCE(creator_monthly_reach, 0))::bigint AS monthly_reach,
+        MAX(COALESCE(creator_profile_views, 0))::bigint AS profile_views,
+        MAX(COALESCE(creator_pin_count, 0))::int AS total_pins,
+        MAX(effective_creator_followers)::int AS follower_count,
+        MAX(updated_at) AS last_synced_at
+      FROM newborn_candidates
+      WHERE COALESCE(NULLIF(effective_creator_username, ''), NULLIF(origin_creator_username, ''), pinner_username) IS NOT NULL
+      GROUP BY 1
     )
     SELECT
       COALESCE(cp.id::text, 'serp_' || fcs.clean_username) AS id,
@@ -1515,15 +1675,17 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
       fcs.max_velocity,
       cp.display_name,
       cp.avatar_url,
-      COALESCE(cp.monthly_reach, 0)::bigint AS monthly_reach,
-      COALESCE(cp.profile_views, 0)::bigint AS profile_views,
-      COALESCE(cp.total_pins, 0)::int AS total_pins,
+      COALESCE(cp.monthly_reach, ncm.monthly_reach, 0)::bigint AS monthly_reach,
+      COALESCE(cp.profile_views, ncm.profile_views, 0)::bigint AS profile_views,
+      COALESCE(cp.total_pins, ncm.total_pins, 0)::int AS total_pins,
       COALESCE(cp.total_boards, 0)::int AS total_boards,
-      cp.follower_count,
+      COALESCE(cp.follower_count, ncm.follower_count) AS follower_count,
       cp.activity_status,
+      COALESCE(cp.last_synced_at, ncm.last_synced_at) AS last_synced_at,
+      COALESCE(cp.account_type, 'competitor') AS account_type,
       COALESCE(cp.tracking_mode, 'pulse_only') AS tracking_mode,
       COALESCE(fci.custom_label, cp.custom_label, '') AS custom_label,
-      COALESCE(fci.source, 'discovered') AS discovery_source,
+      COALESCE(fci.source, CASE WHEN cp.id IS NULL AND ncm.clean_username IS NOT NULL THEN 'newborn_telemetry' ELSE 'discovered' END) AS discovery_source,
       COALESCE(cp.delta_reach_24h, 0)::bigint AS delta_reach_24h,
       COALESCE(cp.reach_delta_7d, 0)::bigint AS reach_delta_7d,
       COALESCE(cp.delta_views_24h, 0)::bigint AS delta_views_24h,
@@ -1536,17 +1698,25 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
       (fci.id IS NOT NULL) AS is_tracked,
       (fci.id IS NULL) AS auto_discovered
     FROM folder_creators_serp fcs
-    LEFT JOIN competitor_profiles cp ON LOWER(cp.username) = fcs.clean_username
+    LEFT JOIN competitor_profiles cp ON LOWER(LTRIM(BTRIM(cp.username), '@')) = fcs.clean_username
+    LEFT JOIN newborn_creator_metrics ncm ON ncm.clean_username = fcs.clean_username
     LEFT JOIN folder_competitor_items fci ON fci.folder_id = ${fid} AND fci.competitor_id = cp.id
-    ORDER BY (fci.id IS NOT NULL) DESC, fcs.pin_count DESC, COALESCE(cp.monthly_reach, 0) DESC;
+    WHERE (
+      COALESCE(cp.account_type, 'competitor') IN ('own', 'my_account', 'system')
+      OR (
+        (COALESCE(cp.monthly_reach, ncm.monthly_reach, 0) > 0 OR COALESCE(cp.profile_views, ncm.profile_views, 0) > 0)
+        AND NOT (COALESCE(cp.monthly_reach, ncm.monthly_reach, 0) = 1 AND COALESCE(cp.profile_views, ncm.profile_views, 0) = 1)
+      )
+    )
+    ORDER BY (fci.id IS NOT NULL) DESC, fcs.pin_count DESC, COALESCE(cp.monthly_reach, ncm.monthly_reach, 0) DESC;
   `;
 
-  // Also include any explicitly linked competitors that might not have passed the high-signal SERP filter
+  // Also include any explicitly linked alive competitors that might not have passed the high-signal SERP filter
   const linkedItems = await sql`
     WITH all_folder_pins AS (
       SELECT
         ksp.pin_id,
-        LOWER(TRIM(ump.creator_username)) AS clean_username,
+        LOWER(LTRIM(BTRIM(ump.creator_username), '@')) AS clean_username,
         ump.save_count,
         ump.daily_save_velocity,
         ksp.is_displaced
@@ -1558,11 +1728,11 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
           SELECT 1 FROM keyword_ignored_pins kip
           WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
         )
-        AND ump.creator_username IS NOT NULL AND ump.creator_username <> ''
+        AND ump.creator_username IS NOT NULL AND BTRIM(ump.creator_username) <> ''
       UNION ALL
       SELECT
         ctp.pin_id,
-        LOWER(TRIM(ump.creator_username)) AS clean_username,
+        LOWER(LTRIM(BTRIM(ump.creator_username), '@')) AS clean_username,
         ump.save_count,
         ump.daily_save_velocity,
         FALSE AS is_displaced
@@ -1570,7 +1740,7 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
       JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
       WHERE ctp.folder_id = ${fid}
         AND ctp.is_active = TRUE
-        AND ump.creator_username IS NOT NULL AND ump.creator_username <> ''
+        AND ump.creator_username IS NOT NULL AND BTRIM(ump.creator_username) <> ''
     ),
     aggregated_creators AS (
       SELECT
@@ -1588,7 +1758,7 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
     SELECT
       cp.id::text AS id,
       cp.id AS competitor_id,
-      LOWER(TRIM(cp.username)) AS username,
+      LOWER(LTRIM(BTRIM(cp.username), '@')) AS username,
       COALESCE(ac.pin_count, 0)::int AS pin_count,
       COALESCE(ac.active_pin_count, 0)::int AS active_pin_count,
       COALESCE(ac.vault_pin_count, 0)::int AS vault_pin_count,
@@ -1604,6 +1774,8 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
       COALESCE(cp.total_boards, 0)::int AS total_boards,
       cp.follower_count,
       cp.activity_status,
+      cp.last_synced_at,
+      COALESCE(cp.account_type, 'competitor') AS account_type,
       COALESCE(cp.tracking_mode, 'full') AS tracking_mode,
       COALESCE(fci.custom_label, cp.custom_label, '') AS custom_label,
       COALESCE(fci.source, 'manual') AS discovery_source,
@@ -1620,45 +1792,54 @@ export async function listFolderCreatorsWithDiscovery(sql, folderId, { vaultScop
       FALSE AS auto_discovered
     FROM folder_competitor_items fci
     JOIN competitor_profiles cp ON cp.id = fci.competitor_id
-    LEFT JOIN aggregated_creators ac ON ac.clean_username = LOWER(TRIM(cp.username))
-    WHERE fci.folder_id = ${fid};
+    LEFT JOIN aggregated_creators ac ON ac.clean_username = LOWER(LTRIM(BTRIM(cp.username), '@'))
+    WHERE fci.folder_id = ${fid}
+      AND (
+        COALESCE(cp.account_type, 'competitor') IN ('own', 'my_account', 'system')
+        OR (
+          (COALESCE(cp.monthly_reach, 0) > 0 OR COALESCE(cp.profile_views, 0) > 0)
+          AND NOT (COALESCE(cp.monthly_reach, 0) = 1 AND COALESCE(cp.profile_views, 0) = 1)
+        )
+      );
   `;
 
-  const existingUsernames = new Set(rows.map(r => (r.username || '').toLowerCase()));
-  const dedupedLinked = linkedItems.filter(r => !existingUsernames.has((r.username || '').toLowerCase()));
-  const allRows = [...rows, ...dedupedLinked].map(r => {
-    const monthlyReach = Number(r.monthly_reach || 0);
-    const profileViews = Number(r.profile_views || 0);
-    const pinsDelta7d = Number(r.pins_delta_7d || 0);
-    const deltaPins24h = Number(r.delta_pins_24h || 0);
-    const measuredCadence = pinsDelta7d > 0
-      ? Number((pinsDelta7d / 7).toFixed(1))
-      : (deltaPins24h > 0 ? Number(deltaPins24h.toFixed(1)) : null);
+  const existingUsernames = new Set((rows || []).map(r => (r.username || '').toLowerCase()));
+  const dedupedLinked = (linkedItems || []).filter(r => !existingUsernames.has((r.username || '').toLowerCase()));
+  const allRows = [...(rows || []), ...dedupedLinked]
+    .filter(isAliveFolderCreatorRow)
+    .map(r => {
+      const monthlyReach = Number(r.monthly_reach || 0);
+      const profileViews = Number(r.profile_views || 0);
+      const pinsDelta7d = Number(r.pins_delta_7d || 0);
+      const deltaPins24h = Number(r.delta_pins_24h || 0);
+      const measuredCadence = pinsDelta7d > 0
+        ? Number((pinsDelta7d / 7).toFixed(1))
+        : (deltaPins24h > 0 ? Number(deltaPins24h.toFixed(1)) : null);
 
-    return {
-      ...r,
-      pin_count: Number(r.pin_count || 0),
-      active_pin_count: Number(r.active_pin_count || 0),
-      vault_pin_count: Number(r.vault_pin_count || 0),
-      has_active_pins: Boolean(r.has_active_pins),
-      has_vault_pins: Boolean(r.has_vault_pins),
-      top_pin_saves: Number(r.top_pin_saves || 0),
-      follower_count: Number(r.follower_count || 0),
-      monthly_reach: monthlyReach,
-      profile_views: profileViews,
-      total_pins: Number(r.total_pins || 0),
-      total_boards: Number(r.total_boards || 0),
-      delta_reach_24h: sanitizeStoredCeilingDelta(monthlyReach, r.delta_reach_24h),
-      reach_delta_7d: sanitizeStoredCeilingDelta(monthlyReach, r.reach_delta_7d),
-      delta_views_24h: sanitizeStoredCeilingDelta(profileViews, r.delta_views_24h),
-      views_delta_7d: sanitizeStoredCeilingDelta(profileViews, r.views_delta_7d),
-      delta_pins_24h: deltaPins24h,
-      pins_delta_7d: pinsDelta7d,
-      delta_boards_24h: Number(r.delta_boards_24h || 0),
-      boards_delta_7d: Number(r.boards_delta_7d || 0),
-      pins_per_day: measuredCadence
-    };
-  });
+      return {
+        ...r,
+        pin_count: Number(r.pin_count || 0),
+        active_pin_count: Number(r.active_pin_count || 0),
+        vault_pin_count: Number(r.vault_pin_count || 0),
+        has_active_pins: Boolean(r.has_active_pins),
+        has_vault_pins: Boolean(r.has_vault_pins),
+        top_pin_saves: Number(r.top_pin_saves || 0),
+        follower_count: Number(r.follower_count || 0),
+        monthly_reach: monthlyReach,
+        profile_views: profileViews,
+        total_pins: Number(r.total_pins || 0),
+        total_boards: Number(r.total_boards || 0),
+        delta_reach_24h: sanitizeStoredCeilingDelta(monthlyReach, r.delta_reach_24h),
+        reach_delta_7d: sanitizeStoredCeilingDelta(monthlyReach, r.reach_delta_7d),
+        delta_views_24h: sanitizeStoredCeilingDelta(profileViews, r.delta_views_24h),
+        views_delta_7d: sanitizeStoredCeilingDelta(profileViews, r.views_delta_7d),
+        delta_pins_24h: deltaPins24h,
+        pins_delta_7d: pinsDelta7d,
+        delta_boards_24h: Number(r.delta_boards_24h || 0),
+        boards_delta_7d: Number(r.boards_delta_7d || 0),
+        pins_per_day: measuredCadence
+      };
+    });
   const linked = allRows.filter(r => r.is_linked);
   const discovered = allRows.filter(r => !r.is_linked);
 
@@ -1731,21 +1912,42 @@ export async function toggleFolderCreatorTracking(sql, folderId, competitorIdOrU
       competitorId = existing.id;
     } else {
       const [created] = await sql`
+        WITH nb_metrics AS (
+          SELECT
+            MAX(COALESCE(creator_monthly_reach, 0))::bigint AS monthly_reach,
+            MAX(COALESCE(creator_profile_views, 0))::bigint AS profile_views,
+            MAX(COALESCE(creator_pin_count, 0))::int AS total_pins,
+            MAX(effective_creator_followers)::int AS follower_count,
+            MAX(updated_at) AS last_synced_at
+          FROM newborn_candidates
+          WHERE LOWER(LTRIM(BTRIM(COALESCE(NULLIF(effective_creator_username, ''), NULLIF(origin_creator_username, ''), pinner_username)), '@')) = ${cleanUser}
+        )
         INSERT INTO competitor_profiles (
           username, display_name, account_type, is_active,
           tracking_mode, source_folder_id,
+          monthly_reach, profile_views, total_pins, follower_count, last_synced_at,
           metadata, created_at, updated_at
         )
-        VALUES (
+        SELECT
           ${cleanUser}, ${cleanUser}, 'competitor', TRUE,
           'pulse_only', ${fid},
+          COALESCE(nb.monthly_reach, 0),
+          COALESCE(nb.profile_views, 0),
+          COALESCE(nb.total_pins, 0),
+          nb.follower_count,
+          CASE WHEN COALESCE(nb.monthly_reach, 0) > 0 OR COALESCE(nb.profile_views, 0) > 0 THEN COALESCE(nb.last_synced_at, NOW()) ELSE NULL END,
           jsonb_build_object('profile_pulse_only', true, 'discovery_source', 'serp_auto', 'discovered_from_folder_id', ${fid}),
           NOW(), NOW()
-        )
+        FROM nb_metrics nb
         ON CONFLICT (username) DO UPDATE SET
           is_active = TRUE,
           tracking_mode = COALESCE(competitor_profiles.tracking_mode, 'pulse_only'),
           source_folder_id = COALESCE(competitor_profiles.source_folder_id, EXCLUDED.source_folder_id),
+          monthly_reach = GREATEST(COALESCE(competitor_profiles.monthly_reach, 0), EXCLUDED.monthly_reach),
+          profile_views = GREATEST(COALESCE(competitor_profiles.profile_views, 0), EXCLUDED.profile_views),
+          total_pins = GREATEST(COALESCE(competitor_profiles.total_pins, 0), EXCLUDED.total_pins),
+          follower_count = COALESCE(competitor_profiles.follower_count, EXCLUDED.follower_count),
+          last_synced_at = COALESCE(competitor_profiles.last_synced_at, EXCLUDED.last_synced_at),
           metadata = COALESCE(competitor_profiles.metadata, '{}'::jsonb) || jsonb_build_object('profile_pulse_only', true, 'discovery_source', 'serp_auto', 'discovered_from_folder_id', ${fid}),
           updated_at = NOW()
         RETURNING id;
@@ -1813,20 +2015,48 @@ export async function bulkPulseTrackFolderCreators(sql, folderId, options = {}, 
       .map(u => normalizePinterestUsername(u))
       .filter(u => u && !RESERVED_PINTEREST_PATHS.has(u));
   } else {
-    // Extract unique ranking creators from active SERP for this folder's keywords
+    // Extract unique alive ranking creators from active SERP & tracked pins for this folder
     const serpCreators = await sql`
-      SELECT DISTINCT LOWER(TRIM(ump.creator_username)) AS username
-      FROM keyword_folder_items kfi
-      JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
-      JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
-      WHERE kfi.folder_id = ${fid}
-        AND ksp.is_displaced IS FALSE
-        AND NOT EXISTS (
-          SELECT 1 FROM keyword_ignored_pins kip
-          WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
-        )
-        AND ump.creator_username IS NOT NULL AND ump.creator_username <> ''
-        AND LOWER(TRIM(ump.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous');
+      WITH folder_handles AS (
+        SELECT DISTINCT LOWER(LTRIM(BTRIM(ump.creator_username), '@')) AS username
+        FROM keyword_folder_items kfi
+        JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
+        JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
+        WHERE kfi.folder_id = ${fid}
+          AND ksp.is_displaced IS FALSE
+          AND NOT EXISTS (
+            SELECT 1 FROM keyword_ignored_pins kip
+            WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
+          )
+          AND ump.creator_username IS NOT NULL AND BTRIM(ump.creator_username) <> ''
+          AND LOWER(LTRIM(BTRIM(ump.creator_username), '@')) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+        UNION
+        SELECT DISTINCT LOWER(LTRIM(BTRIM(ump.creator_username), '@')) AS username
+        FROM campaign_tracked_pins ctp
+        JOIN universal_master_pins ump ON ump.pin_id = ctp.pin_id
+        WHERE ctp.folder_id = ${fid}
+          AND ctp.is_active = TRUE
+          AND ump.creator_username IS NOT NULL AND BTRIM(ump.creator_username) <> ''
+          AND LOWER(LTRIM(BTRIM(ump.creator_username), '@')) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+      ),
+      newborn_alive AS (
+        SELECT
+          LOWER(LTRIM(BTRIM(COALESCE(NULLIF(effective_creator_username, ''), NULLIF(origin_creator_username, ''), pinner_username)), '@')) AS username,
+          MAX(COALESCE(creator_monthly_reach, 0))::bigint AS monthly_reach,
+          MAX(COALESCE(creator_profile_views, 0))::bigint AS profile_views
+        FROM newborn_candidates
+        WHERE COALESCE(NULLIF(effective_creator_username, ''), NULLIF(origin_creator_username, ''), pinner_username) IS NOT NULL
+        GROUP BY 1
+      )
+      SELECT fh.username
+      FROM folder_handles fh
+      LEFT JOIN competitor_profiles cp ON LOWER(LTRIM(BTRIM(cp.username), '@')) = fh.username
+      LEFT JOIN newborn_alive na ON na.username = fh.username
+      WHERE COALESCE(cp.account_type, 'competitor') IN ('own', 'my_account', 'system')
+         OR (
+           (COALESCE(cp.monthly_reach, na.monthly_reach, 0) > 0 OR COALESCE(cp.profile_views, na.profile_views, 0) > 0)
+           AND NOT (COALESCE(cp.monthly_reach, na.monthly_reach, 0) = 1 AND COALESCE(cp.profile_views, na.profile_views, 0) = 1)
+         );
     `;
     targetUsernames = (serpCreators || [])
       .map(r => normalizePinterestUsername(r.username))
@@ -1843,6 +2073,7 @@ export async function bulkPulseTrackFolderCreators(sql, folderId, options = {}, 
       custom_label: customLabel,
       tracking_mode: trackingMode,
       synced_count: 0,
+      pruned_dead_count: 0,
       items: []
     };
   }
@@ -1920,16 +2151,21 @@ export async function bulkPulseTrackFolderCreators(sql, folderId, options = {}, 
 
   invalidateFolderCache(fid, effectiveWid);
 
-  // If sync_now requested, perform initial pulse sync on target creators
+  // If sync_now requested, perform initial pulse sync on target creators (auto-prunes dead 0/0 & 1/1 accounts)
   let syncedCount = 0;
+  let prunedDeadCount = 0;
   if (options.sync_now === true) {
     const pulseTargets = targetUsernames.slice(0, 10);
     const backgroundTargets = targetUsernames.slice(10);
 
     for (const username of pulseTargets) {
       try {
-        await syncCompetitorProfile(sql, username, wsCookie, { pulseOnly: true, disableGlobalCookieFallback: true });
-        syncedCount++;
+        const syncRes = await syncCompetitorProfile(sql, username, wsCookie, { pulseOnly: true, disableGlobalCookieFallback: true });
+        if (syncRes?.pruned) {
+          prunedDeadCount++;
+        } else {
+          syncedCount++;
+        }
       } catch (err) {
         console.warn(`[BulkPulseTrack] Initial sync failed for ${username}:`, err.message);
       }
@@ -1953,10 +2189,11 @@ export async function bulkPulseTrackFolderCreators(sql, folderId, options = {}, 
   return {
     success: true,
     folder_id: fid,
-    tracked_count: linkedRows.length,
+    tracked_count: Math.max(0, linkedRows.length - prunedDeadCount),
     custom_label: customLabel,
     tracking_mode: trackingMode,
     synced_count: syncedCount,
+    pruned_dead_count: prunedDeadCount,
     items: linkedRows
   };
 }
@@ -1994,17 +2231,37 @@ export async function autoDiscoverFolderCreatorsForKeyword(sql, keywordId) {
     const fid = folder.id;
     const customLabel = `SERP Auto • ${folder.name || 'Folder ' + fid}`;
 
+    // Link ONLY existing alive competitor_profiles OR handles with verified non-dead Newborn telemetry.
+    // Strictly NEVER insert 0/0 unsynced shells into competitor_profiles during SERP crawls.
     const linked = await sql`
       WITH ranked_creators AS (
-        SELECT DISTINCT LOWER(TRIM(ump.creator_username)) AS username
+        SELECT DISTINCT LOWER(LTRIM(BTRIM(ump.creator_username), '@')) AS username
         FROM keyword_serp_positions ksp
         JOIN universal_master_pins ump ON ump.pin_id = ksp.pin_id
         WHERE ksp.keyword_id = ${kid}
           AND ksp.is_displaced IS FALSE
-          AND ump.creator_username IS NOT NULL AND ump.creator_username <> ''
-          AND LOWER(TRIM(ump.creator_username)) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
+          AND ump.creator_username IS NOT NULL AND BTRIM(ump.creator_username) <> ''
+          AND LOWER(LTRIM(BTRIM(ump.creator_username), '@')) NOT IN ('uploaded by user', 'uploaded by pinner', 'pinterest', 'anonymous')
       ),
-      upserted_profiles AS (
+      verified_newborn_creators AS (
+        SELECT
+          rc.username,
+          MAX(COALESCE(nc.creator_monthly_reach, 0))::bigint AS monthly_reach,
+          MAX(COALESCE(nc.creator_profile_views, 0))::bigint AS profile_views,
+          MAX(COALESCE(nc.creator_pin_count, 0))::int AS total_pins,
+          MAX(nc.effective_creator_followers)::int AS follower_count
+        FROM ranked_creators rc
+        JOIN newborn_candidates nc
+          ON LOWER(LTRIM(BTRIM(COALESCE(NULLIF(nc.effective_creator_username, ''), NULLIF(nc.origin_creator_username, ''), nc.pinner_username)), '@')) = rc.username
+        WHERE NOT EXISTS (
+          SELECT 1 FROM competitor_profiles cp_ex
+          WHERE LOWER(LTRIM(BTRIM(cp_ex.username), '@')) = rc.username
+        )
+        GROUP BY rc.username
+        HAVING (MAX(COALESCE(nc.creator_monthly_reach, 0)) > 0 OR MAX(COALESCE(nc.creator_profile_views, 0)) > 0)
+           AND NOT (MAX(COALESCE(nc.creator_monthly_reach, 0)) = 1 AND MAX(COALESCE(nc.creator_profile_views, 0)) = 1)
+      ),
+      promoted_verified_profiles AS (
         INSERT INTO competitor_profiles (
           username,
           display_name,
@@ -2013,30 +2270,48 @@ export async function autoDiscoverFolderCreatorsForKeyword(sql, keywordId) {
           tracking_mode,
           custom_label,
           source_folder_id,
+          monthly_reach,
+          profile_views,
+          total_pins,
+          follower_count,
+          last_synced_at,
           created_at,
           updated_at
         )
         SELECT
-          rc.username,
-          rc.username,
+          vnc.username,
+          vnc.username,
           'competitor',
           TRUE,
           'pulse_only',
           ${customLabel},
           ${fid},
+          vnc.monthly_reach,
+          vnc.profile_views,
+          vnc.total_pins,
+          vnc.follower_count,
+          NOW(),
           NOW(),
           NOW()
-        FROM ranked_creators rc
+        FROM verified_newborn_creators vnc
         ON CONFLICT (username) DO UPDATE SET
+          monthly_reach = GREATEST(COALESCE(competitor_profiles.monthly_reach, 0), EXCLUDED.monthly_reach),
+          profile_views = GREATEST(COALESCE(competitor_profiles.profile_views, 0), EXCLUDED.profile_views),
+          total_pins = GREATEST(COALESCE(competitor_profiles.total_pins, 0), EXCLUDED.total_pins),
           updated_at = NOW()
         RETURNING id, username
       ),
       all_target_profiles AS (
-        SELECT id, username FROM upserted_profiles
+        SELECT id, username FROM promoted_verified_profiles
         UNION
         SELECT cp.id, cp.username
         FROM competitor_profiles cp
-        JOIN ranked_creators rc ON LOWER(cp.username) = LOWER(rc.username)
+        JOIN ranked_creators rc ON LOWER(LTRIM(BTRIM(cp.username), '@')) = rc.username
+        WHERE COALESCE(cp.account_type, 'competitor') IN ('own', 'my_account', 'system')
+           OR (
+             (COALESCE(cp.monthly_reach, 0) > 0 OR COALESCE(cp.profile_views, 0) > 0)
+             AND NOT (COALESCE(cp.monthly_reach, 0) = 1 AND COALESCE(cp.profile_views, 0) = 1)
+           )
       )
       INSERT INTO folder_competitor_items (
         folder_id,

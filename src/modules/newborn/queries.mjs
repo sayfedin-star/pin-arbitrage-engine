@@ -812,6 +812,10 @@ export async function listNewbornRookies(sql, filters = {}) {
       OR LOWER(COALESCE(nra.display_name, '')) LIKE ${searchPattern} ESCAPE '\\'
       OR LOWER(COALESCE(nra.clean_domain, '')) LIKE ${searchPattern} ESCAPE '\\'
     )
+    AND NOT (
+      (COALESCE(nra.monthly_reach, 0) = 0 AND COALESCE(nra.profile_views, 0) = 0)
+      OR (COALESCE(nra.monthly_reach, 0) = 1 AND COALESCE(nra.profile_views, 0) = 1)
+    )
   `;
 
   const [rows, countRows] = await Promise.all([

@@ -17,7 +17,7 @@ import { addKeyword } from '../keywords/settings.mjs';
 import { invalidateFolderCache } from '../keywords/folders-crossover.mjs';
 import { bulkCreateClusterSeedsService } from '../cluster/service.mjs';
 import { invalidateGlobalPulseCache } from '../pulse/service.mjs';
-import { normalizePinterestUsername } from '../creators/competitors-crud.mjs';
+import { normalizePinterestUsername, isDeadZeroOrOneCreator } from '../creators/competitors-crud.mjs';
 import { assertFolderInWorkspace } from '../workspaces/service.mjs';
 
 export function normalizeCandidateForMasterIngest(cand) {
@@ -516,13 +516,30 @@ export async function promoteNewbornRookies(sql, options = {}) {
     return { ok: false, status: 404, promoted_count: 0, competitors: [], message: 'No matching rookie accounts found in staging.' };
   }
 
+  const aliveRookieRows = rookieRows.filter((r) => !isDeadZeroOrOneCreator({
+    monthly_reach: r.monthly_reach ?? 0,
+    profile_views: r.profile_views ?? 0,
+    is_synced: true
+  }));
+  const skippedDeadCount = rookieRows.length - aliveRookieRows.length;
+
+  if (aliveRookieRows.length === 0) {
+    return {
+      ok: true,
+      promoted_count: 0,
+      skipped_dead_count: skippedDeadCount,
+      competitors: [],
+      message: 'All selected rookie accounts had (0,0) or (1,1) dead metrics and were excluded.'
+    };
+  }
+
   const mode = trackingMode === 'full' ? 'full' : 'pulse_only';
   const numericFolderId = folderId !== null && folderId !== '' && Number(folderId) > 0 ? Number(folderId) : null;
   const promotedCompetitors = [];
   const runInTx = async (fn) => (typeof sql.begin === 'function' ? sql.begin(fn) : fn(sql));
 
   await runInTx(async (tx) => {
-    for (const r of rookieRows) {
+    for (const r of aliveRookieRows) {
       const [comp] = await tx`
         INSERT INTO competitor_profiles (
           username, display_name, avatar_url, website_url,

@@ -473,14 +473,18 @@ export function getPinDetailsBodyHtml(safePinId) {
             <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Campaign &amp; Discovery Provenance</div>
             <template x-if="dossier?.tracked_campaigns && dossier.tracked_campaigns.length > 0">
               <div class="flex flex-wrap gap-1.5">
-                <template x-for="tc in dossier.tracked_campaigns" :key="tc.folder_id + '-' + tc.source_type">
+                <template x-for="tc in dossier.tracked_campaigns" :key="tc.folder_id + '-' + (tc.source_type || 'tracked')">
                   <a :href="'/folders/' + tc.folder_id"
                      class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold border transition"
                      :class="tc.source_type === 'newborn'
                        ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30 hover:bg-rose-500/20'
-                       : 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30 hover:bg-indigo-500/20'">
+                       : (tc.source_type === 'vault'
+                           ? 'bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/30 hover:bg-purple-500/20'
+                           : (tc.source_type === 'serp'
+                               ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'
+                               : 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30 hover:bg-indigo-500/20'))">
                     <span x-text="tc.folder_name"></span>
-                    <span class="opacity-75" x-text="'(' + tc.source_type + ')'"></span>
+                    <span class="opacity-75" x-text="'(' + formatCampaignSourceBadge(tc) + ')'"></span>
                   </a>
                 </template>
               </div>
@@ -1676,21 +1680,35 @@ export function getPinDetailsBodyHtml(safePinId) {
       <template x-if="trackedCampaigns.length > 0">
         <div class="space-y-1.5">
           <div class="text-[10px] font-mono uppercase tracking-wider text-slate-500 dark:text-slate-400">Active Campaigns</div>
-          <div class="space-y-1.5 max-h-40 overflow-y-auto">
+          <div class="space-y-1.5 max-h-44 overflow-y-auto">
             <template x-for="tc in trackedCampaigns" :key="tc.folder_id + '-' + (tc.source_type || 'manual')">
               <div class="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B]">
                 <div class="flex items-center gap-2 min-w-0">
                   <a :href="'/folders/' + tc.folder_id" class="text-xs font-semibold text-slate-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 truncate" x-text="tc.folder_name || ('Campaign #' + tc.folder_id)"></a>
                   <span class="px-1.5 py-0.5 rounded text-[10px] font-mono uppercase border shrink-0"
-                        :class="tc.source_type === 'newborn' ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30' : 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30'"
-                        x-text="tc.source_type || 'tracked'"></span>
+                        :class="tc.source_type === 'newborn'
+                          ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30'
+                          : (tc.source_type === 'vault'
+                              ? 'bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/30'
+                              : (tc.source_type === 'serp'
+                                  ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                                  : 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30'))"
+                        x-text="formatCampaignSourceBadge(tc)"></span>
                 </div>
-                <button type="button"
-                        @click="removePinFromCampaign(tc.folder_id, tc.source_type)"
-                        :disabled="v4CampaignActionBusy"
-                        class="px-2 py-1 rounded-lg text-[11px] font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200/80 dark:border-rose-900/50 transition cursor-pointer disabled:opacity-40 shrink-0">
-                  Remove
-                </button>
+                <template x-if="tc.can_remove !== false">
+                  <button type="button"
+                          @click="removePinFromCampaign(tc.folder_id, tc.source_type)"
+                          :disabled="v4CampaignActionBusy"
+                          class="px-2 py-1 rounded-lg text-[11px] font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200/80 dark:border-rose-900/50 transition cursor-pointer disabled:opacity-40 shrink-0">
+                    Remove
+                  </button>
+                </template>
+                <template x-if="tc.can_remove === false">
+                  <a :href="'/folders/' + tc.folder_id"
+                     class="px-2 py-1 rounded-lg text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-900/50 transition shrink-0">
+                    Open ↗
+                  </a>
+                </template>
               </div>
             </template>
           </div>
@@ -1704,7 +1722,7 @@ export function getPinDetailsBodyHtml(safePinId) {
           <select x-model="v4SelectedFolderId" class="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B] text-xs text-slate-900 dark:text-white">
             <option value="">Select a campaign...</option>
             <template x-for="f in v4CampaignFolders" :key="f.id">
-              <option :value="String(f.id)" x-text="f.name"></option>
+              <option :value="String(f.id)" x-text="formatCampaignSelectOption(f)"></option>
             </template>
           </select>
           <button type="button" @click="addPinToCampaignTracked()" :disabled="!v4SelectedFolderId || v4CampaignActionBusy" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold cursor-pointer disabled:opacity-40 inline-flex items-center justify-center gap-1.5 shrink-0">

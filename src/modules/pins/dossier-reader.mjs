@@ -469,21 +469,83 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30, worksp
       return [];
     }),
     sql`
+      WITH explicit_tracked AS (
+        SELECT
+          ctp.folder_id,
+          ctp.workspace_id,
+          kf.name AS folder_name,
+          ctp.source_type,
+          ctp.source_ref,
+          ctp.seed_query,
+          ctp.added_at,
+          NULL::text AS notes,
+          'tracked'::text AS membership_type,
+          TRUE AS can_remove
+        FROM campaign_tracked_pins ctp
+        JOIN keyword_folders kf ON kf.id = ctp.folder_id
+        WHERE ctp.pin_id = ${cleanPinId}
+          AND ctp.is_active = TRUE
+          AND (${cleanWid}::int IS NULL OR COALESCE(ctp.workspace_id, kf.workspace_id, 1) = ${cleanWid})
+      ),
+      serp_cluster_folders AS (
+        SELECT
+          kf.id AS folder_id,
+          COALESCE(kf.workspace_id, 1) AS workspace_id,
+          kf.name AS folder_name,
+          CASE
+            WHEN BOOL_OR(ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL AND ksp.rank_position >= 1)
+              THEN 'serp'
+            ELSE 'vault'
+          END AS source_type,
+          COUNT(DISTINCT ksp.keyword_id)::int AS keyword_count,
+          MIN(COALESCE(ksp.rank_position, ksp.last_known_rank))::int AS best_rank,
+          MAX(COALESCE(ksp.last_seen_at, ksp.updated_at, ksp.first_seen_at)) AS latest_seen_at
+        FROM keyword_serp_positions ksp
+        JOIN keyword_folder_items kfi ON kfi.keyword_id = ksp.keyword_id
+        JOIN keyword_folders kf ON kf.id = kfi.folder_id
+        WHERE ksp.pin_id = ${cleanPinId}
+          AND ((ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL AND ksp.rank_position >= 1) OR ksp.is_displaced = TRUE)
+          AND NOT EXISTS (
+            SELECT 1 FROM keyword_ignored_pins kip
+            WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
+          )
+          AND (${cleanWid}::int IS NULL OR COALESCE(kf.workspace_id, 1) = ${cleanWid})
+        GROUP BY kf.id, kf.workspace_id, kf.name
+      )
       SELECT
-        ctp.folder_id,
-        ctp.workspace_id,
-        kf.name AS folder_name,
-        ctp.source_type,
-        ctp.source_ref,
-        ctp.seed_query,
-        ctp.added_at,
-        NULL::text AS notes
-      FROM campaign_tracked_pins ctp
-      JOIN keyword_folders kf ON kf.id = ctp.folder_id
-      WHERE ctp.pin_id = ${cleanPinId}
-        AND ctp.is_active = TRUE
-        AND (${cleanWid}::int IS NULL OR ctp.workspace_id = ${cleanWid})
-      ORDER BY ctp.added_at DESC;
+        et.folder_id,
+        et.workspace_id,
+        et.folder_name,
+        et.source_type,
+        et.source_ref,
+        et.seed_query,
+        et.added_at,
+        et.notes,
+        et.membership_type,
+        et.can_remove,
+        COALESCE(scf.keyword_count, 0)::int AS keyword_count,
+        scf.best_rank
+      FROM explicit_tracked et
+      LEFT JOIN serp_cluster_folders scf ON scf.folder_id = et.folder_id
+      UNION ALL
+      SELECT
+        scf.folder_id,
+        scf.workspace_id,
+        scf.folder_name,
+        scf.source_type,
+        NULL::text AS source_ref,
+        NULL::text AS seed_query,
+        scf.latest_seen_at AS added_at,
+        NULL::text AS notes,
+        'cluster_serp'::text AS membership_type,
+        FALSE AS can_remove,
+        scf.keyword_count,
+        scf.best_rank
+      FROM serp_cluster_folders scf
+      WHERE NOT EXISTS (
+        SELECT 1 FROM explicit_tracked et2 WHERE et2.folder_id = scf.folder_id
+      )
+      ORDER BY can_remove DESC, added_at DESC NULLS LAST, folder_id ASC;
     `.catch((err) => {
       console.warn(`[dossier-reader] Campaign provenance query warning for pin ${cleanPinId}:`, err?.message || err);
       return [];
@@ -1473,14 +1535,24 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, tr
       metadata: snapMeta
     },
     algorithmic_intelligence: algorithmicIntelligence,
-    tracked_campaigns: (Array.isArray(trackedCampaignRows) ? trackedCampaignRows : []).map((row) => ({
-      folder_id: Number(row.folder_id),
-      folder_name: row.folder_name || `Campaign #${row.folder_id}`,
-      source_type: String(row.source_type || 'manual').trim().toLowerCase(),
-      seed_query: row.seed_query ? String(row.seed_query).trim() : null,
-      added_at: repoSafeIsoDate(row.added_at),
-      notes: row.notes || null
-    })),
+    tracked_campaigns: (Array.isArray(trackedCampaignRows) ? trackedCampaignRows : []).map((row) => {
+      const membershipType = String(row.membership_type || 'tracked').trim().toLowerCase();
+      const canRemove = row.can_remove !== undefined && row.can_remove !== null
+        ? Boolean(row.can_remove)
+        : membershipType !== 'cluster_serp';
+      return {
+        folder_id: Number(row.folder_id),
+        folder_name: row.folder_name || `Campaign #${row.folder_id}`,
+        source_type: String(row.source_type || 'manual').trim().toLowerCase(),
+        membership_type: membershipType,
+        can_remove: canRemove,
+        keyword_count: row.keyword_count != null ? Number(row.keyword_count) : 0,
+        best_rank: row.best_rank != null ? Number(row.best_rank) : null,
+        seed_query: row.seed_query ? String(row.seed_query).trim() : null,
+        added_at: repoSafeIsoDate(row.added_at),
+        notes: row.notes || null
+      };
+    }),
     newborn_context: newbornContextRow ? {
       pin_id: String(newbornContextRow.pin_id || cleanPinId),
       seed_query: newbornContextRow.seed_query ? String(newbornContextRow.seed_query).trim() : null,

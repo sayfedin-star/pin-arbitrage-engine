@@ -20,6 +20,7 @@ import {
   stampAutomationRunTimestamp
 } from './settings.mjs';
 import { getWorkspaceSettings } from '../workspaces/service.mjs';
+import { isDeadZeroOrOneCreator } from '../creators/competitors-crud.mjs';
 import {
   formatPinterestBoardUrl,
   mergeCandidatePinRecords,
@@ -705,8 +706,21 @@ export async function upsertStagedRookiesBatch(sql, rookies = [], { nowMs = Date
   }
 
   const prepared = [];
+  let skippedDeadCount = 0;
   for (const uname of usernames) {
     const r = dedupMap.get(uname);
+    const hasHydratedTelemetry = r.monthly_reach != null || r.profile_views != null;
+    if (
+      hasHydratedTelemetry &&
+      isDeadZeroOrOneCreator({
+        monthly_reach: r.monthly_reach ?? 0,
+        profile_views: r.profile_views ?? 0,
+        is_synced: true
+      })
+    ) {
+      skippedDeadCount++;
+      continue;
+    }
     const prev = existingMap.get(uname) || null;
 
     let nextStage = r.stage || prev?.stage || 'discovered';
@@ -745,6 +759,10 @@ export async function upsertStagedRookiesBatch(sql, rookies = [], { nowMs = Date
       last_qualified_date: consec.last_qualified_date,
       last_polled_at: isWatchlistPoll ? nowIso : null
     });
+  }
+
+  if (prepared.length === 0) {
+    return { upserted: 0, skipped_dead_count: skippedDeadCount, rows: [] };
   }
 
   const payloadJson = JSON.stringify(sanitizeForJsonb(prepared));
