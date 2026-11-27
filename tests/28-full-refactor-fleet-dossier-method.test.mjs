@@ -12,6 +12,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 
 import {
   planNewbornFleetShards,
@@ -42,6 +43,10 @@ import {
   normalizeSurfaceCandidatePin,
   mergeCandidatePinRecords
 } from '../src/modules/newborn/surface-normalizers.mjs';
+import { listNewbornCandidates } from '../src/modules/newborn/queries.mjs';
+import { getNewbornPageHtml } from '../src/ui/newborn/index.mjs';
+import { getNewbornClientAppScript } from '../src/ui/newborn/newborn-client-app.mjs';
+import { BYTE_BUDGETS, DEAD_SYMBOLS } from '../scripts/verify-live-readonly.mjs';
 
 function makeFakeSql(handler) {
   const calls = [];
@@ -555,3 +560,127 @@ test('Authentic creation_method [8]: pin-formatter, pin-html-extractor, and surf
   );
   assert.equal(mergedReverse.raw_creation_method, 'uploaded', 'Legacy organic_pin must never overwrite specific method');
 });
+
+// ---------------------------------------------------------------------------
+// 5. /discover Workspace UI Refactoring & Bi-Directional Sorting
+// ---------------------------------------------------------------------------
+test('Discover UI Refactor [9]: listNewbornCandidates supports repins_asc and age_desc/oldest bi-directional ORDER BY', async () => {
+  const sqlRepinsAsc = makeFakeSql((entry) => (entry.query.includes('COUNT(*)') ? [{ total: 0 }] : []));
+  await listNewbornCandidates(sqlRepinsAsc, { sort: 'repins_asc', limit: 10 });
+  const repinsAscSelect = sqlRepinsAsc.calls.find((c) => c.query.includes('FROM newborn_candidates') && !c.query.includes('COUNT(*)'));
+  assert.ok(repinsAscSelect, 'Expected SELECT query for repins_asc');
+  assert.match(repinsAscSelect.query, /ORDER BY nc\.repin_count ASC NULLS LAST, nc\.age_days ASC NULLS LAST, nc\.pin_id ASC/);
+
+  const sqlAgeDesc = makeFakeSql((entry) => (entry.query.includes('COUNT(*)') ? [{ total: 0 }] : []));
+  await listNewbornCandidates(sqlAgeDesc, { sort: 'age_desc', limit: 10 });
+  const ageDescSelect = sqlAgeDesc.calls.find((c) => c.query.includes('FROM newborn_candidates') && !c.query.includes('COUNT(*)'));
+  assert.ok(ageDescSelect, 'Expected SELECT query for age_desc');
+  assert.match(ageDescSelect.query, /ORDER BY nc\.age_days DESC NULLS LAST, nc\.repin_count DESC NULLS LAST, nc\.pin_id ASC/);
+
+  const sqlOldest = makeFakeSql((entry) => (entry.query.includes('COUNT(*)') ? [{ total: 0 }] : []));
+  await listNewbornCandidates(sqlOldest, { sort: 'oldest', limit: 10 });
+  const oldestSelect = sqlOldest.calls.find((c) => c.query.includes('FROM newborn_candidates') && !c.query.includes('COUNT(*)'));
+  assert.ok(oldestSelect, 'Expected SELECT query for oldest alias');
+  assert.match(oldestSelect.query, /ORDER BY nc\.age_days DESC NULLS LAST, nc\.repin_count DESC NULLS LAST, nc\.pin_id ASC/);
+
+  const sqlAgeAsc = makeFakeSql((entry) => (entry.query.includes('COUNT(*)') ? [{ total: 0 }] : []));
+  await listNewbornCandidates(sqlAgeAsc, { sort: 'age_asc', limit: 10 });
+  const ageAscSelect = sqlAgeAsc.calls.find((c) => c.query.includes('FROM newborn_candidates') && !c.query.includes('COUNT(*)'));
+  assert.ok(ageAscSelect, 'Expected SELECT query for age_asc');
+  assert.match(ageAscSelect.query, /ORDER BY nc\.age_days ASC NULLS LAST, nc\.repin_count DESC NULLS LAST, nc\.pin_id ASC/);
+});
+
+test('Discover UI Refactor [10]: Collapsed Trends & Annotations defaults, bi-directional column sort, compact +N more annotations, icon buttons & byte budget', async () => {
+  // 1. Verify SSR HTML contains all new controls, sr-only accessibility labels, zero dead symbols, zero emojis, and < 225 KiB
+  const html = getNewbornPageHtml('', 'hunt');
+  const bytes = Buffer.byteLength(html, 'utf8');
+  assert.ok(bytes < BYTE_BUDGETS.discoverHtmlMaxBytes, `/discover HTML (${bytes} B) must stay below ${BYTE_BUDGETS.discoverHtmlMaxBytes} B`);
+
+  for (const dead of DEAD_SYMBOLS.discover) {
+    assert.equal(html.includes(dead), false, `Must not reintroduce dead symbol ${dead}`);
+  }
+
+  assert.ok(html.includes("toggleColumnSort('age')"), 'Pin Age column header must call toggleColumnSort(\'age\')');
+  assert.ok(html.includes("toggleColumnSort('repins')"), 'Re-pins column header must call toggleColumnSort(\'repins\')');
+  assert.ok(html.includes('value="repins_asc"'), 'Sort dropdown must include repins_asc option');
+  assert.ok(html.includes('value="age_desc"'), 'Sort dropdown must include age_desc option');
+  assert.ok(html.includes('getVisiblePinAnnotationNames(pin, 3)'), 'Row annotations must cap default display at 3 tags');
+  assert.ok(html.includes('togglePinAnnotations(pin.pin_id)'), 'Row annotations must wire +N more toggle');
+  assert.ok(html.includes('toggleAnnotationsCrossover()'), 'Annotations Crossover card must include toggleAnnotationsCrossover()');
+  assert.ok(html.includes('id="newborn-annotations-crossover-body"'), 'Annotations Crossover body must expose aria-controls target');
+  assert.ok(html.includes('w-8 h-8 inline-flex items-center justify-center rounded-lg'), 'Action column must use compact w-8 h-8 icon buttons');
+  assert.ok(html.includes('<span class="sr-only">Scroll Related</span>'), 'Scroll Related icon button must keep sr-only label');
+  assert.ok(html.includes('Track Daily</span>'), 'Track Daily icon button must keep sr-only label');
+  assert.ok(html.includes('Pull Account</span>'), 'Pull Account icon button must keep sr-only label');
+
+  // 2. Execute newbornStudioApp in VM to verify default state & interactive state transitions
+  const scriptSrc = getNewbornClientAppScript().replace(/^\s*<script>\s*|\s*<\/script>\s*$/gi, '');
+  const sandbox = { window: {}, document: {}, URLSearchParams };
+  vm.createContext(sandbox);
+  vm.runInContext(scriptSrc, sandbox);
+
+  const huntApp = sandbox.newbornStudioApp('', 'hunt');
+  assert.equal(huntApp.showTrendsDrawer, false, 'showTrendsDrawer must default to false on /discover (hunt mode)');
+  assert.equal(huntApp.showAnnotationsCrossover, false, 'showAnnotationsCrossover must default to false');
+
+  const launchpadApp = sandbox.newbornStudioApp('', 'launchpad');
+  assert.equal(launchpadApp.showTrendsDrawer, true, 'showTrendsDrawer should remain true when initialMode is launchpad');
+  assert.equal(launchpadApp.showAnnotationsCrossover, false);
+
+  // Toggle Annotations Crossover + auto-expand on checkAnnotationVolumes
+  let refreshedIcons = 0;
+  huntApp.refreshIcons = () => { refreshedIcons++; };
+  huntApp.toggleAnnotationsCrossover();
+  assert.equal(huntApp.showAnnotationsCrossover, true);
+  assert.ok(refreshedIcons >= 1);
+  huntApp.toggleAnnotationsCrossover();
+  assert.equal(huntApp.showAnnotationsCrossover, false);
+
+  await huntApp.checkAnnotationVolumes();
+  assert.equal(huntApp.showAnnotationsCrossover, true, 'checkAnnotationVolumes must expand Annotations Crossover panel');
+
+  // Column sort toggling state machine
+  let loadCalls = 0;
+  huntApp.loadCandidates = () => { loadCalls++; };
+  assert.equal(huntApp.isColumnSortActive('repins'), true);
+  assert.equal(huntApp.getColumnSortDirection('repins'), 'desc');
+  assert.equal(huntApp.isColumnSortActive('age'), false);
+  assert.equal(huntApp.getColumnSortDirection('age'), '');
+
+  huntApp.toggleColumnSort('repins');
+  assert.equal(huntApp.filters.sort, 'repins_asc');
+  assert.equal(huntApp.getColumnSortDirection('repins'), 'asc');
+
+  huntApp.toggleColumnSort('repins');
+  assert.equal(huntApp.filters.sort, 'repins');
+  assert.equal(huntApp.getColumnSortDirection('repins'), 'desc');
+
+  huntApp.toggleColumnSort('age');
+  assert.equal(huntApp.filters.sort, 'fresh');
+  assert.equal(huntApp.isColumnSortActive('age'), true);
+  assert.equal(huntApp.getColumnSortDirection('age'), 'asc');
+  assert.equal(huntApp.isColumnSortActive('repins'), false);
+
+  huntApp.toggleColumnSort('age');
+  assert.equal(huntApp.filters.sort, 'age_desc');
+  assert.equal(huntApp.getColumnSortDirection('age'), 'desc');
+  assert.equal(loadCalls, 4);
+
+  // Compact +N more row annotations logic
+  const pinWith5Tags = {
+    pin_id: '123456789012345',
+    visual_annotations: ['Tag 1', 'Tag 2', 'Tag 3', 'Tag 4', 'Tag 5']
+  };
+  assert.deepEqual(Array.from(huntApp.getVisiblePinAnnotationNames(pinWith5Tags, 3)), ['Tag 1', 'Tag 2', 'Tag 3']);
+  assert.equal(huntApp.getHiddenPinAnnotationCount(pinWith5Tags, 3), 2);
+  assert.equal(huntApp.isPinAnnotationsExpanded(pinWith5Tags.pin_id), false);
+
+  huntApp.togglePinAnnotations(pinWith5Tags.pin_id);
+  assert.equal(huntApp.isPinAnnotationsExpanded(pinWith5Tags.pin_id), true);
+  assert.deepEqual(Array.from(huntApp.getVisiblePinAnnotationNames(pinWith5Tags, 3)), ['Tag 1', 'Tag 2', 'Tag 3', 'Tag 4', 'Tag 5']);
+
+  huntApp.togglePinAnnotations(pinWith5Tags.pin_id);
+  assert.equal(huntApp.isPinAnnotationsExpanded(pinWith5Tags.pin_id), false);
+  assert.deepEqual(Array.from(huntApp.getVisiblePinAnnotationNames(pinWith5Tags, 3)), ['Tag 1', 'Tag 2', 'Tag 3']);
+});
+

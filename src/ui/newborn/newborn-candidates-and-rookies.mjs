@@ -77,15 +77,23 @@ export function getNewbornCandidatesAndRookiesHtml({ folderId = '' } = {}) {
     <template x-if="activeView === 'hunt'">
       <section id="panel-newborn-hunt" role="tabpanel" aria-labelledby="tab-newborn-hunt" class="space-y-4">
 
-        <!-- Annotations Crossover Panel (Directly Above Golden Pins) -->
+        <!-- Annotations Crossover Panel (Collapsible by Default, Directly Above Golden Pins) -->
         <template x-if="annotationsCrossoverList().length > 0">
-          <div class="bg-white dark:bg-[#18181B] rounded-2xl border border-slate-200 dark:border-[#27272A] p-4 shadow-xs space-y-3">
+          <div class="bg-white dark:bg-[#18181B] rounded-2xl border border-slate-200 dark:border-[#27272A] p-4 shadow-xs">
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div class="flex items-center gap-2 flex-wrap">
-                <i data-lucide="tags" class="w-4 h-4 text-rose-500 shrink-0" aria-hidden="true"></i>
-                <h2 class="text-xs sm:text-sm font-bold text-slate-900 dark:text-[#FAFAFA]">Annotations Crossover</h2>
-                <span class="px-2 py-0.5 rounded-full text-[11px] font-mono tabular-nums bg-slate-100 dark:bg-[#27272A] text-slate-600 dark:text-[#A1A1AA]"
-                      x-text="annotationsCrossoverList().length + ' winning tags'"></span>
+                <h2 class="text-xs sm:text-sm font-bold text-slate-900 dark:text-[#FAFAFA]">
+                  <button type="button"
+                          @click="toggleAnnotationsCrossover()"
+                          :aria-expanded="showAnnotationsCrossover ? 'true' : 'false'"
+                          aria-controls="newborn-annotations-crossover-body"
+                          class="inline-flex items-center gap-2 text-left cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 rounded-lg">
+                    <i data-lucide="tags" class="w-4 h-4 text-rose-500 shrink-0" aria-hidden="true"></i>
+                    <span class="group-hover:text-rose-600 dark:group-hover:text-rose-400 transition-colors">Annotations Crossover</span>
+                    <span class="px-2 py-0.5 rounded-full text-[11px] font-mono tabular-nums font-normal bg-slate-100 dark:bg-[#27272A] text-slate-600 dark:text-[#A1A1AA]"
+                          x-text="annotationsCrossoverList().length + ' winning tags'"></span>
+                  </button>
+                </h2>
                 <template x-if="filters.annotation">
                   <button type="button"
                           @click="selectAnnotationFilter(filters.annotation)"
@@ -96,7 +104,7 @@ export function getNewbornCandidatesAndRookiesHtml({ folderId = '' } = {}) {
                 </template>
               </div>
 
-              <div class="flex items-center gap-2 shrink-0">
+              <div class="flex items-center gap-2 shrink-0 flex-wrap">
                 <button type="button"
                         @click="checkAnnotationVolumes()"
                         :disabled="isCheckingAnnotationVolumes"
@@ -110,10 +118,21 @@ export function getNewbornCandidatesAndRookiesHtml({ folderId = '' } = {}) {
                   <i data-lucide="copy" class="w-3.5 h-3.5 text-slate-500" aria-hidden="true"></i>
                   <span>Copy Tags</span>
                 </button>
+                <button type="button"
+                        @click="toggleAnnotationsCrossover()"
+                        :aria-expanded="showAnnotationsCrossover ? 'true' : 'false'"
+                        aria-controls="newborn-annotations-crossover-body"
+                        class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] hover:bg-slate-100 dark:hover:bg-[#27272A] text-[11px] font-semibold text-slate-700 dark:text-[#FAFAFA] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
+                  <span x-text="showAnnotationsCrossover ? 'Collapse' : 'Show Tags'"></span>
+                  <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400 transition-transform duration-150" :class="showAnnotationsCrossover ? 'rotate-180' : ''" aria-hidden="true"></i>
+                </button>
               </div>
             </div>
 
-            <div class="flex flex-wrap gap-2">
+            <div id="newborn-annotations-crossover-body"
+                 x-show="showAnnotationsCrossover"
+                 x-cloak
+                 class="flex flex-wrap gap-2 mt-3 pt-3 border-t border-slate-100 dark:border-[#27272A]">
               <template x-for="item in annotationsCrossoverList().slice(0, 24)" :key="item.annotation">
                 <div class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs transition-colors"
                      :class="filters.annotation && filters.annotation.toLowerCase() === item.annotation.toLowerCase() ? 'border-rose-500 bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-200' : 'border-slate-200 dark:border-[#27272A] bg-slate-50/80 dark:bg-[#121215] text-slate-800 dark:text-[#FAFAFA] hover:border-rose-300'">
@@ -146,22 +165,22 @@ export function getNewbornCandidatesAndRookiesHtml({ folderId = '' } = {}) {
         <!-- Results Toolbar + Bulk Actions -->
         <div class="bg-white dark:bg-[#18181B] rounded-2xl border border-slate-200 dark:border-[#27272A] p-3.5 shadow-xs space-y-3">
           <div class="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
-            <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex items-center gap-2 flex-wrap shrink-0">
               <template x-if="activeRunId">
-                <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200/80 dark:border-rose-900/50 text-xs">
-                  <span class="font-bold text-rose-700 dark:text-rose-300 font-mono tabular-nums" x-text="'Hunt #' + activeRunId"></span>
+                <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200/80 dark:border-rose-900/50 text-xs whitespace-nowrap">
+                  <span class="font-bold text-rose-700 dark:text-rose-300 font-mono tabular-nums shrink-0" x-text="'Hunt #' + activeRunId"></span>
                   <template x-if="activeRun && formatRunSeedLabel(activeRun)">
-                    <span class="text-slate-700 dark:text-[#E4E4E7] font-medium truncate max-w-[220px]" x-text="formatRunSeedLabel(activeRun)"></span>
+                    <span class="text-slate-700 dark:text-[#E4E4E7] font-medium truncate max-w-[140px]" :title="formatRunSeedLabel(activeRun)" x-text="formatRunSeedLabel(activeRun)"></span>
                   </template>
                   <button type="button"
                           @click="clearRunScope()"
-                          class="text-[11px] font-semibold text-rose-600 dark:text-rose-400 hover:underline ml-1 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 rounded">
+                          class="text-[11px] font-semibold text-rose-600 dark:text-rose-400 hover:underline ml-0.5 shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 rounded">
                     Show all hunts
                   </button>
                 </div>
               </template>
               <template x-if="!activeRunId">
-                <div class="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-[#E4E4E7]">
+                <div class="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-[#E4E4E7] whitespace-nowrap">
                   <i data-lucide="layers" class="w-3.5 h-3.5 text-slate-400" aria-hidden="true"></i>
                   <span>${isCampaignScoped ? 'Campaign Golden Pins' : 'All Discovered Golden Pins'}</span>
                 </div>
@@ -207,8 +226,10 @@ export function getNewbornCandidatesAndRookiesHtml({ folderId = '' } = {}) {
                       aria-label="Sort Golden Pins"
                       class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] text-xs font-medium text-slate-700 dark:text-[#FAFAFA] cursor-pointer">
                 <option value="repins">Sort: Re-pins (High -&gt; Low)</option>
+                <option value="repins_asc">Sort: Re-pins (Low -&gt; High)</option>
                 <option value="cluster_hits">Sort: Cluster Hits (2x+)</option>
                 <option value="fresh">Sort: Age (Youngest)</option>
+                <option value="age_desc">Sort: Age (Oldest)</option>
                 <option value="repin_per_day">Sort: Re-pins / day</option>
                 <option value="saves">Sort: Saves</option>
                 <option value="shares">Sort: Pin Shares (High -&gt; Low)</option>
@@ -310,27 +331,51 @@ export function getNewbornCandidatesAndRookiesHtml({ folderId = '' } = {}) {
             <table class="w-full text-left border-collapse">
               <thead>
                 <tr class="border-b border-slate-200 dark:border-[#27272A] bg-slate-50/70 dark:bg-[#121215] text-[11px] uppercase tracking-wider text-slate-500 dark:text-[#A1A1AA]">
-                  <th class="py-3 pl-4 pr-2 w-9">
+                  <th class="py-3 pl-3 pr-1.5 w-8">
                     <input type="checkbox"
                            :checked="candidates.length > 0 && selectedPinIds.length === candidates.length"
                            @change="toggleSelectAllPins($event.target.checked)"
                            aria-label="Select all Golden Pins"
                            class="rounded text-rose-600 focus:ring-rose-500 cursor-pointer" />
                   </th>
-                  <th class="py-3 px-3 font-semibold min-w-[260px]">Pin &amp; Destination</th>
-                  <th class="py-3 px-3 font-semibold whitespace-nowrap" x-text="settingsDraft?.qualification?.resolve_root_pin ? 'Root Age' : 'Pin Age'">Pin Age</th>
-                  <th class="py-3 px-3 font-semibold whitespace-nowrap">Re-pins</th>
-                  <th class="py-3 px-3 font-semibold min-w-[210px]">Pin Annotations</th>
-                  <th class="py-3 px-3 font-semibold whitespace-nowrap">Discovery Source</th>
-                  <th class="py-3 px-3 font-semibold whitespace-nowrap">Account (Opt-In)</th>
-                  <th class="py-3 pl-3 pr-4 font-semibold text-right whitespace-nowrap">Actions</th>
+                  <th class="py-3 px-2.5 font-semibold min-w-[210px]">Pin &amp; Destination</th>
+                  <th class="py-3 px-2.5 font-semibold whitespace-nowrap"
+                      :aria-sort="getColumnSortDirection('age') === 'asc' ? 'ascending' : (getColumnSortDirection('age') === 'desc' ? 'descending' : 'none')">
+                    <button type="button"
+                            @click="toggleColumnSort('age')"
+                            :title="getColumnSortDirection('age') === 'asc' ? 'Sorted by Youngest first (click for Oldest first)' : 'Sort by Pin Age'"
+                            class="inline-flex items-center gap-1 uppercase tracking-wider cursor-pointer hover:text-rose-600 dark:hover:text-rose-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 rounded"
+                            :class="isColumnSortActive('age') ? 'text-rose-600 dark:text-rose-400 font-bold' : 'text-slate-500 dark:text-[#A1A1AA]'">
+                      <span x-text="settingsDraft?.qualification?.resolve_root_pin ? 'Root Age' : 'Pin Age'">Pin Age</span>
+                      <svg x-show="getColumnSortDirection('age') === 'asc'" class="w-3 h-3 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10l4-4 4 4"/></svg>
+                      <svg x-show="getColumnSortDirection('age') === 'desc'" class="w-3 h-3 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>
+                      <svg x-show="!getColumnSortDirection('age')" class="w-3 h-3 shrink-0 opacity-50" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 6l3-3 3 3M5 10l3 3 3-3"/></svg>
+                    </button>
+                  </th>
+                  <th class="py-3 px-2.5 font-semibold whitespace-nowrap"
+                      :aria-sort="getColumnSortDirection('repins') === 'asc' ? 'ascending' : (getColumnSortDirection('repins') === 'desc' ? 'descending' : 'none')">
+                    <button type="button"
+                            @click="toggleColumnSort('repins')"
+                            :title="getColumnSortDirection('repins') === 'desc' ? 'Sorted by Highest Re-pins (click for Lowest first)' : 'Sort by Re-pins'"
+                            class="inline-flex items-center gap-1 uppercase tracking-wider cursor-pointer hover:text-rose-600 dark:hover:text-rose-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 rounded"
+                            :class="isColumnSortActive('repins') ? 'text-rose-600 dark:text-rose-400 font-bold' : 'text-slate-500 dark:text-[#A1A1AA]'">
+                      <span>Re-pins</span>
+                      <svg x-show="getColumnSortDirection('repins') === 'asc'" class="w-3 h-3 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10l4-4 4 4"/></svg>
+                      <svg x-show="getColumnSortDirection('repins') === 'desc'" class="w-3 h-3 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>
+                      <svg x-show="!getColumnSortDirection('repins')" class="w-3 h-3 shrink-0 opacity-50" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 6l3-3 3 3M5 10l3 3 3-3"/></svg>
+                    </button>
+                  </th>
+                  <th class="py-3 px-2.5 font-semibold min-w-[170px]">Pin Annotations</th>
+                  <th class="py-3 px-2.5 font-semibold whitespace-nowrap">Discovery Source</th>
+                  <th class="py-3 px-2.5 font-semibold whitespace-nowrap">Account</th>
+                  <th class="py-3 pl-2 pr-3 font-semibold text-right whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100 dark:divide-[#27272A] text-xs">
                 <template x-for="pin in candidates" :key="pin.pin_id">
                   <tr class="hover:bg-slate-50/80 dark:hover:bg-[#27272A]/30 align-top transition-colors">
                     <!-- Select Checkbox -->
-                    <td class="py-3 pl-4 pr-2">
+                    <td class="py-3 pl-3 pr-1.5">
                       <input type="checkbox"
                              :value="pin.pin_id"
                              :checked="selectedPinIds.includes(pin.pin_id)"
@@ -340,8 +385,8 @@ export function getNewbornCandidatesAndRookiesHtml({ folderId = '' } = {}) {
                     </td>
 
                     <!-- Pin Image + Title + Destination Domain / No Link Badge -->
-                    <td class="py-3 px-3">
-                      <div class="flex items-start gap-3 min-w-0">
+                    <td class="py-3 px-2.5">
+                      <div class="flex items-start gap-2.5 min-w-0">
                         <button type="button"
                                 @click="openDossier(pin.pin_id)"
                                 class="w-12 h-16 rounded-lg overflow-hidden bg-slate-100 dark:bg-[#121215] border border-slate-200/80 dark:border-[#27272A] shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
@@ -402,7 +447,7 @@ export function getNewbornCandidatesAndRookiesHtml({ folderId = '' } = {}) {
                     </td>
 
                     <!-- Pin Age (Direct by default; Root Age if legacy unwrap enabled) -->
-                    <td class="py-3 px-3 whitespace-nowrap">
+                    <td class="py-3 px-2.5 whitespace-nowrap">
                       <span class="inline-flex items-center px-2 py-0.5 rounded-lg bg-slate-900 dark:bg-[#27272A] text-white text-xs font-mono tabular-nums font-bold"
                             :title="pin.created_at_pinterest ? ((settingsDraft?.qualification?.resolve_root_pin ? 'Verified root created UTC: ' : 'Pin created UTC: ') + pin.created_at_pinterest) : 'Pin age'"
                             x-text="formatRootAge(pin.age_days)"></span>
@@ -411,7 +456,7 @@ export function getNewbornCandidatesAndRookiesHtml({ folderId = '' } = {}) {
                     </td>
 
                     <!-- Re-pins (Prominent Primary Metric + Re-pins/day, Saves quietly alongside) -->
-                    <td class="py-3 px-3 whitespace-nowrap font-mono tabular-nums">
+                    <td class="py-3 px-2.5 whitespace-nowrap font-mono tabular-nums">
                       <div class="text-sm font-bold text-slate-900 dark:text-[#FAFAFA]"
                            x-text="formatNullableCount(pin.repin_count)"></div>
                       <div class="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400"
@@ -426,15 +471,23 @@ export function getNewbornCandidatesAndRookiesHtml({ folderId = '' } = {}) {
                       </template>
                     </td>
 
-                    <!-- Pin Annotations (Extracted from pin_join) -->
-                    <td class="py-3 px-3">
-                      <div class="flex flex-wrap gap-1 max-w-[260px]">
-                        <template x-for="tag in extractPinAnnotationNames(pin).slice(0, 6)" :key="tag">
+                    <!-- Pin Annotations (Extracted from pin_join — first 3 + expandable +N more) -->
+                    <td class="py-3 px-2.5">
+                      <div class="flex flex-wrap items-center gap-1 max-w-[205px]">
+                        <template x-for="tag in getVisiblePinAnnotationNames(pin, 3)" :key="tag">
                           <button type="button"
                                   @click="selectAnnotationFilter(tag)"
-                                  class="px-2 py-0.5 rounded-md text-[11px] border transition-colors cursor-pointer"
+                                  :title="'Filter by annotation: ' + tag"
+                                  class="px-2 py-0.5 rounded-md text-[11px] border transition-colors cursor-pointer truncate max-w-[155px]"
                                   :class="filters.annotation && filters.annotation.toLowerCase() === tag.toLowerCase() ? 'bg-rose-600 border-rose-600 text-white font-semibold' : 'bg-slate-50 dark:bg-[#121215] border-slate-200 dark:border-[#27272A] text-slate-700 dark:text-[#E4E4E7] hover:border-rose-300'"
                                   x-text="tag"></button>
+                        </template>
+                        <template x-if="getHiddenPinAnnotationCount(pin, 3) > 0">
+                          <button type="button"
+                                  @click.stop="togglePinAnnotations(pin.pin_id)"
+                                  :title="isPinAnnotationsExpanded(pin.pin_id) ? 'Collapse extra annotations' : ('Show ' + getHiddenPinAnnotationCount(pin, 3) + ' more annotations')"
+                                  class="px-1.5 py-0.5 rounded-md text-[10px] font-mono tabular-nums font-semibold bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-900/50 hover:bg-indigo-100/80 cursor-pointer"
+                                  x-text="isPinAnnotationsExpanded(pin.pin_id) ? 'Less' : ('+' + getHiddenPinAnnotationCount(pin, 3) + ' more')"></button>
                         </template>
                         <template x-if="extractPinAnnotationNames(pin).length === 0">
                           <span class="text-[11px] text-slate-400">—</span>
@@ -443,8 +496,8 @@ export function getNewbornCandidatesAndRookiesHtml({ folderId = '' } = {}) {
                     </td>
 
                     <!-- Discovery Source (All Real Surfaces + True Discovery Context) -->
-                    <td class="py-3 px-3">
-                      <div class="flex items-center gap-1 flex-wrap max-w-[190px]">
+                    <td class="py-3 px-2.5">
+                      <div class="flex items-center gap-1 flex-wrap max-w-[150px]">
                         <template x-for="surf in getPinDisplaySurfaces(pin)" :key="surf">
                           <span class="inline-flex items-center px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-[#27272A] text-slate-700 dark:text-[#E4E4E7] text-[10px] font-semibold"
                                 x-text="formatSurfaceLabel(surf)"></span>
@@ -459,25 +512,26 @@ export function getNewbornCandidatesAndRookiesHtml({ folderId = '' } = {}) {
                         <a :href="formatBoardUrl(pin.discovery_board_url || pin.board_url)"
                            target="_blank"
                            rel="noopener noreferrer"
-                           class="block text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline truncate max-w-[180px] mt-1"
+                           class="block text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline truncate max-w-[145px] mt-1"
                            :title="'Discovery Board: ' + pin.discovery_board_name"
                            x-text="'Board: ' + pin.discovery_board_name"></a>
                       </template>
                       <template x-if="pin.discovery_board_name && !formatBoardUrl(pin.discovery_board_url || pin.board_url)">
-                        <div class="text-[11px] text-slate-500 dark:text-[#A1A1AA] truncate max-w-[180px] mt-1" :title="'Discovery Board: ' + pin.discovery_board_name" x-text="'Board: ' + pin.discovery_board_name"></div>
+                        <div class="text-[11px] text-slate-500 dark:text-[#A1A1AA] truncate max-w-[145px] mt-1" :title="'Discovery Board: ' + pin.discovery_board_name" x-text="'Board: ' + pin.discovery_board_name"></div>
                       </template>
                       <template x-if="!pin.discovery_board_name && (pin.seed_query || (pin.matched_queries && pin.matched_queries.length > 0))">
-                        <div class="text-[11px] text-slate-500 dark:text-[#A1A1AA] truncate max-w-[180px] mt-1"
+                        <div class="text-[11px] text-slate-500 dark:text-[#A1A1AA] truncate max-w-[145px] mt-1"
                              :title="'Matched query: ' + (pin.seed_query || pin.matched_queries[0])"
                              x-text="'Query: ' + (pin.seed_query || pin.matched_queries[0])"></div>
                       </template>
                     </td>
 
                     <!-- Opt-In Account Column (Off by default until user clicks Pull Account) -->
-                    <td class="py-3 px-3 whitespace-nowrap">
+                    <td class="py-3 px-2.5 whitespace-nowrap">
                       <template x-if="pin.creator_monthly_reach != null || pin.creator_profile_views != null">
-                        <div class="space-y-0.5">
-                          <div class="font-semibold text-slate-800 dark:text-[#FAFAFA] truncate max-w-[135px]"
+                        <div class="space-y-0.5 max-w-[125px]">
+                          <div class="font-semibold text-slate-800 dark:text-[#FAFAFA] truncate max-w-[125px]"
+                               :title="pin.effective_creator_username ? ('@' + pin.effective_creator_username) : 'Creator'"
                                x-text="pin.effective_creator_username ? ('@' + pin.effective_creator_username) : 'Creator'"></div>
                           <div class="text-[11px] font-mono tabular-nums text-emerald-700 dark:text-emerald-400"
                                x-text="'Total audience: ' + formatReach(pin.creator_monthly_reach)"></div>
@@ -488,39 +542,45 @@ export function getNewbornCandidatesAndRookiesHtml({ folderId = '' } = {}) {
                         </div>
                       </template>
                       <template x-if="pin.creator_monthly_reach == null && pin.creator_profile_views == null">
-                        <div class="text-[11px] text-slate-400">
-                          <div x-text="pin.effective_creator_username ? ('@' + pin.effective_creator_username) : 'Not pulled'"></div>
+                        <div class="text-[11px] text-slate-400 max-w-[120px]">
+                          <div class="truncate max-w-[120px]"
+                               :title="pin.effective_creator_username ? ('@' + pin.effective_creator_username) : 'Not pulled'"
+                               x-text="pin.effective_creator_username ? ('@' + pin.effective_creator_username) : 'Not pulled'"></div>
                           <div class="text-[10px] text-slate-400/80">On-demand</div>
                         </div>
                       </template>
                     </td>
 
-                    <!-- 3 Clean Manual Actions -->
-                    <td class="py-3 pl-3 pr-4 text-right whitespace-nowrap">
+                    <!-- 3 Compact Icon Actions with Tooltips -->
+                    <td class="py-3 pl-2 pr-4 text-right whitespace-nowrap">
                       <div class="inline-flex items-center justify-end gap-1.5">
                         <button type="button"
                                 @click="scrollRelatedPins([pin.pin_id])"
-                                title="Deep-scroll Related Pins from this Golden Pin"
-                                class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] hover:bg-slate-100 dark:hover:bg-[#27272A] text-[11px] font-semibold text-slate-700 dark:text-[#FAFAFA] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
-                          <i data-lucide="git-branch" class="w-3 h-3 text-rose-500" aria-hidden="true"></i>
-                          <span>Scroll Related</span>
+                                title="Scroll Related — Deep-scroll Related Pins from this Golden Pin"
+                                aria-label="Scroll Related"
+                                class="w-8 h-8 inline-flex items-center justify-center rounded-lg border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:border-rose-300 dark:hover:border-rose-800 text-slate-700 dark:text-[#FAFAFA] hover:text-rose-600 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500">
+                          <i data-lucide="git-branch" class="w-3.5 h-3.5 text-rose-500" aria-hidden="true"></i>
+                          <span class="sr-only">Scroll Related</span>
                         </button>
 
                         <button type="button"
                                 @click="openPromoteModal([pin.pin_id])"
-                                class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
-                                :class="pin.stage === 'promoted' ? 'bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300' : 'bg-rose-600 hover:bg-rose-700 text-white'">
-                          <i data-lucide="bookmark-plus" class="w-3 h-3" aria-hidden="true"></i>
-                          <span x-text="pin.stage === 'promoted' ? 'Tracking' : 'Track Daily'"></span>
+                                :title="pin.stage === 'promoted' ? 'Tracking Daily (Click to manage destinations)' : 'Track Daily — Promote & monitor daily velocity'"
+                                :aria-label="pin.stage === 'promoted' ? 'Tracking' : 'Track Daily'"
+                                class="w-8 h-8 inline-flex items-center justify-center rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+                                :class="pin.stage === 'promoted' ? 'bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300' : 'bg-rose-600 hover:bg-rose-700 text-white shadow-xs'">
+                          <i data-lucide="bookmark-plus" class="w-3.5 h-3.5" aria-hidden="true"></i>
+                          <span class="sr-only" x-text="pin.stage === 'promoted' ? 'Tracking' : 'Track Daily'">Track Daily</span>
                         </button>
 
                         <button type="button"
                                 @click="pullAccountReach([pin.pin_id])"
                                 :disabled="Boolean(pullingAccountPins[pin.pin_id])"
-                                title="Pull creator Total audience & Impressions via Zero-Cookie UserResource"
-                                class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50/70 dark:bg-indigo-950/30 hover:bg-indigo-100/70 disabled:opacity-50 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
-                          <i data-lucide="user-check" class="w-3 h-3" :class="pullingAccountPins[pin.pin_id] ? 'animate-pulse' : ''" aria-hidden="true"></i>
-                          <span x-text="pullingAccountPins[pin.pin_id] ? 'Pulling...' : 'Pull Account'"></span>
+                                :title="pullingAccountPins[pin.pin_id] ? 'Pulling creator account reach...' : 'Pull Account — Fetch creator Total audience & Impressions'"
+                                aria-label="Pull Account"
+                                class="w-8 h-8 inline-flex items-center justify-center rounded-lg border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50/70 dark:bg-indigo-950/30 hover:bg-indigo-100/80 disabled:opacity-50 text-indigo-700 dark:text-indigo-300 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+                          <i data-lucide="user-check" class="w-3.5 h-3.5" :class="pullingAccountPins[pin.pin_id] ? 'animate-pulse' : ''" aria-hidden="true"></i>
+                          <span class="sr-only" x-text="pullingAccountPins[pin.pin_id] ? 'Pulling...' : 'Pull Account'">Pull Account</span>
                         </button>
                       </div>
                     </td>

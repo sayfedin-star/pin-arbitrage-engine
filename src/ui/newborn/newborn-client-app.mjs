@@ -131,7 +131,8 @@ export function getNewbornClientAppScript() {
         isLaunchingClusterHunt: false,
 
         // Full Pinterest Trends Panel (50-100 Trends + All 8 Filters)
-        showTrendsDrawer: !scopedFolderId || initialMode === 'launchpad',
+        showTrendsDrawer: initialMode === 'launchpad',
+        showAnnotationsCrossover: false,
         isRefreshingLaunchpad: false,
         launchpadCountry: 'US',
         launchpadTrendType: 'growing',
@@ -229,6 +230,7 @@ export function getNewbornClientAppScript() {
         // Annotations Crossover & On-Demand Account Reach
         crossoverClusters: [],
         annotationVolumeMap: {},
+        expandedPinAnnotations: {},
         isCheckingAnnotationVolumes: false,
         pullingAccountPins: {},
         isPullingBulkAccounts: false,
@@ -1766,6 +1768,58 @@ export function getNewbornClientAppScript() {
           this.loadCandidates(true);
         },
 
+        toggleAnnotationsCrossover() {
+          this.showAnnotationsCrossover = !this.showAnnotationsCrossover;
+          this.refreshIcons();
+        },
+
+        toggleColumnSort(column) {
+          const current = String(this.filters.sort || 'repins');
+          if (column === 'age') {
+            this.filters.sort = current === 'fresh' ? 'age_desc' : 'fresh';
+          } else if (column === 'repins') {
+            this.filters.sort = current === 'repins' ? 'repins_asc' : 'repins';
+          }
+          this.loadCandidates(true);
+        },
+
+        isColumnSortActive(column) {
+          const s = String(this.filters.sort || 'repins');
+          if (column === 'age') return s === 'fresh' || s === 'age_desc';
+          if (column === 'repins') return s === 'repins' || s === 'repins_asc';
+          return false;
+        },
+
+        getColumnSortDirection(column) {
+          const s = String(this.filters.sort || 'repins');
+          if (column === 'age') return s === 'age_desc' ? 'desc' : (s === 'fresh' ? 'asc' : '');
+          if (column === 'repins') return s === 'repins_asc' ? 'asc' : (s === 'repins' ? 'desc' : '');
+          return '';
+        },
+
+        isPinAnnotationsExpanded(pinId) {
+          return Boolean(pinId && this.expandedPinAnnotations[pinId]);
+        },
+
+        togglePinAnnotations(pinId) {
+          if (!pinId) return;
+          this.expandedPinAnnotations = {
+            ...this.expandedPinAnnotations,
+            [pinId]: !this.expandedPinAnnotations[pinId]
+          };
+        },
+
+        getVisiblePinAnnotationNames(pin, cap = 3) {
+          const all = this.extractPinAnnotationNames(pin);
+          if (this.isPinAnnotationsExpanded(pin?.pin_id)) return all;
+          return all.slice(0, cap);
+        },
+
+        getHiddenPinAnnotationCount(pin, cap = 3) {
+          const all = this.extractPinAnnotationNames(pin);
+          return Math.max(0, all.length - cap);
+        },
+
         buildCandidateFilterParams({ limit = null, offset = null } = {}) {
           const params = new URLSearchParams();
           if (this.activeRunId) params.set('run_id', String(this.activeRunId));
@@ -1918,6 +1972,7 @@ export function getNewbornClientAppScript() {
         },
 
         async checkAnnotationVolumes() {
+          this.showAnnotationsCrossover = true;
           const list = this.annotationsCrossoverList().slice(0, 24);
           if (list.length === 0) return;
           this.isCheckingAnnotationVolumes = true;

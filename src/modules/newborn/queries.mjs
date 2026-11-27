@@ -421,18 +421,32 @@ export async function listNewbornCandidates(sql, filters = {}) {
             ORDER BY nc.save_count DESC NULLS LAST, nc.golden_score DESC, nc.pin_id ASC
             LIMIT ${limit} OFFSET ${offset};
           `
-        : sort === 'repins' || sort === 'repin_count'
+        : sort === 'repins' || sort === 'repin_count' || sort === 'repins_desc'
         ? sql`
             SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
             WHERE ${whereCond}
             ORDER BY nc.repin_count DESC NULLS LAST, nc.repin_per_day DESC NULLS LAST, nc.age_days ASC NULLS LAST, nc.pin_id ASC
             LIMIT ${limit} OFFSET ${offset};
           `
-        : sort === 'fresh' || sort === 'age_days'
+        : sort === 'repins_asc'
+        ? sql`
+            SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
+            WHERE ${whereCond}
+            ORDER BY nc.repin_count ASC NULLS LAST, nc.age_days ASC NULLS LAST, nc.pin_id ASC
+            LIMIT ${limit} OFFSET ${offset};
+          `
+        : sort === 'fresh' || sort === 'age_days' || sort === 'age_asc'
         ? sql`
             SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
             WHERE ${whereCond}
             ORDER BY nc.age_days ASC NULLS LAST, nc.repin_count DESC NULLS LAST, nc.pin_id ASC
+            LIMIT ${limit} OFFSET ${offset};
+          `
+        : sort === 'age_desc' || sort === 'oldest'
+        ? sql`
+            SELECT ${selectCols} FROM newborn_candidates nc ${runJoin}
+            WHERE ${whereCond}
+            ORDER BY nc.age_days DESC NULLS LAST, nc.repin_count DESC NULLS LAST, nc.pin_id ASC
             LIMIT ${limit} OFFSET ${offset};
           `
         : sort === 'recent'
