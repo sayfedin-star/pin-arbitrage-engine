@@ -279,7 +279,7 @@ export async function calculateFolderCrossover(sql, folderId, { refresh = false,
   try {
     return await crossoverCache.getOrFetch(
       key,
-      async () => await _executeFolderCrossover(sql, fid),
+      async () => await _executeFolderCrossover(sql, fid, workspaceId),
       {
         ttlMs: CROSSOVER_TTL_MS,
         forceRefresh: effectiveRefresh,
@@ -643,12 +643,16 @@ async function queryAggregatedFolderPins(sql, fid) {
   }
 }
 
-async function _executeFolderCrossover(sql, fid) {
-  // 1. Fetch Folder & Member Keywords
+async function _executeFolderCrossover(sql, fid, workspaceId = null) {
+  // 1. Fetch Folder & Member Keywords (enforcing workspace ownership when workspaceId is provided)
+  const cleanWid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : null;
   const [folder] = await sql`
     SELECT * FROM keyword_folders WHERE id = ${fid} LIMIT 1;
   `;
   if (!folder) throw new Error('Folder not found');
+  if (cleanWid !== null && folder.workspace_id != null && Number(folder.workspace_id) !== cleanWid) {
+    throw new Error('Folder not found');
+  }
 
   const folderKeywords = await sql`
     SELECT 
@@ -855,7 +859,8 @@ async function _executeFolderCrossover(sql, fid) {
     pinRows,
     displacedRows: [],
     capsuleRows,
-    repinWindowRows
+    repinWindowRows,
+    workspaceId: workspaceId ?? folder?.workspace_id ?? null
   });
   if (repinWindowDegraded && matrix && typeof matrix === 'object') {
     matrix.degraded = true;

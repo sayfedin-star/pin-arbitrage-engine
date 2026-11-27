@@ -2063,31 +2063,11 @@ async function flushToUnifiedPostgres(enrichedPins, kw = null) {
             : null;
           sp.daily_repin_velocity = gains.daily_repin_velocity ?? gains.delta_repins_24h ?? null;
         } else if (todayPrevSnap) {
-          const prevTodaySaves = Number(todayPrevSnap.save_count || 0);
-          if (prevTodaySaves > 0) {
-            const intradayDelta = Math.max(0, Number(sp.save_count || 0) - prevTodaySaves);
-            const prevTodayVel = Number(todayPrevSnap.daily_save_velocity || 0) < prevTodaySaves
-              ? Number(todayPrevSnap.daily_save_velocity || 0)
-              : 0;
-            sp.daily_save_velocity = Math.min(25000, Math.max(Number(sp.daily_save_velocity || 0), prevTodayVel, intradayDelta));
-            sp.delta_saves_24h = Math.round(sp.daily_save_velocity);
-          } else {
-            sp.daily_save_velocity = 0;
-            sp.delta_saves_24h = 0;
-          }
-          const prevTodayRepins = Number(todayPrevSnap.repin_count || 0);
-          if (prevTodayRepins > 0 && sp.repin_count != null) {
-            const intradayRepinDelta = Math.max(0, Number(sp.repin_count || 0) - prevTodayRepins);
-            const prevTodayRepinVel = Number(todayPrevSnap.daily_repin_velocity || 0) < prevTodayRepins
-              ? Number(todayPrevSnap.daily_repin_velocity || 0)
-              : 0;
-            const resolvedRepinVel = Math.min(25000, Math.max(prevTodayRepinVel, intradayRepinDelta));
-            sp.delta_repins_24h = Math.round(resolvedRepinVel);
-            sp.daily_repin_velocity = Math.round(resolvedRepinVel * 100) / 100;
-          } else {
-            sp.delta_repins_24h = gains.delta_repins_24h != null ? Math.round(Number(gains.delta_repins_24h)) : null;
-            sp.daily_repin_velocity = gains.daily_repin_velocity ?? null;
-          }
+          // Day-1 intraday re-crawl with no prior-day baseline: never fabricate 24h velocity from intraday steps.
+          sp.daily_save_velocity = null;
+          sp.delta_saves_24h = null;
+          sp.delta_repins_24h = null;
+          sp.daily_repin_velocity = null;
         } else if (priorDaySnaps.length === 0 && !snapQueryFailed) {
           sp.daily_save_velocity = gains.daily_save_velocity ?? null;
           sp.delta_saves_24h = gains.delta_saves_24h != null ? Math.round(Number(gains.delta_saves_24h)) : null;

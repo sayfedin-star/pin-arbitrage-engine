@@ -16,7 +16,7 @@ import { calculateDailyVelocity, isRepinHydrationJump, detectHydrationJump } fro
 import { buildRichPinMetadataPayload, normalizeCleanDomain, isSyntheticGarbageTitle, sanitizeVisualAnnotations } from '../../domain/pin-intelligence.mjs';
 import { qualifyPin } from '../creators/competitors-crud.mjs';
 import { getPinDossier, fetchUniversalPinDossier, fetchPinTrajectory } from './dossier-reader.mjs';
-import { normalizeCanonicalCreationMethod } from '../newborn/surface-normalizers.mjs';
+import { normalizeCanonicalCreationMethod, decodeHtmlEntities } from '../newborn/surface-normalizers.mjs';
 
 export { normalizeCleanDomain, getPinDossier, fetchUniversalPinDossier, fetchPinTrajectory };
 
@@ -148,7 +148,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
     }
 
     const boardId = String(p.board_id || options.board_id || '').trim() || null;
-    const boardName = String(p.board_name || p.boardName || '').trim() || null;
+    const boardName = decodeHtmlEntities(String(p.board_name || p.boardName || '')).trim() || null;
     const boardSlug = String(p.board_slug || '').trim() || (boardName ? boardName.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') : null);
     const competitorId = p.competitor_id != null ? Number(p.competitor_id) : (options.competitor_id != null ? Number(options.competitor_id) : null);
     const kwId = p.keyword_id != null ? Number(p.keyword_id) : null;
@@ -179,13 +179,13 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           board_id: boardId,
           board_name: boardName,
           board_slug: boardSlug,
-          title: String(p.title || '').trim(),
+          title: decodeHtmlEntities(String(p.title || '')).trim(),
           domain: cleanDomain || domainRaw || null,
           clean_domain: cleanDomain || null,
           destination_url: destUrl || null,
           image_url: String(p.image_url || p.imageUrl || '').trim(),
-          description: String(p.description || '').trim(),
-          alt_text: String(p.alt_text || '').trim(),
+          description: decodeHtmlEntities(String(p.description || '')).trim(),
+          alt_text: decodeHtmlEntities(String(p.alt_text || '')).trim(),
           dominant_color: (() => {
             const c = String(p.dominant_color || p.dominantColor || '').trim();
             return (!c || c.toLowerCase() === '#888888') ? null : c;
@@ -273,14 +273,14 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
         existing.was_live_scraped = Boolean(existing.was_live_scraped || incomingWasLive);
         existing.is_cached_carryover = Boolean(existing.is_cached_carryover && incomingCachedCarryover && !existing.was_live_scraped);
 
-        const candidateTitle = String(p.title || '').trim();
+        const candidateTitle = decodeHtmlEntities(String(p.title || '')).trim();
         if ((!existing.title || isSyntheticGarbageTitle(existing.title, pid)) && candidateTitle && !isSyntheticGarbageTitle(candidateTitle, pid)) {
           existing.title = candidateTitle;
         } else if (!existing.title && candidateTitle) {
           existing.title = candidateTitle;
         }
-        if (!existing.description && p.description) existing.description = String(p.description).trim();
-        if (!existing.alt_text && p.alt_text) existing.alt_text = String(p.alt_text).trim();
+        if (!existing.description && p.description) existing.description = decodeHtmlEntities(String(p.description)).trim();
+        if (!existing.alt_text && p.alt_text) existing.alt_text = decodeHtmlEntities(String(p.alt_text)).trim();
         const incImage = String(p.image_url || p.imageUrl || '').trim();
         if (!existing.image_url && incImage) existing.image_url = incImage;
         if (!existing.destination_url && destUrl) existing.destination_url = destUrl;
@@ -466,7 +466,9 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
             WHEN eb.was_live_scraped = FALSE OR COALESCE(eb.is_cached_carryover, FALSE) = TRUE THEN NULL::double precision
             WHEN eb.save_count IS NULL THEN NULL
             WHEN eb.is_save_jump THEN 0::double precision
-            WHEN eb.daily_save_velocity IS NOT NULL THEN LEAST(25000::double precision, GREATEST(0::double precision, eb.daily_save_velocity))
+            -- [INVARIANT: PRIOR-DAY-SSOT-VELOCITY] When a prior-day baseline exists in pins_daily_metrics,
+            -- PostgreSQL authoritatively computes 24h velocity from (current - prev_day) / elapsed_days so
+            -- intraday re-crawls can NEVER freeze stale velocities or overwrite with 2-hour step deltas.
             WHEN eb.prev_save_count IS NOT NULL AND eb.prev_save_count > 0
              AND (eb.recorded_date - eb.prev_recorded_date) >= 1 THEN
               LEAST(
@@ -477,13 +479,13 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
                   2
                 )::double precision
               )
+            WHEN eb.daily_save_velocity IS NOT NULL THEN LEAST(25000::double precision, GREATEST(0::double precision, eb.daily_save_velocity))
             ELSE NULL::double precision
           END AS effective_save_velocity,
           CASE
             WHEN eb.was_live_scraped = FALSE OR COALESCE(eb.is_cached_carryover, FALSE) = TRUE THEN NULL::double precision
             WHEN eb.repin_count IS NULL THEN NULL
             WHEN eb.is_repin_jump OR eb.is_save_jump THEN 0::double precision
-            WHEN eb.daily_repin_velocity IS NOT NULL THEN LEAST(25000::double precision, GREATEST(0::double precision, eb.daily_repin_velocity))
             WHEN eb.prev_repin_count IS NOT NULL AND eb.prev_repin_count > 0
              AND (eb.recorded_date - eb.prev_recorded_date) >= 1 THEN
               LEAST(
@@ -494,14 +496,13 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
                   2
                 )::double precision
               )
+            WHEN eb.daily_repin_velocity IS NOT NULL THEN LEAST(25000::double precision, GREATEST(0::double precision, eb.daily_repin_velocity))
             ELSE NULL::double precision
           END AS effective_repin_velocity,
           CASE
             WHEN eb.was_live_scraped = FALSE OR COALESCE(eb.is_cached_carryover, FALSE) = TRUE THEN NULL::bigint
             WHEN eb.save_count IS NULL THEN NULL
             WHEN eb.is_save_jump THEN 0::bigint
-            WHEN eb.delta_saves_24h IS NOT NULL THEN LEAST(25000::bigint, GREATEST(0::bigint, eb.delta_saves_24h))
-            WHEN eb.daily_save_velocity IS NOT NULL THEN LEAST(25000::bigint, ROUND(GREATEST(0::numeric, eb.daily_save_velocity::numeric))::bigint)
             WHEN eb.prev_save_count IS NOT NULL AND eb.prev_save_count > 0
              AND (eb.recorded_date - eb.prev_recorded_date) >= 1 THEN
               LEAST(
@@ -511,13 +512,14 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
                   / GREATEST(1, (eb.recorded_date - eb.prev_recorded_date))
                 )::bigint
               )
+            WHEN eb.delta_saves_24h IS NOT NULL THEN LEAST(25000::bigint, GREATEST(0::bigint, eb.delta_saves_24h))
+            WHEN eb.daily_save_velocity IS NOT NULL THEN LEAST(25000::bigint, ROUND(GREATEST(0::numeric, eb.daily_save_velocity::numeric))::bigint)
             ELSE NULL::bigint
           END AS true_delta_saves_24h,
           CASE
             WHEN eb.was_live_scraped = FALSE OR COALESCE(eb.is_cached_carryover, FALSE) = TRUE THEN NULL::bigint
             WHEN eb.repin_count IS NULL THEN NULL
             WHEN eb.is_repin_jump OR eb.is_save_jump THEN 0::bigint
-            WHEN eb.delta_repins_24h IS NOT NULL THEN LEAST(25000::bigint, GREATEST(0::bigint, eb.delta_repins_24h::bigint))
             WHEN eb.prev_repin_count IS NOT NULL AND eb.prev_repin_count > 0
              AND (eb.recorded_date - eb.prev_recorded_date) >= 1 THEN
               LEAST(
@@ -527,6 +529,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
                   / GREATEST(1, (eb.recorded_date - eb.prev_recorded_date))
                 )::bigint
               )
+            WHEN eb.delta_repins_24h IS NOT NULL THEN LEAST(25000::bigint, GREATEST(0::bigint, eb.delta_repins_24h::bigint))
             ELSE NULL::bigint
           END AS true_delta_repins_24h
         FROM evaluated_batch eb
@@ -1171,20 +1174,9 @@ export async function syncPinAcrossAllFourPillars({
           baselineDate
         });
 
-    const existingPositiveVelocity = Math.max(
-      0,
-      ...targetRows.map(r => Number(r.daily_save_velocity) || 0),
-      ...displacedRows.map(r => Number(r.daily_save_velocity) || 0),
-      Number(todayShardRow?.daily_save_velocity || 0)
-    );
-    const existingPositiveRepinDelta = Math.max(
-      0,
-      ...targetRows.map(r => Number(r.delta_repins_24h) || 0),
-      ...displacedRows.map(r => Number(r.delta_repins_24h) || 0)
-    );
-
     const baselineDateIso = toIsoDateStr(baselineDate);
-    const daysElapsed = (baselineDateIso && baselineDateIso < todayUtcStr)
+    const hasPriorDayBaseline = Boolean(baselineDateIso && baselineDateIso < todayUtcStr);
+    const daysElapsed = hasPriorDayBaseline
       ? Math.max(1, Math.round((Date.parse(`${todayUtcStr}T00:00:00Z`) - Date.parse(`${baselineDateIso}T00:00:00Z`)) / 86400000))
       : 1;
     const repinJumpDetected = jumpDetected || isRepinHydrationJump(
@@ -1195,49 +1187,21 @@ export async function syncPinAcrossAllFourPillars({
     const dailyRepinVelocityFromBaseline = Math.min(25000, Math.round((rawRepinDelta / daysElapsed) * 100) / 100);
     const dailyRepinDeltaFromBaseline = Math.min(25000, Math.round(rawRepinDelta / daysElapsed));
 
-    const intradayStepGain = (todayShardRow && newSaves !== null)
-      ? Math.max(0, newSaves - Number(todayShardRow.save_count || 0))
-      : 0;
-    const isIntradayJump = (todayShardRow && newSaves !== null) && detectHydrationJump({
-      currentSaves: newSaves,
-      baselineSaves: Number(todayShardRow.save_count || 0),
-      currentRepins: newRepins,
-      baselineRepins: Number(todayShardRow.repin_count || 0)
-    });
-    const cappedIntradayStepGain = (isIntradayJump || jumpDetected) ? 0 : Math.min(25000, intradayStepGain);
-
-    const intradayRepinStepGain = (todayShardRow && newRepins !== null && !repinJumpDetected && !isRepinHydrationJump(
-      { save_count: Number(todayShardRow.save_count || 0), repin_count: Number(todayShardRow.repin_count || 0) },
-      { save_count: newSaves, repin_count: newRepins }
-    ))
-      ? Math.max(0, newRepins - Number(todayShardRow.repin_count || 0))
-      : 0;
-    const syncVelocityVal = (newSaves === null)
+    // Only emit 24h velocity/deltas when a genuine prior-day UTC baseline exists;
+    // Day-1 intraday refreshes stay null so ingestPinsBatch SSOT never fabricates 24h deltas from 2-hour intraday steps.
+    const syncVelocityVal = (newSaves === null || !hasPriorDayBaseline)
       ? null
       : (jumpDetected
         ? 0
         : ((hasExplicitScrapedSaves && baselineSaves > 0 && newSaves < baselineSaves)
           ? 0
-          : ((!baselineDateIso || baselineDateIso === todayUtcStr)
-            ? Math.max(existingPositiveVelocity, computedVelocity, cappedIntradayStepGain)
-            : computedVelocity)));
-    const safeExistingRepinDelta = (existingPositiveRepinDelta >= 150 && newRepins !== null && newRepins >= 200 && (newRepins - existingPositiveRepinDelta) <= Math.max(60, newRepins * 0.05) && (syncVelocityVal ?? 0) < existingPositiveRepinDelta * 0.15)
-      ? 0
-      : existingPositiveRepinDelta;
-    const syncRepinVelocity = (newRepins === null)
+          : computedVelocity));
+    const syncRepinVelocity = (newRepins === null || !hasPriorDayBaseline)
       ? null
-      : (repinJumpDetected
-        ? 0
-        : ((!baselineDateIso || baselineDateIso === todayUtcStr)
-          ? Math.max(safeExistingRepinDelta, dailyRepinVelocityFromBaseline, intradayRepinStepGain)
-          : dailyRepinVelocityFromBaseline));
-    const syncRepinsDelta = (newRepins === null)
+      : (repinJumpDetected ? 0 : dailyRepinVelocityFromBaseline);
+    const syncRepinsDelta = (newRepins === null || !hasPriorDayBaseline)
       ? null
-      : (repinJumpDetected
-        ? 0
-        : ((!baselineDateIso || baselineDateIso === todayUtcStr)
-          ? Math.max(safeExistingRepinDelta, dailyRepinDeltaFromBaseline, intradayRepinStepGain)
-          : dailyRepinDeltaFromBaseline));
+      : (repinJumpDetected ? 0 : dailyRepinDeltaFromBaseline);
 
     // Delegate master creative, 48 SSR fields, intraday checkpoint, and pins_daily_metrics upsert to ingestPinsBatch
     await ingestPinsBatch(tx, [{

@@ -208,7 +208,7 @@ ${renderAppSidebar({
                             class="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
                             title="Remove from Watchlist"
                             aria-label="Remove creator from Watchlist">
-                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
                           </button>
                         </div>
                       </td>
@@ -358,15 +358,22 @@ ${renderAppSidebar({
                     </td>
                     <td class="px-4 py-3 text-slate-500 dark:text-[#A1A1AA]" x-text="item.notes || '—'"></td>
                     <td class="px-4 py-3 text-right whitespace-nowrap">
-                      <button
-                        type="button"
-                        @click="removeWatchlistItem(item)"
-                        :disabled="Boolean(removingIds[item.id])"
-                        class="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
-                        title="Remove domain from Watchlist"
-                        aria-label="Remove domain from Watchlist">
-                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                      </button>
+                      <div class="inline-flex items-center gap-1.5">
+                        <a
+                          :href="'/domains/' + encodeURIComponent(item.entity_key)"
+                          class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] text-[11px] font-semibold text-slate-700 dark:text-slate-200 hover:border-rose-400 hover:text-rose-600 transition">
+                          Inspect
+                        </a>
+                        <button
+                          type="button"
+                          @click="removeWatchlistItem(item)"
+                          :disabled="Boolean(removingIds[item.id])"
+                          class="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
+                          title="Remove domain from Watchlist"
+                          aria-label="Remove domain from Watchlist">
+                          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 </template>
@@ -426,15 +433,22 @@ ${renderAppSidebar({
                     <td class="px-4 py-3 text-right font-mono tabular-nums font-semibold" x-text="fmtNum(item.pin_save_count ?? 0)"></td>
                     <td class="px-4 py-3 text-right font-mono tabular-nums" x-text="fmtNum(item.pin_repin_count ?? 0)"></td>
                     <td class="px-4 py-3 text-right whitespace-nowrap">
-                      <button
-                        type="button"
-                        @click="removeWatchlistItem(item)"
-                        :disabled="Boolean(removingIds[item.id])"
-                        class="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
-                        title="Remove pin from Watchlist"
-                        aria-label="Remove pin from Watchlist">
-                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                      </button>
+                      <div class="inline-flex items-center gap-1.5">
+                        <a
+                          :href="'/pin/' + encodeURIComponent(item.entity_key)"
+                          class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] text-[11px] font-semibold text-slate-700 dark:text-slate-200 hover:border-rose-400 hover:text-rose-600 transition">
+                          Open Pin
+                        </a>
+                        <button
+                          type="button"
+                          @click="removeWatchlistItem(item)"
+                          :disabled="Boolean(removingIds[item.id])"
+                          class="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
+                          title="Remove pin from Watchlist"
+                          aria-label="Remove pin from Watchlist">
+                          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 </template>
@@ -458,7 +472,7 @@ ${renderAppSidebar({
           <div class="flex items-center justify-between">
             <h3 class="text-base font-bold text-slate-900 dark:text-[#FAFAFA]">Add Creator to Watchlist</h3>
             <button type="button" @click="showAddCreatorModal = false" class="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer" aria-label="Close modal">
-              <i data-lucide="x" class="w-4 h-4"></i>
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
             </button>
           </div>
           <form @submit.prevent="submitAddCreator()" class="space-y-3.5">
@@ -493,7 +507,7 @@ ${renderAppSidebar({
           <div class="flex items-center justify-between">
             <h3 class="text-base font-bold text-slate-900 dark:text-[#FAFAFA]">Add Domain to Watchlist</h3>
             <button type="button" @click="showAddDomainModal = false" class="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer" aria-label="Close modal">
-              <i data-lucide="x" class="w-4 h-4"></i>
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
             </button>
           </div>
           <form @submit.prevent="submitAddDomain()" class="space-y-3.5">

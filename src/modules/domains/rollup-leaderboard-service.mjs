@@ -909,7 +909,7 @@ export async function listDomainsIntelligenceFast(sql, options = {}) {
       const offset = (page - 1) * limit;
       const searchPattern = search ? `%${escapeSqlLike(search.toLowerCase())}%` : null;
       const allowedDomainsFilterSql = normalizedAllowed.length > 0
-        ? sqlFrag`AND REGEXP_REPLACE(LOWER(r.domain), '^www\\.', '') = ANY(${normalizedAllowed}::text[])`
+        ? sqlFrag`AND r.domain = ANY(${normalizedAllowed}::text[])`
         : sqlFrag``;
 
       const rollupSrcSql = sqlFrag`

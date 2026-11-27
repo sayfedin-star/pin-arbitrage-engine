@@ -116,11 +116,16 @@ export function getPinDetailsBodyHtml(safePinId) {
         type="button"
         @click="savePinToWatchlist()"
         :disabled="v4WatchlistBusy"
-        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:border-amber-500/60 text-slate-700 dark:text-slate-200 text-xs font-semibold transition cursor-pointer disabled:opacity-50"
-        title="Save Pin to Workspace Watchlist for daily velocity tracking"
+        :aria-pressed="isWatchlisted ? 'true' : 'false'"
+        :data-watchlisted="isWatchlisted ? 'true' : 'false'"
+        :class="isWatchlisted
+          ? 'border-amber-400/80 dark:border-amber-500/60 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 hover:bg-amber-100/80 dark:hover:bg-amber-950/60'
+          : 'border-slate-200 dark:border-[#27272A] bg-white dark:bg-[#18181B] hover:border-amber-500/60 text-slate-700 dark:text-slate-200'"
+        class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer disabled:opacity-50"
+        :title="isWatchlisted ? 'Saved in Workspace Watchlist (click to remove)' : 'Save Pin to Workspace Watchlist for daily velocity tracking'"
       >
-        <i data-lucide="bookmark" class="w-3.5 h-3.5 text-amber-500"></i>
-        <span class="hidden md:inline" x-text="v4WatchlistBusy ? 'Saving...' : 'Watchlist'"></span>
+        <svg class="w-3.5 h-3.5 text-amber-500 shrink-0" viewBox="0 0 24 24" :fill="isWatchlisted ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>
+        <span class="hidden md:inline" x-text="v4WatchlistBusy ? (isWatchlisted ? 'Removing...' : 'Saving...') : (isWatchlisted ? 'Watchlisted' : 'Watchlist')"></span>
       </button>
 
       <!-- V4 Campaign Track / Pin Graph Seed CTA -->

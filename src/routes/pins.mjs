@@ -49,6 +49,7 @@ export async function handlePinsRoutes({
   env,
   ctx,
   sql,
+  workspaceId = null,
   jsonResponse,
   methodNotAllowedResponse,
   buildCanonicalCacheKey,
@@ -503,13 +504,13 @@ export async function handlePinsRoutes({
     }
     try {
       const forceRefresh = searchParams.get('refresh') === 'true';
-      const dossierCacheKey = buildCanonicalCacheKey('pin:dossier', { pin_id: pinId });
+      const dossierCacheKey = buildCanonicalCacheKey('pin:dossier', { pin_id: pinId, workspace_id: workspaceId ?? 1 });
       if (forceRefresh) {
         await invalidateEdgeCache(dossierCacheKey);
       }
 
       // [INVARIANT: DIRECT-POSTGRES-READ] Always fetch live PostgreSQL data directly (pure read-only SSOT)
-      const dossier = await fetchUniversalPinDossier({ sql, pinId, ctx, env, bypassEdgeCache: true });
+      const dossier = await fetchUniversalPinDossier({ sql, pinId, ctx, env, workspaceId, bypassEdgeCache: true });
       if (dossier && !dossier.first_saved_at && dossier.creative) {
         dossier.first_saved_at = dossier.creative.first_saved_at || dossier.creative.first_discovered_at || null;
         dossier.last_resaved_at = dossier.creative.last_resaved_at || dossier.creative.updated_at || null;

@@ -866,7 +866,7 @@ test('Blind-Review P0/P1/P2 fixes: cache poisoning guard, stats secret redaction
   );
   const pg16Query = pg16Captured.find((c) => c.sql.includes('FROM domain_intelligence_rollup r'));
   assert.ok(pg16Query.sql.includes("jsonb_typeof(r.sample_accounts) = 'array'"));
-  assert.ok(pg16Query.sql.includes("REGEXP_REPLACE(LOWER(r.domain), '^www\\.', '') = ANY("));
+  assert.ok(pg16Query.sql.includes("r.domain = ANY("));
 
   // 5. P1-3 & P1-5: syncSingleDomainRollup guards pending/organic/keywordId & closeDossier never writes pending
   const pendingSyncCalls = [];

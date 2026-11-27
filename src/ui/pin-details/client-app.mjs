@@ -48,6 +48,8 @@ export function getPinDetailsClientAppScripts() {
         isSyncing: false,
         isTrackingCreator: false,
         v4WatchlistBusy: false,
+        isWatchlisted: false,
+        watchlistItemId: null,
         v4CampaignModalOpen: false,
         v4CampaignActionBusy: false,
         v4CampaignFolders: [],
@@ -620,6 +622,8 @@ export function getPinDetailsClientAppScripts() {
             if (res.ok) {
               const data = await res.json();
               this.dossier = data;
+              this.isWatchlisted = Boolean(data?.is_watchlisted || data?.watchlist?.is_watchlisted);
+              this.watchlistItemId = data?.watchlist_item_id ?? data?.watchlist?.item_id ?? null;
               this.isDbBusy = Boolean(data?.is_degraded);
               this.rebuildDateMapCache();
 
@@ -1506,8 +1510,48 @@ export function getPinDetailsClientAppScripts() {
         async savePinToWatchlist() {
           if (this.v4WatchlistBusy || !this.pinId) return;
           this.v4WatchlistBusy = true;
+          const fetcher = (window.safeApiFetch || fetch);
           try {
-            const res = await (window.safeApiFetch || fetch)('/api/watchlist', {
+            if (this.isWatchlisted) {
+              let itemId = this.watchlistItemId;
+              if (!itemId) {
+                const listRes = await fetcher('/api/watchlist?entity_type=pin', { headers: { Accept: 'application/json' } });
+                if (listRes.ok) {
+                  const listData = await listRes.json().catch(() => ({}));
+                  const found = (listData?.items || []).find((it) => String(it?.entity_key || '') === String(this.pinId));
+                  if (found?.id != null) itemId = found.id;
+                }
+              }
+              if (!itemId) {
+                this.isWatchlisted = false;
+                this.watchlistItemId = null;
+                this.showToast('Pin #' + this.pinId + ' removed from Workspace Watchlist');
+                return;
+              }
+              const delRes = await fetcher('/api/watchlist/' + encodeURIComponent(String(itemId)), {
+                method: 'DELETE',
+                headers: { Accept: 'application/json' }
+              });
+              const delData = await delRes.json().catch(() => ({}));
+              if (delRes.ok && delData?.success !== false) {
+                this.isWatchlisted = false;
+                this.watchlistItemId = null;
+                if (this.dossier) {
+                  this.dossier.is_watchlisted = false;
+                  this.dossier.watchlist_item_id = null;
+                  if (this.dossier.watchlist) {
+                    this.dossier.watchlist.is_watchlisted = false;
+                    this.dossier.watchlist.item_id = null;
+                  }
+                }
+                this.showToast('Pin #' + this.pinId + ' removed from Workspace Watchlist');
+              } else {
+                this.showToast(delData?.error || 'Could not remove pin from Watchlist', 'error');
+              }
+              return;
+            }
+
+            const res = await fetcher('/api/watchlist', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
               body: JSON.stringify({
@@ -1518,6 +1562,18 @@ export function getPinDetailsClientAppScripts() {
             });
             const data = await res.json().catch(() => ({}));
             if (res.ok && data?.success !== false) {
+              const savedId = data?.item?.id ?? data?.id ?? null;
+              this.isWatchlisted = true;
+              this.watchlistItemId = savedId != null ? Number(savedId) : this.watchlistItemId;
+              if (this.dossier) {
+                this.dossier.is_watchlisted = true;
+                this.dossier.watchlist_item_id = this.watchlistItemId;
+                this.dossier.watchlist = {
+                  ...(this.dossier.watchlist || {}),
+                  is_watchlisted: true,
+                  item_id: this.watchlistItemId
+                };
+              }
               this.showToast('Pin #' + this.pinId + ' saved to Workspace Watchlist');
             } else {
               this.showToast(data?.error || 'Could not save pin to Watchlist', 'error');

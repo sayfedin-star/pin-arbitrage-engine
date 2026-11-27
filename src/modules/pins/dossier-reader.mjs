@@ -9,7 +9,7 @@
  */
 
 import { isMultiStageHydrationJump, sanitizeDossierTrajectory } from '../../lib/math.mjs';
-import { normalizeCanonicalCreationMethod } from '../newborn/surface-normalizers.mjs';
+import { normalizeCanonicalCreationMethod, decodeHtmlEntities } from '../newborn/surface-normalizers.mjs';
 
 function repoSafeIsoDate(val, fallback = null) {
   if (!val) return fallback;
@@ -358,7 +358,8 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30, worksp
     if (!dbError && err) dbError = err;
   };
 
-  const [pinRows, trajectoryRows, serpRows, creatorRows, trackedCampaignRows, newbornRows] = await Promise.all([
+  const effectiveWatchlistWid = cleanWid || 1;
+  const [pinRows, trajectoryRows, serpRows, creatorRows, trackedCampaignRows, newbornRows, watchlistRows] = await Promise.all([
     sql`
       SELECT
         pin_id, creator_username, board_id, board_name, board_slug, title, domain, destination_url,
@@ -532,7 +533,15 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30, worksp
     `.catch((err) => {
       console.warn(`[dossier-reader] Newborn provenance query warning for pin ${cleanPinId}:`, err?.message || err);
       return [];
-    })
+    }),
+    sql`
+      SELECT id, workspace_id, entity_type, entity_key, notes, created_at
+      FROM workspace_watchlist
+      WHERE workspace_id = ${effectiveWatchlistWid}
+        AND entity_type = 'pin'
+        AND entity_key = ${cleanPinId}
+      LIMIT 1;
+    `.catch(() => [])
   ]);
 
   return {
@@ -542,6 +551,8 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30, worksp
     creatorProfile: creatorRows?.[0] || null,
     trackedCampaignRows: Array.isArray(trackedCampaignRows) ? trackedCampaignRows : [],
     newbornContextRow: newbornRows?.[0] || null,
+    watchlistRow: watchlistRows?.[0] || null,
+    workspaceId: effectiveWatchlistWid,
     dbError
   };
 }
@@ -549,7 +560,7 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30, worksp
 /**
  * Shared canonical dossier builder used by both `getPinDossier` and `fetchUniversalPinDossier`.
  */
-function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, trackedCampaignRows = [], newbornContextRow = null, dbError, cleanPinId }) {
+function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, trackedCampaignRows = [], newbornContextRow = null, watchlistRow = null, workspaceId = 1, dbError, cleanPinId }) {
   let masterRecord = synthesizeCanonicalMasterRecord({ pin, newbornContextRow, cleanPinId });
 
   const hubSerpRows = serpRows.map((k) => ({
@@ -1307,16 +1318,26 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, tr
   const firstSavedAt = masterRecord?.first_saved_at || masterRecord?.first_discovered_at || null;
   const lastResavedAt = masterRecord?.last_resaved_at || masterRecord?.last_scraped_at || masterRecord?.updated_at || null;
 
+  const isWatchlisted = Boolean(watchlistRow && watchlistRow.id != null);
+  const watchlistItemId = isWatchlisted ? Number(watchlistRow.id) : null;
+
   const dossierResult = {
     success: true,
     pin_id: cleanPinId,
     is_degraded: Boolean(dbError),
+    is_watchlisted: isWatchlisted,
+    watchlist_item_id: watchlistItemId,
+    watchlist: {
+      is_watchlisted: isWatchlisted,
+      item_id: watchlistItemId,
+      workspace_id: watchlistRow?.workspace_id != null ? Number(watchlistRow.workspace_id) : (Number(workspaceId) || 1)
+    },
     first_saved_at: firstSavedAt,
     last_resaved_at: lastResavedAt,
     creative: {
-      title: masterRecord?.title || `Pin ${cleanPinId}`,
-      description: masterRecord?.description || '',
-      alt_text: masterRecord?.alt_text || '',
+      title: decodeHtmlEntities(masterRecord?.title || '') || `Pin ${cleanPinId}`,
+      description: decodeHtmlEntities(masterRecord?.description || ''),
+      alt_text: decodeHtmlEntities(masterRecord?.alt_text || ''),
       destination_url: masterRecord?.destination_url || snapMeta.tracked_link || snapMeta.utm_link || '',
       utm_link: snapMeta.utm_link || masterRecord?.destination_url || '',
       domain: masterRecord?.domain || 'pinterest.com',
@@ -1417,7 +1438,7 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, tr
     pillar_1_creator_context: {
       creator_username: creatorUsername,
       creator_url: creatorUsername ? `https://www.pinterest.com/${creatorUsername}/` : null,
-      board_name: boardName,
+      board_name: decodeHtmlEntities(boardName || ''),
       board_slug: boardSlug,
       board_url: snapMeta.board_url || ((creatorUsername && boardSlug) ? `https://www.pinterest.com/${creatorUsername}/${boardSlug}/` : null),
       competitor_tracked: Boolean(competitorInfo),

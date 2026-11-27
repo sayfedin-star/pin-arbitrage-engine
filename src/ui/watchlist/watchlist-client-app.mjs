@@ -88,11 +88,19 @@ window.watchlistApp = function watchlistApp() {
       } catch (_) {}
 
       await this.loadWatchlist();
-      this.$nextTick(() => {
-        if (window.lucide && typeof window.lucide.createIcons === 'function') {
-          window.lucide.createIcons();
-        }
-      });
+      const refreshIcons = () => {
+        this.$nextTick(() => {
+          if (window.lucide && typeof window.lucide.createIcons === 'function') {
+            window.lucide.createIcons();
+          }
+        });
+      };
+      refreshIcons();
+      if (typeof this.$watch === 'function') {
+        this.$watch('activeTab', refreshIcons);
+        this.$watch('showAddCreatorModal', refreshIcons);
+        this.$watch('showAddDomainModal', refreshIcons);
+      }
     },
 
     _reqFetch(url, opts) {

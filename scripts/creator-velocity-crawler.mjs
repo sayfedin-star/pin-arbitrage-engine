@@ -55,7 +55,7 @@ import {
 } from '../src/core/pinterest/index.mjs';
 import { ingestPinsBatch } from '../src/modules/pins/repository.mjs';
 import { sanitizeForJsonb, Semaphore } from '../src/utils.mjs';
-import { calculateDailyVelocity, isRepinHydrationJump, detectHydrationJump } from '../src/lib/math.mjs';
+import { calculateDailyVelocity, isRepinHydrationJump } from '../src/lib/math.mjs';
 import { shouldSkipFreshPinEnrichment, sanitizeVisualAnnotations } from '../src/domain/pin-intelligence.mjs';
 import { resolveNewbornRawCookie } from '../src/modules/newborn/settings.mjs';
 import { redactSecrets } from '../src/http/security-and-response.mjs';
@@ -639,12 +639,28 @@ export async function processCreatorCatalogPin(p, options, collectors) {
     const safePrevRepins = prevRepins ?? 0;
     const safeFreshRepins = freshRepins ?? 0;
 
-    const { velocity, deltaSaves } = computeNormalized24hVelocity(p, freshSaves, safePrevSaves, prevVelocity ?? 0, safeFreshRepins, safePrevRepins);
+    const { velocity, deltaSaves, isSameDay, elapsedDays } = computeNormalized24hVelocity(
+      p,
+      freshSaves,
+      safePrevSaves,
+      prevVelocity ?? 0,
+      safeFreshRepins,
+      safePrevRepins
+    );
     const isRepinJump = isRepinHydrationJump(
       { save_count: safePrevSaves, repin_count: safePrevRepins },
       { save_count: freshSaves, repin_count: safeFreshRepins }
     );
-    const deltaRepins = isRepinJump ? 0 : Math.max(0, safeFreshRepins - safePrevRepins);
+    // [INVARIANT: PRIOR-DAY-SSOT-VELOCITY] On same-day intraday crawls, NEVER compute a 2-hour step delta
+    // against today's earlier ump.repin_count or freeze stale prev_velocity with Math.max; pass null so
+    // ingestPinsBatch computes authoritative 24h velocity & repin delta from prior-day pins_daily_metrics.
+    const rawMultiDayRepinDelta = isRepinJump ? 0 : Math.max(0, safeFreshRepins - safePrevRepins);
+    const deltaRepins = isSameDay
+      ? null
+      : Math.min(25000, Math.round(rawMultiDayRepinDelta / Math.max(1, elapsedDays)));
+    const dailyRepinVelocity = isSameDay
+      ? null
+      : Math.min(25000, Math.round((rawMultiDayRepinDelta / Math.max(1, elapsedDays)) * 100) / 100);
 
     refreshedPins.push({
       pin_id: String(p.pin_id),
@@ -665,7 +681,7 @@ export async function processCreatorCatalogPin(p, options, collectors) {
       share_count: freshShares,
       reaction_count: totalReactions,
       velocity,
-      repin_velocity: deltaRepins
+      repin_velocity: dailyRepinVelocity
     });
 
     masterPinsToSync.push({
@@ -673,7 +689,9 @@ export async function processCreatorCatalogPin(p, options, collectors) {
       saves: freshSaves,
       repins: safeFreshRepins,
       velocity,
-      daily_repin_velocity: deltaRepins,
+      daily_save_velocity: velocity,
+      delta_saves_24h: isSameDay ? null : (velocity != null ? Math.round(velocity) : null),
+      daily_repin_velocity: dailyRepinVelocity,
       delta_repins_24h: deltaRepins,
       is_hydrated: true
     });
@@ -683,8 +701,8 @@ export async function processCreatorCatalogPin(p, options, collectors) {
 }
 
 /**
- * Multi-Day Time-Normalized Velocity Calculation with Intraday Ratchet Protection
- * [INVARIANT: VELOCITY-RATCHET-SYMMETRY]
+ * Multi-Day Time-Normalized Velocity Calculation with Prior-Day SSOT Deferral
+ * [INVARIANT: PRIOR-DAY-SSOT-VELOCITY]
  * [INVARIANT: ANTI-HYDRATION-SPIKE]
  */
 function computeNormalized24hVelocity(pin, freshSaves, prevSaves, prevVelocity, freshRepins = 0, prevRepins = 0) {
@@ -708,22 +726,10 @@ function computeNormalized24hVelocity(pin, freshSaves, prevSaves, prevVelocity, 
     }
   }
 
-  const safePrevVelocity = Number.isFinite(prevVelocity) ? prevVelocity : 0;
-
-  // Intraday same-day crawl handling
+  // Intraday same-day crawl handling: NEVER freeze stale velocity via Math.max or emit 2h intraday steps.
+  // Passing null delegates cleanly to ingestPinsBatch SQL SSOT against prior-day pins_daily_metrics.
   if (isSameDay) {
-    if (prevSaves <= 0) {
-      return { velocity: 0, deltaSaves: 0 };
-    }
-    if (deltaSaves === 0) {
-      return { velocity: safePrevVelocity, deltaSaves: 0 };
-    }
-    const isJump = detectHydrationJump(freshSaves, prevSaves, freshRepins, prevRepins);
-    const safeDelta = isJump ? 0 : deltaSaves;
-    return {
-      velocity: Math.min(25000, Math.max(safePrevVelocity, safeDelta)),
-      deltaSaves: safeDelta
-    };
+    return { velocity: null, deltaSaves: null, isSameDay: true, elapsedDays: 0 };
   }
 
   // [INVARIANT: ANTI-HYDRATION-SPIKE] Delegate to canonical velocity function with 0-baseline protection
@@ -739,7 +745,7 @@ function computeNormalized24hVelocity(pin, freshSaves, prevSaves, prevVelocity, 
       createdAt: pin.created_at_pinterest || null,
       maxCap: 25000
     });
-    return { velocity: computed, deltaSaves };
+    return { velocity: computed, deltaSaves, isSameDay: false, elapsedDays };
   }
 
   // Fallback for unhydrated 0-baseline without creation timestamp: suppress velocity to 0 until Day-2 crawl
@@ -752,7 +758,7 @@ function computeNormalized24hVelocity(pin, freshSaves, prevSaves, prevVelocity, 
     velocity = 0;
   }
 
-  return { velocity, deltaSaves };
+  return { velocity, deltaSaves, isSameDay: false, elapsedDays };
 }
 
 /**

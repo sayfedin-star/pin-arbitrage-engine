@@ -665,13 +665,13 @@ export async function queryWinnersAndDomains(sql, wid = 1) {
             SELECT 1 FROM workspace_watchlist ww_ws
             WHERE ww_ws.workspace_id = ${safeWid}
               AND ww_ws.entity_type = 'domain'
-              AND REGEXP_REPLACE(LOWER(ww_ws.entity_key), '^www\\.', '') = REGEXP_REPLACE(LOWER(dir.domain), '^www\\.', '')
+              AND REGEXP_REPLACE(LOWER(ww_ws.entity_key), '^www\\.', '') = dir.domain
           )
           OR EXISTS (
             SELECT 1 FROM folder_pinned_domains fpd_ws
             JOIN keyword_folders kf_ws ON kf_ws.id = fpd_ws.folder_id
             WHERE kf_ws.workspace_id = ${safeWid}
-              AND REGEXP_REPLACE(LOWER(fpd_ws.domain), '^www\\.', '') = REGEXP_REPLACE(LOWER(dir.domain), '^www\\.', '')
+              AND REGEXP_REPLACE(LOWER(fpd_ws.domain), '^www\\.', '') = dir.domain
           )
         )
       ORDER BY dir.arbitrage_score DESC, dir.avg_velocity DESC

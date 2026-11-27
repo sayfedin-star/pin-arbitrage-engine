@@ -81,7 +81,8 @@ export async function buildFolderCrossoverMatrix({
   displacedRows,
   capsuleRows,
   repinWindowRows,
-  pulseAnalyticsPromise = null
+  pulseAnalyticsPromise = null,
+  workspaceId = null
 }) {
   const combinedCatalogRows = [...pinRows, ...displacedRows];
 
@@ -902,6 +903,10 @@ export async function buildFolderCrossoverMatrix({
   const domainRollupMap = new Map();
   const creatorProfilesMap = new Map();
 
+  const effectiveFolderId = Number.isInteger(Number(folder?.id)) && Number(folder.id) > 0 ? Number(folder.id) : null;
+  const rawWid = workspaceId ?? folder?.workspace_id ?? null;
+  const effectiveWorkspaceId = Number.isInteger(Number(rawWid)) && Number(rawWid) > 0 ? Number(rawWid) : null;
+
   const [domainRows, creatorRows] = await Promise.all([
     domainNames.length > 0
       ? sql`
@@ -913,22 +918,28 @@ export async function buildFolderCrossoverMatrix({
           return [];
         })
       : Promise.resolve([]),
-    creatorUsernames.length > 0
+    (creatorUsernames.length > 0 && effectiveFolderId !== null)
       ? sql`
-          SELECT 
-            LOWER(username) AS username,
-            monthly_reach,
-            profile_views,
-            delta_reach_24h,
-            reach_delta_7d,
-            delta_views_24h,
-            views_delta_7d,
-            delta_pins_24h,
-            pins_delta_7d,
-            delta_boards_24h,
-            boards_delta_7d
-          FROM competitor_profiles
-          WHERE LOWER(username) = ANY(${creatorUsernames})
+          SELECT
+            LOWER(cp.username) AS username,
+            cp.monthly_reach,
+            cp.profile_views,
+            cp.delta_reach_24h,
+            cp.reach_delta_7d,
+            cp.delta_views_24h,
+            cp.views_delta_7d,
+            cp.delta_pins_24h,
+            cp.pins_delta_7d,
+            cp.delta_boards_24h,
+            cp.boards_delta_7d
+          FROM competitor_profiles cp
+          INNER JOIN folder_competitor_items fci
+            ON fci.competitor_id = cp.id
+           AND fci.folder_id = ${effectiveFolderId}
+          INNER JOIN keyword_folders kf
+            ON kf.id = fci.folder_id
+           AND (${effectiveWorkspaceId}::int IS NULL OR kf.workspace_id = ${effectiveWorkspaceId})
+          WHERE LOWER(cp.username) = ANY(${creatorUsernames})
         `.catch((err) => {
           console.warn('[folders-crossover] Optional creator profile enrichment warning:', err?.message || err);
           return [];

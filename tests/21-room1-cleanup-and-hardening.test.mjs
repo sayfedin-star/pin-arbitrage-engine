@@ -748,11 +748,11 @@ test('Audit P1 & P2: folders-crud normalizes www/pinterest/pinimg domains, Room 
   await getFolder(mockCrudSql, 5, { workspaceId: 1 });
 
   const normalizedDomainQueries = crudQueries.filter(q =>
-    q.includes("REGEXP_REPLACE(LOWER(TRIM(COALESCE(ump.clean_domain, ''))), '^www\\.', '')") &&
+    q.includes("COALESCE(ump.clean_domain, '') AS clean_domain") &&
     q.includes("pinterest\\.[a-z.]+$") &&
     q.includes("pinimg\\.com$")
   );
-  assert.ok(normalizedDomainQueries.length >= 2, 'Both listFolders and getFolder must normalize www. and exclude pinterest.*/pinimg.com subdomains');
+  assert.ok(normalizedDomainQueries.length >= 2, 'Both listFolders and getFolder must use SARGable ump.clean_domain and exclude pinterest.*/pinimg.com subdomains');
 
   const keywordsHtml = getKeywordsPageHtml('', '', '5');
   assert.ok(

@@ -248,7 +248,7 @@ export async function listFolders(sql, { projectId = 'default', workspaceId = DE
           ELSE 'other'
         END AS item_source,
         ksp.is_displaced,
-        REGEXP_REPLACE(LOWER(TRIM(COALESCE(ump.clean_domain, ''))), '^www\\.', '') AS clean_domain,
+        COALESCE(ump.clean_domain, '') AS clean_domain,
         LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
       FROM keyword_folder_items kfi
       JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
@@ -530,7 +530,7 @@ export async function getFolder(sql, folderId, { workspaceId = DEFAULT_WORKSPACE
             ELSE 'other'
           END AS item_source,
           ksp.is_displaced,
-          REGEXP_REPLACE(LOWER(TRIM(COALESCE(ump.clean_domain, ''))), '^www\\.', '') AS clean_domain,
+          COALESCE(ump.clean_domain, '') AS clean_domain,
           LOWER(TRIM(COALESCE(ump.creator_username, ''))) AS clean_username
         FROM keyword_folder_items kfi
         JOIN keyword_serp_positions ksp ON ksp.keyword_id = kfi.keyword_id
