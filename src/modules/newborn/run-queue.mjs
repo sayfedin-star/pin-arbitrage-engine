@@ -18,6 +18,7 @@ import {
 } from '../../http/github-workflow.mjs';
 import { CircuitBreakerOpenError } from '../../core/pinterest/client.mjs';
 import { getNewbornRuleProfile } from './settings.mjs';
+import { planNewbornFleetShards } from './fleet-work-units.mjs';
 import {
   runNewbornDiscovery,
   runNewbornSnowball,
@@ -645,12 +646,16 @@ export async function createFleetBackedNewbornRun(sql, options = {}) {
     : [];
 
   const rawShards = Math.max(1, Math.min(20, Math.round(Number(shards) || 4)));
-  const seedCapacity = combinedKeywords.length > 0
-    ? combinedKeywords.length
-    : (normalizedBoards.length > 0 ? normalizedBoards.length : 1);
-  const clampedShards = (combinedKeywords.length > 0 || normalizedBoards.length > 0 || normalizedPinIds.length > 0)
-    ? Math.max(1, Math.min(rawShards, seedCapacity))
-    : rawShards;
+  const shardPlan = planNewbornFleetShards({
+    runType,
+    keywords: combinedKeywords,
+    seedBoards: normalizedBoards,
+    seedPinIds: normalizedPinIds,
+    settingsOverrides,
+    requestedShards: rawShards,
+    maxShards: 20
+  });
+  const clampedShards = shardPlan.effectiveShards;
 
   const numericFolderId = folderId !== null && folderId !== undefined && Number(folderId) > 0 ? Number(folderId) : null;
   const numericClusterId = clusterId !== null && clusterId !== undefined && Number(clusterId) > 0 ? Number(clusterId) : null;
@@ -665,6 +670,12 @@ export async function createFleetBackedNewbornRun(sql, options = {}) {
   const baseSnapshot = settingsOverrides && typeof settingsOverrides === 'object' ? { ...settingsOverrides } : {};
   if (normalizedBoards.length > 0) baseSnapshot.seed_boards = normalizedBoards;
   if (normalizedPinIds.length > 0) baseSnapshot.seed_pin_ids = normalizedPinIds;
+  baseSnapshot.shard_plan = {
+    strategy: shardPlan.strategy,
+    effective_shards: shardPlan.effectiveShards,
+    requested_shards: shardPlan.requestedShards,
+    work_units_total: shardPlan.units.length
+  };
   const configSnapshot = sanitizeForJsonb(baseSnapshot);
 
   const rows = await sql`

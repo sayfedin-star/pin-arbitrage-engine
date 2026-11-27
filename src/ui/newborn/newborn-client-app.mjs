@@ -2196,6 +2196,8 @@ export function getNewbornClientAppScript() {
               body: JSON.stringify({
                 seed_pin_ids: cleanIds,
                 target_pins: Number(this.huntPaths.related.target_pins) || 200,
+                execution_mode: this.huntExecutionMode || 'auto',
+                shards: Math.max(1, Math.min(20, Number(this.fleetShards) || 20)),
                 filters: {
                   max_age_days: Math.max(1, Math.min(365, Number(this.huntFilters.maxAgeDays) || 30)),
                   min_repin_count: Math.max(0, Number(this.huntFilters.minRepins) || 0),
@@ -2207,20 +2209,33 @@ export function getNewbornClientAppScript() {
               })
             });
             if (data?.run_id) {
+              const execMode = data.execution_mode || data.run?.execution_mode || 'direct';
+              const shardsTotal = Math.max(1, Number(data.shards_total || data.run?.shards_total || 1));
               this.activeRunId = Number(data.run_id);
               this.activeRun = data.run || {
                 id: this.activeRunId,
                 run_type: 'snowball',
-                status: 'running',
+                execution_mode: execMode,
+                shards_total: shardsTotal,
+                shards_completed: 0,
+                shards_failed: 0,
+                status: execMode === 'fleet' ? 'queued' : 'running',
                 progress_stage: 'queued',
-                progress_detail: 'Queued — scrolling Related Pins...',
+                progress_detail: execMode === 'fleet'
+                  ? ('Queued — dispatching ' + shardsTotal + ' GitHub Actions Fleet runner' + (shardsTotal === 1 ? '' : 's') + '…')
+                  : 'Queued — scrolling Related Pins...',
                 progress_pct: 5
               };
               this.activeView = 'hunt';
               this.selectedPinIds = [];
               this.filters.annotation = '';
               this.startPollingRun(this.activeRunId);
-              this.toast('Scrolling Related Pins (Hunt #' + this.activeRunId + ')', 'info');
+              this.toast(
+                execMode === 'fleet'
+                  ? ('Fleet Snowball dispatched (Hunt #' + this.activeRunId + ', ' + shardsTotal + ' runner' + (shardsTotal === 1 ? '' : 's') + ')')
+                  : 'Scrolling Related Pins (Hunt #' + this.activeRunId + ')',
+                'info'
+              );
             }
           } catch (err) {
             this.toast('Related Pins scroll failed: ' + err.message, 'error');
@@ -2756,7 +2771,7 @@ export function getNewbornClientAppScript() {
             pin_scheduling: 'Scheduled',
             uploaded: 'Uploaded',
             pinterest_platform: 'Pinterest Platform',
-            organic_pin: 'Organic Pin',
+            organic_pin: 'Pinterest Platform',
             in_app_browser: 'In-App Browser',
             idea_pin: 'Idea Pin',
             carousel: 'Carousel',

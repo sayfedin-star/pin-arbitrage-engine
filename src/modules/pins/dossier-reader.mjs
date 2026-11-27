@@ -9,6 +9,7 @@
  */
 
 import { isMultiStageHydrationJump, sanitizeDossierTrajectory } from '../../lib/math.mjs';
+import { normalizeCanonicalCreationMethod } from '../newborn/surface-normalizers.mjs';
 
 function repoSafeIsoDate(val, fallback = null) {
   if (!val) return fallback;
@@ -95,6 +96,257 @@ function normalizeVisualAnnotations(raw) {
   return list.map(a => typeof a === 'string' ? a : (a?.name || a?.label || '')).filter(Boolean);
 }
 
+function extractIdeaIdFromAnnotationUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  const match = url.match(/\/ideas\/[^/?#]+\/(\d{4,25})(?:\/|$|\?)/i);
+  return match ? match[1] : null;
+}
+
+function extractLinkedAnnotationsFromRaw(raw) {
+  if (!raw) return [];
+  let list = [];
+  if (Array.isArray(raw)) {
+    list = raw;
+  } else if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      list = Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+      list = [];
+    }
+  }
+  const out = [];
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const name = String(item.name || item.label || item.tag || item.term || '').trim();
+    if (name.length < 2 || /^\[object\s+object\]$/i.test(name)) continue;
+    const url = typeof item.url === 'string' && item.url.trim() ? item.url.trim() : null;
+    const rawId = item.idea_id || item.annotation_id || item.id || extractIdeaIdFromAnnotationUrl(url);
+    const ideaId = rawId && String(rawId).trim() !== '0' ? String(rawId).trim() : null;
+    if (url || ideaId) {
+      out.push({ name, idea_id: ideaId, url });
+    }
+  }
+  return out;
+}
+
+function mergeLinkedAnnotations(...sources) {
+  const byKey = new Map();
+  for (const src of sources) {
+    for (const item of extractLinkedAnnotationsFromRaw(src)) {
+      const key = item.name.toLowerCase();
+      const existing = byKey.get(key);
+      if (!existing) {
+        byKey.set(key, item);
+      } else {
+        byKey.set(key, {
+          name: existing.name || item.name,
+          idea_id: existing.idea_id || item.idea_id || null,
+          url: existing.url || item.url || null
+        });
+      }
+    }
+  }
+  return Array.from(byKey.values());
+}
+
+function resolveBestCanonicalMethod(candidates, { isHydrated = true, isCarousel = false } = {}) {
+  const normalized = [];
+  for (const raw of candidates) {
+    if (!raw || typeof raw !== 'string' || !raw.trim()) continue;
+    const clean = normalizeCanonicalCreationMethod(raw, { isHydrated });
+    if (clean) normalized.push(clean);
+  }
+  const specific = normalized.find((m) => m !== 'pinterest_platform' && m !== 'unhydrated_stub');
+  if (specific) return specific;
+  if (isCarousel) return 'carousel';
+  if (normalized.includes('pinterest_platform')) return 'pinterest_platform';
+  return normalized[0] || 'pinterest_platform';
+}
+
+function maxFiniteMetric(a, b) {
+  const aValid = a !== null && a !== undefined && a !== '' && Number.isFinite(Number(a));
+  const bValid = b !== null && b !== undefined && b !== '' && Number.isFinite(Number(b));
+  if (aValid && bValid) return Math.max(Number(a), Number(b));
+  if (aValid) return Number(a);
+  if (bValid) return Number(b);
+  return null;
+}
+
+/**
+ * Pure 4-Pillar canonical master record synthesizer.
+ * Unifies `universal_master_pins` (Pillars 1-3) with `newborn_candidates` (Pillar 4)
+ * so every pin discovered in @discover renders a full Universal Dossier without 404s.
+ */
+export function synthesizeCanonicalMasterRecord({ pin = null, newbornContextRow = null, cleanPinId = '' } = {}) {
+  if (!pin && !newbornContextRow) return null;
+
+  const pinMeta = normalizeMetadata(pin?.metadata);
+  const ncMeta = normalizeMetadata(newbornContextRow?.metadata);
+  const isHydrated = Boolean(
+    pin ||
+    newbornContextRow?.is_hydrated ||
+    Number(newbornContextRow?.save_count || 0) > 0 ||
+    Number(newbornContextRow?.repin_count || 0) > 0
+  );
+  const isCarousel = Boolean(
+    pinMeta.is_carousel ||
+    newbornContextRow?.is_carousel ||
+    ncMeta.is_carousel
+  );
+
+  const resolvedMethod = resolveBestCanonicalMethod([
+    pin?.creation_method,
+    pinMeta.creation_method,
+    pinMeta.method,
+    newbornContextRow?.raw_creation_method,
+    ncMeta.creation_method,
+    ncMeta.method
+  ], { isHydrated, isCarousel });
+
+  const mergedLinkedAnnotations = mergeLinkedAnnotations(
+    pinMeta.annotations_with_links,
+    pin?.visual_annotations,
+    ncMeta.annotations_with_links,
+    newbornContextRow?.visual_annotations
+  );
+
+  const ncCreatorUsername = newbornContextRow
+    ? (newbornContextRow.effective_creator_username || newbornContextRow.origin_creator_username || newbornContextRow.pinner_username || '')
+    : '';
+  const ncBoardName = newbornContextRow
+    ? (newbornContextRow.pin_board_name || newbornContextRow.board_name || newbornContextRow.discovery_board_name || '')
+    : '';
+  const ncBoardUrl = newbornContextRow
+    ? (newbornContextRow.pin_board_url || newbornContextRow.board_url || newbornContextRow.discovery_board_url || ncMeta.board_url || null)
+    : null;
+
+  const ncPinnerObj = newbornContextRow && (newbornContextRow.pinner_username || newbornContextRow.pinner_full_name || newbornContextRow.pinner_followers != null)
+    ? {
+        ...(ncMeta.pinner && typeof ncMeta.pinner === 'object' ? ncMeta.pinner : {}),
+        ...(newbornContextRow.pinner_username ? { username: newbornContextRow.pinner_username } : {}),
+        ...(newbornContextRow.pinner_full_name ? { full_name: newbornContextRow.pinner_full_name } : {}),
+        ...(newbornContextRow.pinner_followers != null ? { follower_count: Number(newbornContextRow.pinner_followers) } : {})
+      }
+    : (ncMeta.pinner || null);
+
+  const ncOriginPinnerObj = newbornContextRow && (newbornContextRow.origin_creator_username || newbornContextRow.origin_creator_full_name || newbornContextRow.origin_creator_followers != null)
+    ? {
+        ...(ncMeta.origin_pinner && typeof ncMeta.origin_pinner === 'object' ? ncMeta.origin_pinner : {}),
+        ...(newbornContextRow.origin_creator_username ? { username: newbornContextRow.origin_creator_username } : {}),
+        ...(newbornContextRow.origin_creator_full_name ? { full_name: newbornContextRow.origin_creator_full_name } : {}),
+        ...(newbornContextRow.origin_creator_followers != null ? { follower_count: Number(newbornContextRow.origin_creator_followers) } : {})
+      }
+    : (ncMeta.origin_pinner || null);
+
+  const synthesizedNcMeta = newbornContextRow ? {
+    ...ncMeta,
+    ...(ncPinnerObj ? { pinner: ncPinnerObj } : {}),
+    ...(ncOriginPinnerObj ? { origin_pinner: ncOriginPinnerObj } : {}),
+    ...(newbornContextRow.origin_creator_followers != null ? { origin_pinner_followers: Number(newbornContextRow.origin_creator_followers) } : {}),
+    ...(newbornContextRow.effective_creator_followers != null ? { creator_followers: Number(newbornContextRow.effective_creator_followers) } : {}),
+    ...(ncBoardName ? { board_name: ncBoardName } : {}),
+    ...(ncBoardUrl ? { board_url: ncBoardUrl } : {}),
+    ...(newbornContextRow.board_order_modified_at ? { board_order_modified_at: repoSafeIsoDate(newbornContextRow.board_order_modified_at) } : {}),
+    ...(newbornContextRow.is_linkless ? { is_go_linkless: true } : {}),
+    ...(isCarousel ? { is_carousel: true } : {}),
+    ...(newbornContextRow.golden_score != null ? { newborn_golden_score: Number(newbornContextRow.golden_score) } : {}),
+    ...(newbornContextRow.outlier_ratio != null ? { newborn_outlier_ratio: Number(newbornContextRow.outlier_ratio) } : {})
+  } : {};
+
+  const mergedMeta = {
+    ...synthesizedNcMeta,
+    ...pinMeta,
+    creation_method: resolvedMethod,
+    method: resolvedMethod,
+    ...(mergedLinkedAnnotations.length > 0 ? { annotations_with_links: mergedLinkedAnnotations } : {})
+  };
+
+  if (pin) {
+    const pinAnns = normalizeVisualAnnotations(pin.visual_annotations);
+    const ncAnns = normalizeVisualAnnotations(newbornContextRow?.visual_annotations);
+    return {
+      ...pin,
+      title: pin.title || newbornContextRow?.title || '',
+      description: pin.description || newbornContextRow?.description || '',
+      alt_text: pin.alt_text || newbornContextRow?.alt_text || '',
+      image_url: pin.image_url || newbornContextRow?.image_url || '',
+      image_signature: pin.image_signature || newbornContextRow?.image_signature || null,
+      dominant_color: (pin.dominant_color && String(pin.dominant_color).toLowerCase() !== '#888888')
+        ? pin.dominant_color
+        : (newbornContextRow?.dominant_color || pin.dominant_color || '#888888'),
+      destination_url: pin.destination_url || newbornContextRow?.destination_url || '',
+      domain: pin.domain || newbornContextRow?.clean_domain || '',
+      creator_username: pin.creator_username || ncCreatorUsername || '',
+      board_id: pin.board_id || newbornContextRow?.board_id || null,
+      board_name: pin.board_name || ncBoardName || '',
+      created_at_pinterest: pin.created_at_pinterest || newbornContextRow?.created_at_pinterest || null,
+      is_repin: Boolean(pin.is_repin || newbornContextRow?.is_repin),
+      is_product: Boolean(pin.is_product || newbornContextRow?.is_product),
+      is_video: Boolean(pin.is_video || newbornContextRow?.is_video),
+      save_count: maxFiniteMetric(pin.save_count, newbornContextRow?.save_count),
+      repin_count: maxFiniteMetric(pin.repin_count, newbornContextRow?.repin_count),
+      comment_count: maxFiniteMetric(pin.comment_count, newbornContextRow?.comment_count) ?? 0,
+      share_count: maxFiniteMetric(pin.share_count, newbornContextRow?.share_count) ?? 0,
+      reaction_count: maxFiniteMetric(pin.reaction_count, newbornContextRow?.reaction_count) ?? 0,
+      visual_annotations: pinAnns.length > 0 ? pinAnns : ncAnns,
+      first_discovered_at: pin.first_saved_at || pin.first_discovered_at || newbornContextRow?.first_seen_at || null,
+      last_scraped_at: pin.last_scraped_at || pin.last_resaved_at || pin.updated_at || newbornContextRow?.last_seen_at || newbornContextRow?.updated_at || null,
+      creation_method: resolvedMethod,
+      metadata: mergedMeta
+    };
+  }
+
+  // Pillar 4 (newborn_candidates)-only pin: construct full canonical Universal Dossier masterRecord
+  const nc = newbornContextRow;
+  const ncAnns = normalizeVisualAnnotations(nc.visual_annotations);
+  const firstSeenIso = repoSafeIsoDate(nc.first_seen_at);
+  const lastSeenIso = repoSafeIsoDate(nc.last_seen_at || nc.updated_at || nc.first_seen_at);
+  return {
+    pin_id: String(nc.pin_id || cleanPinId),
+    creator_username: ncCreatorUsername,
+    board_id: nc.board_id || null,
+    board_name: ncBoardName,
+    board_slug: null,
+    title: nc.title || '',
+    domain: nc.clean_domain || '',
+    destination_url: nc.destination_url || '',
+    image_url: nc.image_url || '',
+    description: nc.description || '',
+    alt_text: nc.alt_text || '',
+    dominant_color: nc.dominant_color || '#888888',
+    visual_annotations: ncAnns,
+    created_at_pinterest: nc.created_at_pinterest || null,
+    first_discovered_pillar: 'newborn',
+    first_discovered_at: firstSeenIso,
+    first_saved_at: firstSeenIso,
+    last_scraped_at: lastSeenIso,
+    last_resaved_at: lastSeenIso,
+    updated_at: repoSafeIsoDate(nc.updated_at || nc.last_seen_at || nc.first_seen_at),
+    save_count: nc.save_count != null ? Number(nc.save_count) : 0,
+    repin_count: nc.repin_count != null ? Number(nc.repin_count) : 0,
+    comment_count: nc.comment_count != null ? Number(nc.comment_count) : 0,
+    share_count: nc.share_count != null ? Number(nc.share_count) : 0,
+    reaction_count: nc.reaction_count != null ? Number(nc.reaction_count) : 0,
+    daily_save_velocity: nc.daily_save_delta != null ? Number(nc.daily_save_delta) : (nc.save_per_day != null ? Number(nc.save_per_day) : 0),
+    daily_repin_velocity: nc.daily_repin_delta != null ? Number(nc.daily_repin_delta) : (nc.repin_per_day != null ? Number(nc.repin_per_day) : 0),
+    delta_saves_24h: nc.daily_save_delta != null ? Number(nc.daily_save_delta) : null,
+    delta_repins_24h: nc.daily_repin_delta != null ? Number(nc.daily_repin_delta) : null,
+    gains_5d: null,
+    gains_7d: null,
+    gains_10d: null,
+    gains_15d: null,
+    is_product: Boolean(nc.is_product),
+    is_video: Boolean(nc.is_video),
+    creation_method: resolvedMethod,
+    image_signature: nc.image_signature || null,
+    seo_noindex_reason: null,
+    is_repin: Boolean(nc.is_repin),
+    canonical_pin_id: null,
+    metadata: mergedMeta
+  };
+}
+
 /**
  * Shared 4-query pure read loader (eliminates duplicate queries across dossier entrypoints).
  */
@@ -160,8 +412,21 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30, worksp
     sql`
       SELECT cp.id, cp.username, cp.display_name, cp.is_active, cp.metadata
       FROM competitor_profiles cp
-      JOIN universal_master_pins ump ON ump.creator_username = cp.username
-      WHERE ump.pin_id = ${cleanPinId}
+      JOIN (
+        SELECT creator_username AS username, 1 AS priority
+        FROM public.universal_master_pins
+        WHERE pin_id = ${cleanPinId} AND creator_username IS NOT NULL AND btrim(creator_username) <> ''
+        UNION ALL
+        SELECT COALESCE(
+          NULLIF(btrim(effective_creator_username), ''),
+          NULLIF(btrim(origin_creator_username), ''),
+          NULLIF(btrim(pinner_username), '')
+        ) AS username, 2 AS priority
+        FROM public.newborn_candidates
+        WHERE pin_id = ${cleanPinId}
+      ) pc ON LOWER(cp.username) = LOWER(pc.username)
+      WHERE pc.username IS NOT NULL AND btrim(pc.username) <> ''
+      ORDER BY pc.priority ASC
       LIMIT 1;
     `.catch((err) => {
       console.warn(`[dossier-reader] Creator profile enrichment query warning for pin ${cleanPinId}:`, err?.message || err);
@@ -192,11 +457,69 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30, worksp
         nc.pin_id,
         nc.seed_query,
         nc.stage,
+        nc.qualified,
         nc.first_surface AS discovery_surface,
         nc.discovered_surfaces,
         nc.folder_id,
         nc.first_seen_at,
+        nc.last_seen_at,
+        nc.updated_at,
         nc.promoted_at,
+        nc.title,
+        nc.description,
+        nc.alt_text,
+        nc.image_url,
+        nc.image_signature,
+        nc.dominant_color,
+        nc.destination_url,
+        nc.clean_domain,
+        nc.is_linkless,
+        nc.pinner_username,
+        nc.pinner_full_name,
+        nc.pinner_followers,
+        nc.origin_creator_username,
+        nc.origin_creator_full_name,
+        nc.origin_creator_followers,
+        nc.effective_creator_username,
+        nc.effective_creator_followers,
+        nc.creator_monthly_reach,
+        nc.creator_profile_views,
+        nc.creator_pin_count,
+        nc.is_repin,
+        nc.board_id,
+        nc.board_name,
+        nc.board_url,
+        nc.discovery_board_name,
+        nc.discovery_board_url,
+        nc.pin_board_name,
+        nc.pin_board_url,
+        nc.board_order_modified_at,
+        nc.upload_provenance,
+        nc.raw_creation_method,
+        nc.has_ai_disclosure,
+        nc.is_video,
+        nc.is_carousel,
+        nc.is_product,
+        nc.created_at_pinterest,
+        nc.age_days,
+        nc.save_count,
+        nc.repin_count,
+        nc.comment_count,
+        nc.share_count,
+        nc.reaction_count,
+        nc.is_hydrated,
+        nc.repin_per_day,
+        nc.save_per_day,
+        nc.daily_repin_delta,
+        nc.daily_save_delta,
+        nc.golden_score,
+        nc.is_golden_pin,
+        nc.is_rookie_outlier,
+        nc.outlier_ratio,
+        nc.visual_annotations,
+        nc.guided_capsules,
+        nc.crossover_blueprint,
+        COALESCE(nc.metadata, '{}'::jsonb) AS metadata,
         nc.save_count AS anchor_baseline_saves,
         nda.is_active AS anchor_active,
         nda.last_crawled_at AS anchor_last_crawled_at,
@@ -227,45 +550,28 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30, worksp
  * Shared canonical dossier builder used by both `getPinDossier` and `fetchUniversalPinDossier`.
  */
 function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, trackedCampaignRows = [], newbornContextRow = null, dbError, cleanPinId }) {
-  let masterRecord = null;
-  if (pin) {
-    const meta = normalizeMetadata(pin.metadata);
-    const candidateMethods = [
-      pin.creation_method,
-      meta.creation_method,
-      meta.method
-    ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
-    const resolvedMethod = candidateMethods.find(m => m.trim().toLowerCase() !== 'pinterest_platform') || candidateMethods[0] || null;
-    masterRecord = {
-      ...pin,
-      visual_annotations: Array.isArray(pin.visual_annotations) ? pin.visual_annotations : [],
-      first_discovered_at: pin.first_saved_at || pin.first_discovered_at || null,
-      last_scraped_at: pin.last_scraped_at || pin.last_resaved_at || pin.updated_at || null,
-      creation_method: resolvedMethod,
-      metadata: meta
-    };
-  }
+  let masterRecord = synthesizeCanonicalMasterRecord({ pin, newbornContextRow, cleanPinId });
 
   const hubSerpRows = serpRows.map((k) => ({
     ...k,
     pin_id: cleanPinId,
-    title: pin?.title || '',
-    domain: pin?.domain || '',
-    destination_url: pin?.destination_url || '',
-    image_url: pin?.image_url || '',
-    creator_username: pin?.creator_username || '',
-    board_name: pin?.board_name || '',
-    save_count: pin?.save_count ?? null,
-    repin_count: pin?.repin_count ?? null,
-    comment_count: pin?.comment_count ?? 0,
-    share_count: pin?.share_count ?? 0,
-    reaction_count: pin?.reaction_count ?? 0,
-    daily_save_velocity: pin?.daily_save_velocity ?? null,
-    daily_repin_velocity: pin?.daily_repin_velocity ?? null,
-    dominant_color: pin?.dominant_color || null,
-    visual_annotations: Array.isArray(pin?.visual_annotations) ? pin.visual_annotations : [],
-    creation_method: pin?.creation_method || null,
-    created_at_pinterest: pin?.created_at_pinterest || null,
+    title: masterRecord?.title || pin?.title || '',
+    domain: masterRecord?.domain || pin?.domain || '',
+    destination_url: masterRecord?.destination_url || pin?.destination_url || '',
+    image_url: masterRecord?.image_url || pin?.image_url || '',
+    creator_username: masterRecord?.creator_username || pin?.creator_username || '',
+    board_name: masterRecord?.board_name || pin?.board_name || '',
+    save_count: masterRecord?.save_count ?? pin?.save_count ?? null,
+    repin_count: masterRecord?.repin_count ?? pin?.repin_count ?? null,
+    comment_count: masterRecord?.comment_count ?? pin?.comment_count ?? 0,
+    share_count: masterRecord?.share_count ?? pin?.share_count ?? 0,
+    reaction_count: masterRecord?.reaction_count ?? pin?.reaction_count ?? 0,
+    daily_save_velocity: masterRecord?.daily_save_velocity ?? pin?.daily_save_velocity ?? null,
+    daily_repin_velocity: masterRecord?.daily_repin_velocity ?? pin?.daily_repin_velocity ?? null,
+    dominant_color: masterRecord?.dominant_color || pin?.dominant_color || null,
+    visual_annotations: Array.isArray(masterRecord?.visual_annotations) ? masterRecord.visual_annotations : [],
+    creation_method: masterRecord?.creation_method || pin?.creation_method || null,
+    created_at_pinterest: masterRecord?.created_at_pinterest || pin?.created_at_pinterest || null,
     competitor_id: creatorProfile?.id ?? null,
     competitor_username: creatorProfile?.username ?? null,
     competitor_display_name: creatorProfile?.display_name ?? null,
@@ -280,9 +586,12 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, tr
   for (const tag of masterTags) {
     if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
   }
-  // Only fall back to legacy metadata / SERP row annotations when universal_master_pins has none,
+  // Only fall back to Pillar 4 / legacy metadata / SERP row annotations when primary master has none,
   // so fresh Live Deep Sync / annotations_with_links updates immediately replace older tags cleanly.
   if (unionSet.size === 0) {
+    for (const tag of normalizeVisualAnnotations(newbornContextRow?.visual_annotations)) {
+      if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
+    }
     for (const tag of normalizeVisualAnnotations(masterMetaObj?.visual_annotations)) {
       if (tag && typeof tag === 'string' && tag.trim()) unionSet.add(tag.trim());
     }
@@ -300,12 +609,11 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, tr
   if (!masterRecord) {
     if (hubSerpRows.length > 0 && (hubSerpRows[0].title || hubSerpRows[0].image_url || Number(hubSerpRows[0].save_count) > 0)) {
       const topRow = hubSerpRows[0];
-      const candidateHubMethods = [
+      const resolvedHubMethod = resolveBestCanonicalMethod([
         topRow.creation_method,
         topHubMeta.creation_method,
         topHubMeta.method
-      ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
-      const resolvedHubMethod = candidateHubMethods.find(m => m.trim().toLowerCase() !== 'pinterest_platform') || candidateHubMethods[0] || 'pinterest_platform';
+      ], { isHydrated: true });
       masterRecord = {
         pin_id: topRow.pin_id,
         title: topRow.title || topHubMeta.seo_title || '',
@@ -345,15 +653,15 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, tr
     if (!masterRecord.created_at_pinterest) {
       masterRecord.created_at_pinterest = masterMetaObj.created_at_pinterest || hubSerpRows[0]?.created_at_pinterest || topHubMeta.created_at_pinterest || null;
     }
-    const candidateMethods = [
+    const resolvedBestMethod = resolveBestCanonicalMethod([
       masterRecord?.creation_method,
       masterMetaObj.creation_method,
       masterMetaObj.method,
+      newbornContextRow?.raw_creation_method,
       hubSerpRows[0]?.creation_method,
       topHubMeta.creation_method,
       topHubMeta.method
-    ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
-    const resolvedBestMethod = candidateMethods.find(m => m.trim().toLowerCase() !== 'pinterest_platform') || candidateMethods[0] || 'pinterest_platform';
+    ], { isHydrated: true, isCarousel: Boolean(masterMetaObj.is_carousel || newbornContextRow?.is_carousel) });
     masterRecord.creation_method = resolvedBestMethod;
     masterRecord.metadata = { ...topHubMeta, ...masterMetaObj, creation_method: resolvedBestMethod, method: resolvedBestMethod };
   }
@@ -889,17 +1197,17 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, tr
     }
   }
 
-  const candidateCreationMethods = [
+  const resolvedCreationMethod = resolveBestCanonicalMethod([
     masterRecord?.creation_method,
     masterMetaObj.creation_method,
     masterMetaObj.method,
+    newbornContextRow?.raw_creation_method,
     snapMeta.creation_method,
     snapMeta.method,
     hubSerpRows[0]?.creation_method,
     topHubMeta.creation_method,
     topHubMeta.method
-  ].filter(m => m && typeof m === 'string' && m.trim().length > 0);
-  const resolvedCreationMethod = candidateCreationMethods.find(m => m.trim().toLowerCase() !== 'pinterest_platform') || candidateCreationMethods[0] || 'pinterest_platform';
+  ], { isHydrated: true, isCarousel: Boolean(snapMeta.is_carousel || newbornContextRow?.is_carousel) });
 
   const hasDestLink = Boolean(
     masterRecord?.destination_url ||
@@ -953,19 +1261,24 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, tr
   };
 
   const latestLiveAnnotations = new Set(
-    (masterTags.length > 0 ? masterTags : normalizeVisualAnnotations(snapMeta.visual_annotations || hubSerpRows[0]?.metadata?.visual_annotations))
+    (masterTags.length > 0
+      ? masterTags
+      : normalizeVisualAnnotations(newbornContextRow?.visual_annotations || snapMeta.visual_annotations || hubSerpRows[0]?.metadata?.visual_annotations))
       .map(t => String(t || '').trim())
       .filter(Boolean)
   );
   const linkedAnnotationLookup = new Map();
-  if (Array.isArray(snapMeta.annotations_with_links)) {
-    for (const item of snapMeta.annotations_with_links) {
-      if (item && typeof item === 'object' && typeof item.name === 'string' && item.name.trim()) {
-        linkedAnnotationLookup.set(item.name.trim().toLowerCase(), {
-          idea_id: item.idea_id || null,
-          url: item.url || null
-        });
-      }
+  const allLinkedAnnotations = mergeLinkedAnnotations(
+    snapMeta.annotations_with_links,
+    newbornContextRow?.visual_annotations,
+    pin?.visual_annotations
+  );
+  for (const item of allLinkedAnnotations) {
+    if (item && typeof item === 'object' && typeof item.name === 'string' && item.name.trim()) {
+      linkedAnnotationLookup.set(item.name.trim().toLowerCase(), {
+        idea_id: item.idea_id || null,
+        url: item.url || null
+      });
     }
   }
 
@@ -1083,20 +1396,30 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, tr
       pin_id: String(newbornContextRow.pin_id || cleanPinId),
       seed_query: newbornContextRow.seed_query ? String(newbornContextRow.seed_query).trim() : null,
       stage: String(newbornContextRow.stage || 'discovered').trim().toLowerCase(),
+      qualified: newbornContextRow.qualified != null ? Boolean(newbornContextRow.qualified) : null,
       discovery_surface: newbornContextRow.discovery_surface || null,
+      discovered_surfaces: Array.isArray(newbornContextRow.discovered_surfaces) ? newbornContextRow.discovered_surfaces : [],
       folder_id: newbornContextRow.folder_id != null ? Number(newbornContextRow.folder_id) : null,
       first_seen_at: repoSafeIsoDate(newbornContextRow.first_seen_at),
       promoted_at: repoSafeIsoDate(newbornContextRow.promoted_at),
       anchor_active: Boolean(newbornContextRow.anchor_active),
       anchor_baseline_saves: newbornContextRow.anchor_baseline_saves != null ? Number(newbornContextRow.anchor_baseline_saves) : null,
-      anchor_last_crawled_at: repoSafeIsoDate(newbornContextRow.anchor_last_crawled_at)
+      anchor_last_crawled_at: repoSafeIsoDate(newbornContextRow.anchor_last_crawled_at),
+      golden_score: newbornContextRow.golden_score != null ? Number(newbornContextRow.golden_score) : null,
+      is_golden_pin: Boolean(newbornContextRow.is_golden_pin),
+      is_rookie_outlier: Boolean(newbornContextRow.is_rookie_outlier),
+      outlier_ratio: newbornContextRow.outlier_ratio != null ? Number(newbornContextRow.outlier_ratio) : null,
+      upload_provenance: newbornContextRow.upload_provenance || null,
+      raw_creation_method: newbornContextRow.raw_creation_method
+        ? normalizeCanonicalCreationMethod(newbornContextRow.raw_creation_method, { isHydrated: Boolean(newbornContextRow.is_hydrated) })
+        : null
     } : null,
     pillar_1_creator_context: {
       creator_username: creatorUsername,
       creator_url: creatorUsername ? `https://www.pinterest.com/${creatorUsername}/` : null,
       board_name: boardName,
       board_slug: boardSlug,
-      board_url: (creatorUsername && boardSlug) ? `https://www.pinterest.com/${creatorUsername}/${boardSlug}/` : null,
+      board_url: snapMeta.board_url || ((creatorUsername && boardSlug) ? `https://www.pinterest.com/${creatorUsername}/${boardSlug}/` : null),
       competitor_tracked: Boolean(competitorInfo),
       competitor_profile: competitorInfo
     },
@@ -1141,7 +1464,7 @@ export async function getPinDossier(sql, pinId, { snapshotLimit = 30, workspaceI
 
   const raw = await loadRawPinDossierRows(sql, cleanPinId, snapshotLimit, workspaceId);
   if (raw.dbError) throw raw.dbError;
-  if (!raw.pin) return null;
+  if (!raw.pin && !raw.newbornContextRow) return null;
 
   const built = buildUnifiedDossier({ ...raw, cleanPinId });
   return built?.notFound ? null : built;

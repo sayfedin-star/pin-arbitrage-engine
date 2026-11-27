@@ -360,9 +360,9 @@ export function extractPinFromHtml(rawHtml, pinId) {
       formatted.saves = ogSaves;
       formatted.save_count = ogSaves;
       formatted.has_explicit_saves = true;
-      if (formatted.creation_method === 'pinterest_platform' || formatted.creation_method === 'unhydrated_stub') {
-        formatted.creation_method = 'organic_pin';
-        formatted.method = 'organic_pin';
+      if (formatted.creation_method === 'unhydrated_stub' || formatted.creation_method === 'organic_pin') {
+        formatted.creation_method = 'pinterest_platform';
+        formatted.method = 'pinterest_platform';
       }
     }
     if (ogRepins !== null) {

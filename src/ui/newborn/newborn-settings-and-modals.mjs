@@ -79,7 +79,7 @@ export function getNewbornSettingsAndModalsHtml() {
                   <template x-if="dossierData.candidate.pin_board_name">
                     <div class="flex justify-between gap-2"><span class="text-slate-500">Pin Board</span><span class="font-medium truncate max-w-[240px]" x-text="dossierData.candidate.pin_board_name"></span></div>
                   </template>
-                  <div class="flex justify-between gap-2"><span class="text-slate-500">Destination</span><span class="font-medium truncate max-w-[240px]" x-text="dossierData.candidate.is_linkless ? 'No Link / Linkless' : (dossierData.candidate.clean_domain || '—')"></span></div>
+                  <div class="flex justify-between gap-2"><span class="text-slate-500">Destination</span><span class="font-medium truncate max-w-[240px]" x-text="dossierData.candidate.is_linkless ? 'No Link' : (dossierData.candidate.clean_domain || '—')"></span></div>
                   <div class="flex justify-between gap-2"><span class="text-slate-500">Pin Shares</span><span class="font-mono tabular-nums" x-text="formatNullableCount(dossierData.candidate.share_count)"></span></div>
                   <div class="flex justify-between gap-2"><span class="text-slate-500">Creation Method</span><span class="font-medium" x-text="formatCreationMethodLabel(dossierData.candidate.raw_creation_method) || '—'"></span></div>
                   <div class="flex justify-between gap-2"><span class="text-slate-500">Pin Type</span><span class="font-medium" x-text="dossierData.candidate.is_repin ? 'Repin' : 'Original'"></span></div>

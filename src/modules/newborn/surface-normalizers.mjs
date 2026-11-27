@@ -381,6 +381,22 @@ export function extractPinAnnotationsDetailed(rawPin) {
 }
 
 /**
+ * Normalizes Pinterest creation methods to canonical slugs, eliminating synthetic
+ * `'organic_pin'` and decoupling hydration state (`is_hydrated`) from creation provenance.
+ */
+export function normalizeCanonicalCreationMethod(raw, { isHydrated = false } = {}) {
+  const trimmed = safeString(raw || '').trim();
+  const lower = trimmed.toLowerCase();
+  if (!lower || lower === 'organic_pin' || lower === 'unhydrated_stub') {
+    return isHydrated ? 'pinterest_platform' : null;
+  }
+  if (lower === 'pinterest_platform') {
+    return 'pinterest_platform';
+  }
+  return trimmed;
+}
+
+/**
  * Normalizes a raw Pinterest pin object from any surface into a Newborn candidate record,
  * strictly separating `pinner` vs `origin_creator`, preserving `save_count = null` when
  * unhydrated, and rejecting non-Snowflake (`e1_`) or ad stubs.
@@ -559,7 +575,7 @@ export function normalizeSurfaceCandidatePin(rawPin, context = {}) {
   const aggPinDataIdRaw = String(rawPin.aggregated_pin_data?.id ?? '').trim();
   const aggregatedPinDataId = isValidPinId(aggPinDataIdRaw) ? aggPinDataIdRaw : null;
 
-  const rawCreationMethod = safeString(
+  const rawCreationMethodCandidate = safeString(
     rawPin.insertion_source ||
     rawPin.creation_source ||
     rawPin.upload_source ||
@@ -575,6 +591,18 @@ export function normalizeSurfaceCandidatePin(rawPin, context = {}) {
     formatted?.creation_method ||
     ''
   );
+  const hasHydratedProof = Boolean(
+    context.is_hydrated ||
+    saveCount !== null ||
+    formatted?.has_explicit_saves ||
+    rawPin.image_signature ||
+    rawPin.imageSignature ||
+    rawPin.pin_join ||
+    rawPin.pinJoin
+  );
+  const rawCreationMethod = normalizeCanonicalCreationMethod(rawCreationMethodCandidate, {
+    isHydrated: hasHydratedProof
+  });
 
   const hasAiDisclosure = Boolean(
     rawPin.is_ai_generated ||
@@ -744,12 +772,24 @@ export function mergeCandidatePinRecords(base, incoming) {
     ? true
     : false;
 
-  const rawCreationMethod = (
-    incoming.raw_creation_method &&
-    !['pinterest_platform', 'unhydrated_stub', 'organic_pin'].includes(String(incoming.raw_creation_method).toLowerCase())
-  )
-    ? incoming.raw_creation_method
-    : (base.raw_creation_method || incoming.raw_creation_method || null);
+  const isSpecificMethod = (m) => Boolean(
+    m && !['pinterest_platform', 'unhydrated_stub', 'organic_pin'].includes(String(m).trim().toLowerCase())
+  );
+  const mergedIsHydrated = Boolean(base.is_hydrated || incoming.is_hydrated || saveCount !== null);
+  const incomingMethod = normalizeCanonicalCreationMethod(incoming.raw_creation_method, { isHydrated: mergedIsHydrated });
+  const baseMethod = normalizeCanonicalCreationMethod(base.raw_creation_method, { isHydrated: mergedIsHydrated });
+  let rawCreationMethod = null;
+  if (isSpecificMethod(incomingMethod)) {
+    rawCreationMethod = incomingMethod;
+  } else if (isSpecificMethod(baseMethod)) {
+    rawCreationMethod = baseMethod;
+  } else if (incomingMethod === 'pinterest_platform' || baseMethod === 'pinterest_platform') {
+    rawCreationMethod = 'pinterest_platform';
+  } else {
+    rawCreationMethod = normalizeCanonicalCreationMethod(incoming.raw_creation_method || base.raw_creation_method, {
+      isHydrated: mergedIsHydrated
+    });
+  }
 
   const incomingVerified = incoming.root_age_verified;
   const baseVerified = base.root_age_verified;

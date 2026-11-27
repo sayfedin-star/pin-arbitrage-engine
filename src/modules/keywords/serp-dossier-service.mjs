@@ -330,9 +330,16 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
     if (sql) {
       try {
         const [row] = await sql`
-          SELECT pin_id, title, image_url, clean_domain AS domain, save_count
-          FROM universal_master_pins
-          WHERE pin_id = ${cleanPin}
+          SELECT pin_id, title, image_url, domain, save_count FROM (
+            SELECT pin_id, title, image_url, clean_domain AS domain, save_count, 1 AS priority
+            FROM universal_master_pins
+            WHERE pin_id = ${cleanPin}
+            UNION ALL
+            SELECT pin_id, title, image_url, clean_domain AS domain, save_count, 2 AS priority
+            FROM newborn_candidates
+            WHERE pin_id = ${cleanPin}
+          ) seed_pin_lookup
+          ORDER BY priority ASC
           LIMIT 1;
         `;
         seedPin = row || null;
@@ -352,9 +359,16 @@ export async function fetchVisualSearchLens(sql, pinId, cookie = (typeof process
       if (sql) {
         try {
           const [row] = await sql`
-            SELECT pin_id, title, image_url, clean_domain AS domain, save_count
-            FROM universal_master_pins
-            WHERE pin_id = ${cleanPin}
+            SELECT pin_id, title, image_url, domain, save_count FROM (
+              SELECT pin_id, title, image_url, clean_domain AS domain, save_count, 1 AS priority
+              FROM universal_master_pins
+              WHERE pin_id = ${cleanPin}
+              UNION ALL
+              SELECT pin_id, title, image_url, clean_domain AS domain, save_count, 2 AS priority
+              FROM newborn_candidates
+              WHERE pin_id = ${cleanPin}
+            ) seed_pin_lookup
+            ORDER BY priority ASC
             LIMIT 1;
           `;
           pinRow = row || null;

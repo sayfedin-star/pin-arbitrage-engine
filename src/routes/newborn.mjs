@@ -1398,10 +1398,61 @@ export async function handleNewbornRoutes({
 
       if (pathname === '/api/newborn/snowball') {
         const rawPinIds = body?.seed_pin_ids || body?.pin_ids || (body?.pin_id ? [body.pin_id] : []);
-        const seedPinIds = (Array.isArray(rawPinIds) ? rawPinIds : [rawPinIds])
-          .map((id) => String(id || '').trim())
-          .filter(Boolean);
+        const seedPinIds = Array.from(new Set(
+          (Array.isArray(rawPinIds) ? rawPinIds : [rawPinIds])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean)
+        ));
         const mergedOverrides = buildHuntOverridesFromBody(body, { isSnowball: true });
+        const wsSettings = sql ? await getWorkspaceSettings(sql, workspaceId).catch(() => null) : null;
+        const targetPerSeed = Math.max(10, Math.min(2000, Number(body?.target_pins ?? body?.paths?.related?.target_pins ?? 200) || 200));
+        const estimatedPins = Math.max(1, seedPinIds.length || 1) * targetPerSeed;
+        const explicitRequestedMode = body?.execution_mode ?? body?.executionMode ?? null;
+        const ghAuth = resolveGitHubAuth(env, { allowPat: true });
+        const effectiveRequestedMode = explicitRequestedMode
+          || (ghAuth?.token ? (wsSettings?.execution_mode || 'fleet') : 'auto');
+        const modeDecision = resolveExecutionMode({
+          requestedMode: effectiveRequestedMode,
+          keywordsCount: seedPinIds.length,
+          estimatedPins,
+          env
+        });
+
+        if (modeDecision.error) {
+          return jsonResponse({
+            success: false,
+            error: modeDecision.error,
+            message: modeDecision.message
+          }, modeDecision.status || 400, -1);
+        }
+
+        if (modeDecision.mode === 'fleet') {
+          const requestedShards = body?.shards != null && Number(body.shards) > 0
+            ? Math.min(20, Math.max(1, Number(body.shards)))
+            : Math.min(20, Math.max(1, seedPinIds.length || 1));
+          const fleetRes = await createFleetBackedNewbornRun(sql, {
+            runType: 'snowball',
+            seedPinIds,
+            profileId: body?.profile_id ?? body?.profile ?? null,
+            folderId: body?.folder_id ?? null,
+            workspaceId,
+            settingsOverrides: mergedOverrides,
+            shards: requestedShards,
+            env
+          });
+          if (!fleetRes.ok) {
+            return jsonResponse({
+              success: false,
+              error: fleetRes.error || 'DISPATCH_FAILED',
+              message: fleetRes.message || 'Failed to dispatch Fleet Related Pins Snowball.'
+            }, fleetRes.status || 502, -1);
+          }
+          return jsonResponse({ success: true, estimated_pins: estimatedPins, ...fleetRes }, 202, -1);
+        }
+
+        const cbBlocked = await checkDirectModeCircuitBreaker();
+        if (cbBlocked) return cbBlocked;
+
         const queued = await enqueueNewbornRun(sql, {
           runType: 'snowball',
           seedPinIds,
@@ -1413,7 +1464,7 @@ export async function handleNewbornRoutes({
           env,
           ctx
         });
-        return jsonResponse({ success: true, ...queued }, 202, -1);
+        return jsonResponse({ success: true, estimated_pins: estimatedPins, ...queued }, 202, -1);
       }
 
       if (pathname === '/api/newborn/watchlist/poll') {

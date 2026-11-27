@@ -390,7 +390,7 @@ export function formatPin(pin) {
   );
   const hasSpecificExplicitMethod = Boolean(
     explicitMethodCandidate &&
-    !['pinterest_platform', 'unhydrated_stub'].includes(explicitMethodCandidate.toLowerCase())
+    !['pinterest_platform', 'unhydrated_stub', 'organic_pin'].includes(explicitMethodCandidate.toLowerCase())
   );
 
   const rawProvider = safeString(
@@ -430,7 +430,7 @@ export function formatPin(pin) {
   } else if (providerSlug) {
     method = providerSlug;
   } else if (hasRelayOrHydratedProof) {
-    method = 'organic_pin';
+    method = 'pinterest_platform';
   } else if (isUnhydratedStub || !hasExplicitSaves) {
     method = 'unhydrated_stub';
   }

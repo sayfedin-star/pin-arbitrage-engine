@@ -21,6 +21,11 @@ import { invalidateEdgeCache, redactSecrets } from '../src/http/security-and-res
 import { sanitizeForJsonb } from '../src/utils.mjs';
 import { stampAutomationRunTimestamp } from '../src/modules/newborn/settings.mjs';
 import {
+  planNewbornFleetShards,
+  resolveShardAssignmentForWorker,
+  extractSettingsOverridesFromSnapshot
+} from '../src/modules/newborn/fleet-work-units.mjs';
+import {
   parseSmartHuntInput,
   getNewbornSettings,
   evaluateAutomationSchedule,
@@ -279,7 +284,7 @@ export async function runNewbornFleetDispatch({ sql, parsedArgs, env = process.e
     } else {
       const [runRow] = await sql`
         SELECT
-          id, status, cancel_requested_at, selected_keywords, seed_queries,
+          id, run_type, status, cancel_requested_at, selected_keywords, seed_queries,
           config_snapshot, shards_total, cluster_id, profile_id, folder_id
         FROM newborn_runs
         WHERE id = ${resolvedRunId}
@@ -301,14 +306,19 @@ export async function runNewbornFleetDispatch({ sql, parsedArgs, env = process.e
         const snapshot = runRow.config_snapshot && typeof runRow.config_snapshot === 'object'
           ? runRow.config_snapshot
           : {};
-        const seedBoardsCount = Array.isArray(snapshot.seed_boards) ? snapshot.seed_boards.length : 0;
+        const snapshotBoards = Array.isArray(snapshot.seed_boards) ? snapshot.seed_boards : [];
+        const snapshotPinIds = Array.isArray(snapshot.seed_pin_ids) ? snapshot.seed_pin_ids : [];
         const requestedShards = parsedArgs.shards || Number(runRow.shards_total) || 1;
-        const seedCapacity = selectedKw.length > 0
-          ? selectedKw.length
-          : (seedBoardsCount > 0 ? seedBoardsCount : 1);
-        const effectiveShards = (selectedKw.length > 0 || seedBoardsCount > 0 || (Array.isArray(snapshot.seed_pin_ids) && snapshot.seed_pin_ids.length > 0))
-          ? Math.max(1, Math.min(DEFAULT_FLEET_WORKER_TOTAL, requestedShards, seedCapacity))
-          : Math.max(1, Math.min(DEFAULT_FLEET_WORKER_TOTAL, requestedShards));
+        const shardPlan = planNewbornFleetShards({
+          runType: runRow.run_type || 'discovery',
+          keywords: selectedKw,
+          seedBoards: snapshotBoards,
+          seedPinIds: snapshotPinIds,
+          settingsOverrides: extractSettingsOverridesFromSnapshot(snapshot),
+          requestedShards,
+          maxShards: DEFAULT_FLEET_WORKER_TOTAL
+        });
+        const effectiveShards = shardPlan.effectiveShards;
 
         if (!resolvedClusterId && runRow.cluster_id) {
           resolvedClusterId = Number(runRow.cluster_id) || null;
@@ -428,18 +438,29 @@ export async function runNewbornFleetDispatch({ sql, parsedArgs, env = process.e
       });
     }
   } else if (requestedMode === 'snowball') {
-    matrixTasks.push({
-      mode: 'snowball',
-      label: 'Multi-Hop Golden Pin Snowball',
-      profile: parsedArgs.profileId || '',
-      query: '',
-      boards: '',
-      pin_ids: (parsedArgs.seedPinIds || []).join(','),
-      worker_index: 0,
-      worker_slot: 1,
-      worker_total: 1,
-      force: 'true'
-    });
+    const pinSeeds = Array.isArray(parsedArgs.seedPinIds) ? parsedArgs.seedPinIds.filter(Boolean) : [];
+    const snowballShards = pinSeeds.length > 1
+      ? Math.max(1, Math.min(parsedArgs.shards || pinSeeds.length, pinSeeds.length, DEFAULT_FLEET_WORKER_TOTAL))
+      : 1;
+    for (let w = 0; w < snowballShards; w++) {
+      const slicePins = pinSeeds.length > 1
+        ? pinSeeds.filter((_, idx) => idx % snowballShards === w)
+        : pinSeeds;
+      matrixTasks.push({
+        mode: 'snowball',
+        label: snowballShards > 1
+          ? `Golden Pin Snowball #${w + 1}/${snowballShards}`
+          : 'Multi-Hop Golden Pin Snowball',
+        profile: parsedArgs.profileId || '',
+        query: '',
+        boards: '',
+        pin_ids: slicePins.join(','),
+        worker_index: w,
+        worker_slot: w + 1,
+        worker_total: snowballShards,
+        force: 'true'
+      });
+    }
   } else {
     // discovery
     const queries = parsedArgs.seedQueries || [];
@@ -543,7 +564,7 @@ export async function runNewbornFleetWorker({
     try {
       [runRow] = await sql`
         SELECT
-          id, COALESCE(workspace_id, 1)::int AS workspace_id, status, cancel_requested_at, selected_keywords, seed_queries,
+          id, run_type, COALESCE(workspace_id, 1)::int AS workspace_id, status, cancel_requested_at, selected_keywords, seed_queries,
           config_snapshot, cluster_id, folder_id, profile_id, shards_total
         FROM newborn_runs
         WHERE id = ${runId}
@@ -553,7 +574,7 @@ export async function runNewbornFleetWorker({
       if (String(err?.code || '') !== '42703') throw err;
       [runRow] = await sql`
         SELECT
-          id, status, cancel_requested_at, selected_keywords, seed_queries,
+          id, run_type, status, cancel_requested_at, selected_keywords, seed_queries,
           config_snapshot, cluster_id, folder_id, profile_id, shards_total
         FROM newborn_runs
         WHERE id = ${runId}
@@ -600,34 +621,24 @@ export async function runNewbornFleetWorker({
     const snapshot = runRow.config_snapshot && typeof runRow.config_snapshot === 'object'
       ? runRow.config_snapshot
       : {};
+    const allBoards = Array.isArray(snapshot.seed_boards) ? snapshot.seed_boards : (seedBoards || []);
+    const allPinIds = Array.isArray(snapshot.seed_pin_ids) ? snapshot.seed_pin_ids : (seedPinIds || []);
+    const baseSettingsOverrides = extractSettingsOverridesFromSnapshot(snapshot);
     const effectiveTotal = Math.max(1, Number(workerTotal) || Number(runRow.shards_total) || 1);
     const effectiveIndex = Math.max(0, Math.min(effectiveTotal - 1, Number(workerIndex) || 0));
 
-    // Deterministic round-robin keyword sharding across workers
-    const myQueries = allKeywords.length > 0
-      ? allKeywords.filter((_, idx) => idx % effectiveTotal === effectiveIndex)
-      : [];
+    const shardPlan = planNewbornFleetShards({
+      runType: runRow.run_type || 'discovery',
+      keywords: allKeywords,
+      seedBoards: allBoards,
+      seedPinIds: allPinIds,
+      settingsOverrides: baseSettingsOverrides,
+      requestedShards: effectiveTotal,
+      maxShards: DEFAULT_FLEET_WORKER_TOTAL
+    });
+    const assignment = resolveShardAssignmentForWorker(shardPlan, effectiveIndex, effectiveTotal);
 
-    const allBoards = Array.isArray(snapshot.seed_boards) ? snapshot.seed_boards : (seedBoards || []);
-    const myBoards = allBoards.length > 1
-      ? allBoards.filter((_, idx) => idx % effectiveTotal === effectiveIndex)
-      : (effectiveIndex === 0 ? allBoards : []);
-
-    const allPinIds = Array.isArray(snapshot.seed_pin_ids) ? snapshot.seed_pin_ids : (seedPinIds || []);
-    const myPinIds = effectiveIndex === 0 ? allPinIds : [];
-
-    const {
-      seed_boards: _seedBoardsMeta,
-      seed_pin_ids: _seedPinIdsMeta,
-      settings_overrides: wrappedOverridesSnake,
-      settingsOverrides: wrappedOverridesCamel,
-      ...rootOverrides
-    } = snapshot;
-    const settingsOverrides = wrappedOverridesSnake
-      || wrappedOverridesCamel
-      || (Object.keys(rootOverrides).length > 0 ? rootOverrides : null);
-
-    if (allKeywords.length > 0 && myQueries.length === 0 && myBoards.length === 0 && myPinIds.length === 0) {
+    if (assignment.empty) {
       return {
         ok: true,
         skipped: true,
@@ -639,14 +650,16 @@ export async function runNewbornFleetWorker({
     }
 
     return await runNewbornDiscovery(sql, {
-      seedQueries: myQueries,
-      seedBoards: myBoards,
-      seedPinIds: myPinIds,
+      runType: assignment.runType || runRow.run_type || 'discovery',
+      snowballOnly: Boolean(assignment.snowballOnly || runRow.run_type === 'snowball'),
+      seedQueries: assignment.myQueries,
+      seedBoards: assignment.myBoards,
+      seedPinIds: assignment.myPinIds,
       existingRunId: runId,
       shardMode: true,
       shardIndex: effectiveIndex,
       shardTotal: effectiveTotal,
-      settingsOverrides,
+      settingsOverrides: assignment.workerSettingsOverrides,
       profileId: runRow.profile_id ?? profileId ?? null,
       workspaceId: resolvedWorkspaceId,
       folderId: runRow.folder_id ?? null,

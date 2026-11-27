@@ -126,6 +126,18 @@ function parseRawTagList(raw) {
   return names;
 }
 
+function parseRawLinkedAnnotations(raw) {
+  if (!raw) return [];
+  if (typeof raw === 'string') {
+    try {
+      return parseLinkedAnnotationsSource(JSON.parse(raw));
+    } catch (_) {
+      return [];
+    }
+  }
+  return parseLinkedAnnotationsSource(raw);
+}
+
 /**
  * Extracts and deduplicates stored pin annotations from `visual_annotations`
  * and `metadata.annotations_with_links`, preserving any stored idea_id / URL.
@@ -133,13 +145,23 @@ function parseRawTagList(raw) {
 export function extractStoredPinAnnotations(pinRow, { maxItems = MAX_ANNOTATIONS_CAP } = {}) {
   const safeCap = Math.max(1, Math.min(Number(maxItems) || MAX_ANNOTATIONS_CAP, MAX_ANNOTATIONS_CAP));
   const meta = normalizeMetadataObject(pinRow?.metadata);
-  const linkedEntries = parseLinkedAnnotationsSource(meta.annotations_with_links);
+  const linkedFromMeta = parseRawLinkedAnnotations(meta.annotations_with_links);
+  const linkedFromVisual = parseRawLinkedAnnotations(pinRow?.visual_annotations);
+  const linkedFromMetaVisual = parseRawLinkedAnnotations(meta.visual_annotations);
+  const linkedEntries = [...linkedFromMeta, ...linkedFromVisual, ...linkedFromMetaVisual];
 
   const linkedMap = new Map();
   for (const entry of linkedEntries) {
     const key = entry.name.toLowerCase();
-    if (!linkedMap.has(key)) {
+    const existing = linkedMap.get(key);
+    if (!existing) {
       linkedMap.set(key, entry);
+    } else {
+      linkedMap.set(key, {
+        name: existing.name || entry.name,
+        idea_id: existing.idea_id || entry.idea_id || null,
+        url: existing.url || entry.url || null
+      });
     }
   }
 
@@ -406,24 +428,59 @@ export async function fetchPinAnnotationsIntel({
 }) {
   const cleanPinId = String(pinId || '').trim();
   const rows = await sql`
-    SELECT
-      pin_id,
-      visual_annotations,
-      COALESCE(metadata, '{}'::jsonb) AS metadata
-    FROM universal_master_pins
-    WHERE pin_id = ${cleanPinId}
-    LIMIT 1;
+    SELECT pin_id, visual_annotations, metadata, priority FROM (
+      SELECT
+        pin_id,
+        visual_annotations,
+        COALESCE(metadata, '{}'::jsonb) AS metadata,
+        1 AS priority
+      FROM universal_master_pins
+      WHERE pin_id = ${cleanPinId}
+      UNION ALL
+      SELECT
+        pin_id,
+        visual_annotations,
+        COALESCE(metadata, '{}'::jsonb) AS metadata,
+        2 AS priority
+      FROM newborn_candidates
+      WHERE pin_id = ${cleanPinId}
+    ) unified_pin_annotations
+    ORDER BY priority ASC
+    LIMIT 2;
   `;
 
-  const pinRow = Array.isArray(rows) ? rows[0] : null;
-  if (!pinRow) {
+  const rowList = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  if (rowList.length === 0) {
     return {
       found: false,
       payload: null
     };
   }
 
-  const extracted = extractStoredPinAnnotations(pinRow, { maxItems });
+  const safeCap = Math.max(1, Math.min(Number(maxItems) || MAX_ANNOTATIONS_CAP, MAX_ANNOTATIONS_CAP));
+  const mergedByKey = new Map();
+  for (const row of rowList) {
+    const part = extractStoredPinAnnotations(row, { maxItems: MAX_ANNOTATIONS_CAP });
+    for (const item of part.items) {
+      const key = item.name.toLowerCase();
+      const existing = mergedByKey.get(key);
+      if (!existing) {
+        mergedByKey.set(key, { ...item });
+      } else {
+        mergedByKey.set(key, {
+          name: existing.name || item.name,
+          idea_id: existing.idea_id || item.idea_id || null,
+          url: existing.url || item.url || null
+        });
+      }
+    }
+  }
+  const allMerged = Array.from(mergedByKey.values());
+  const extracted = {
+    items: allMerged.slice(0, safeCap),
+    totalStoredCount: allMerged.length,
+    capped: allMerged.length > safeCap
+  };
   const resolved = await resolveAnnotationsIntel({
     annotations: extracted.items,
     fetchInterestFn,

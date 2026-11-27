@@ -1010,7 +1010,11 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       let discoveryHalted = false;
       try {
         // Automatically resolve official Pinterest Idea Page metadata & search volume for explicit seed query
-        if (cleanSeeds.length > 0 && !signal?.aborted) {
+        // Skip redundant Idea Page lookups on non-primary shards whose surfaces disabled ideas_feeds (e.g. board-slice workers)
+        const shouldResolveRunIdeaPage = cleanSeeds.length > 0
+          && !signal?.aborted
+          && (!isShardMode || numericShardIndex === 0 || surfacesCfg.ideas_feeds?.enabled !== false);
+        if (shouldResolveRunIdeaPage) {
           runIdeaPage = await resolveIdeaPageIntelligence(cleanSeeds[0], {
             router,
             country: settings.discovery.country
@@ -1141,7 +1145,23 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
               freshBoardsDiscovered.splice(0, 0, ...[...cleanSeedBoards].reverse());
             }
 
-            const boardsToExpand = freshBoardsDiscovered.slice(0, maxBoardsLimit);
+            const allBoardsToExpand = freshBoardsDiscovered.slice(0, maxBoardsLimit);
+            const rawSliceTotal = Number(settingsOverrides?.discovery?.board_slice_total ?? settings.discovery?.board_slice_total ?? 1);
+            const boardSliceTotal = Number.isInteger(rawSliceTotal) && rawSliceTotal > 1 ? rawSliceTotal : 1;
+            const rawSliceIndices = Array.isArray(settingsOverrides?.discovery?.board_slice_indices)
+              ? settingsOverrides.discovery.board_slice_indices
+              : (Array.isArray(settings.discovery?.board_slice_indices) ? settings.discovery.board_slice_indices : null);
+            const rawSliceIdx = Number(settingsOverrides?.discovery?.board_slice_index ?? settings.discovery?.board_slice_index ?? 0);
+            const allowedSliceSet = boardSliceTotal > 1
+              ? new Set(
+                  (rawSliceIndices && rawSliceIndices.length > 0 ? rawSliceIndices : [rawSliceIdx])
+                    .map((n) => Number(n))
+                    .filter((n) => Number.isInteger(n) && n >= 0 && n < boardSliceTotal)
+                )
+              : null;
+            const boardsToExpand = (allowedSliceSet && allowedSliceSet.size > 0)
+              ? allBoardsToExpand.filter((_, idx) => allowedSliceSet.has(idx % boardSliceTotal))
+              : allBoardsToExpand;
             if (boardsToExpand.length === 0 || signal?.aborted || discoveryHalted) return;
 
             const boardSem = new Semaphore(5);

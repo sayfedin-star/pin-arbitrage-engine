@@ -16,6 +16,7 @@ import { calculateDailyVelocity, isRepinHydrationJump, detectHydrationJump } fro
 import { buildRichPinMetadataPayload, normalizeCleanDomain, isSyntheticGarbageTitle, sanitizeVisualAnnotations } from '../../domain/pin-intelligence.mjs';
 import { qualifyPin } from '../creators/competitors-crud.mjs';
 import { getPinDossier, fetchUniversalPinDossier, fetchPinTrajectory } from './dossier-reader.mjs';
+import { normalizeCanonicalCreationMethod } from '../newborn/surface-normalizers.mjs';
 
 export { normalizeCleanDomain, getPinDossier, fetchUniversalPinDossier, fetchPinTrajectory };
 
@@ -951,12 +952,15 @@ export async function syncPinAcrossAllFourPillars({
     scrapedPin.method === 'carousel' ||
     scrapedPin.creation_method === 'carousel'
   );
+  const canonicalSyncMethod = isCarousel
+    ? 'carousel'
+    : normalizeCanonicalCreationMethod(scrapedPin.creation_method || scrapedPin.method || 'pinterest_platform', { isHydrated: true });
   const rawMetaToStore = {
     alt_text: scrapedPin.alt_text || scrapedPin.seo_title || '',
     description: scrapedPin.description || '',
     board_name: scrapedPin.board_name || '',
-    creation_method: isCarousel ? 'carousel' : (scrapedPin.creation_method || scrapedPin.method || 'pinterest_platform'),
-    method: isCarousel ? 'carousel' : (scrapedPin.method || scrapedPin.creation_method || 'pinterest_platform'),
+    creation_method: canonicalSyncMethod,
+    method: canonicalSyncMethod,
     is_carousel: isCarousel,
     created_at_pinterest: scrapedPin.created_at_pinterest || scrapedPin.created_at || '',
     is_repin: Boolean(scrapedPin.is_repin),
@@ -1274,6 +1278,70 @@ export async function syncPinAcrossAllFourPillars({
       pillar: 'live_sync',
       isLiveSync: true
     });
+
+    // Pillar 4 Bidirectional Sync: keep newborn_candidates aligned on Live Deep Sync
+    // Uses SAVEPOINT when running inside a real PostgreSQL transaction so missing/stubbed tables never abort Pillars 1-3.
+    const ncVisualPayload = cleanLinkedAnnotations.length > 0
+      ? cleanLinkedAnnotations
+      : syncAnnotations;
+    const ncVisualJson = ncVisualPayload.length > 0 ? JSON.stringify(ncVisualPayload) : null;
+    const useNcSavepoint = typeof tx?.unsafe === 'function';
+    try {
+      if (useNcSavepoint) {
+        await tx.unsafe('SAVEPOINT sp_sync_newborn_candidate');
+      }
+      await tx`
+        UPDATE public.newborn_candidates
+        SET
+          save_count = CASE
+            WHEN ${newSaves}::bigint IS NOT NULL THEN GREATEST(COALESCE(save_count, 0), ${newSaves}::bigint)
+            ELSE save_count
+          END,
+          repin_count = CASE
+            WHEN ${newRepins}::bigint IS NOT NULL THEN GREATEST(COALESCE(repin_count, 0), ${newRepins}::bigint)
+            ELSE repin_count
+          END,
+          comment_count = CASE
+            WHEN ${newComments}::int IS NOT NULL THEN GREATEST(COALESCE(comment_count, 0), ${newComments}::int)
+            ELSE comment_count
+          END,
+          share_count = CASE
+            WHEN ${newShares}::int IS NOT NULL THEN GREATEST(COALESCE(share_count, 0), ${newShares}::int)
+            ELSE share_count
+          END,
+          reaction_count = CASE
+            WHEN ${totalReactions}::int > 0 THEN GREATEST(COALESCE(reaction_count, 0), ${totalReactions}::int)
+            ELSE reaction_count
+          END,
+          visual_annotations = CASE
+            WHEN ${ncVisualJson}::jsonb IS NOT NULL AND jsonb_array_length(${ncVisualJson}::jsonb) > 0 THEN ${ncVisualJson}::jsonb
+            ELSE visual_annotations
+          END,
+          raw_creation_method = CASE
+            WHEN NULLIF(btrim(${canonicalSyncMethod}), '') IS NOT NULL
+              AND (
+                raw_creation_method IS NULL
+                OR btrim(raw_creation_method) = ''
+                OR LOWER(btrim(raw_creation_method)) IN ('organic_pin', 'unhydrated_stub', 'pinterest_platform')
+                OR LOWER(btrim(${canonicalSyncMethod})) NOT IN ('pinterest_platform', 'unhydrated_stub')
+              )
+            THEN ${canonicalSyncMethod}
+            ELSE raw_creation_method
+          END,
+          created_at_pinterest = COALESCE(${cleanCreatedAtIso}::timestamptz, created_at_pinterest),
+          is_hydrated = CASE WHEN ${hasExplicitScrapedSaves || newSaves !== null}::boolean THEN TRUE ELSE is_hydrated END,
+          updated_at = NOW()
+        WHERE pin_id = ${cleanPinId};
+      `;
+      if (useNcSavepoint) {
+        await tx.unsafe('RELEASE SAVEPOINT sp_sync_newborn_candidate');
+      }
+    } catch (ncSyncErr) {
+      if (useNcSavepoint) {
+        try { await tx.unsafe('ROLLBACK TO SAVEPOINT sp_sync_newborn_candidate'); } catch (_) {}
+      }
+      console.warn(`[PinRepository.syncPinAcrossAllFourPillars] Pillar 4 newborn_candidates sync warning for ${cleanPinId}:`, ncSyncErr?.message || ncSyncErr);
+    }
 
     // Upsert SERP positions (keyword_serp_positions) for each associated active or displaced keyword
     // [INVARIANT: ATOMIC-BATCH-UPSERT-WITH-MAP-DEDUP]

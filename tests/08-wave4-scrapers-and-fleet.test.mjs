@@ -145,7 +145,7 @@ test('Wave 4A.2 & 4A.3: formatPin preserves 10,000,001 (10M+) ceiling and classi
   assert.equal(megaViralPin.saves, PINTEREST_CEILING_VALUE);
   assert.equal(megaViralPin.repin_count, PINTEREST_CEILING_VALUE);
   assert.equal(megaViralPin.creator_followers, PINTEREST_CEILING_VALUE);
-  assert.equal(megaViralPin.creation_method, 'organic_pin');
+  assert.equal(megaViralPin.creation_method, 'pinterest_platform');
 
   const unhydratedStub = formatPin({
     id: '51515151515151',

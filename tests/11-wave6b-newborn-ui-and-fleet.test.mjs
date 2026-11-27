@@ -97,7 +97,9 @@ test('Wave 6B.1: Newborn SSR Studio DOM tree, Light-Mode default invariant, offi
   assert.ok(globalHtml.includes('Cluster Explorer'), '3-Tab workspace must render Cluster Explorer tab');
   assert.ok(globalHtml.includes('Past Hunts'), '3-Tab workspace must render Past Hunts tab');
   assert.ok(globalHtml.includes('Annotations Crossover'), 'This Hunt must show Annotations Crossover panel');
-  assert.ok(globalHtml.includes('No Link / Linkless'), 'Results UI must show clear No Link / Linkless badge');
+  assert.ok(globalHtml.includes('No Link'), 'Results UI must show clear No Link badge');
+  assert.equal(globalHtml.includes('No Link / Linkless'), false, 'Results UI must not show redundant No Link / Linkless label');
+  assert.equal(globalHtml.includes('value="organic_pin"'), false, 'Method dropdown must not expose synthetic organic_pin option');
   assert.ok(globalHtml.includes('Scroll Related'), 'Results UI must expose Scroll Related action');
   assert.ok(globalHtml.includes('Track Daily'), 'Results UI must expose opt-in Track Daily action');
   assert.ok(globalHtml.includes('Pull Account'), 'Results UI must expose manual Pull Account action');
