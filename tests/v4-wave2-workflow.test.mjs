@@ -516,60 +516,41 @@ test('Pillar 3: POST /api/folders/:id/items accepts keyword text arrays for Newb
   assert.equal(body.keyword_ids.length, 2);
 });
 
-test('Pillar 3: Newborn listNewbornRuns and listNewbornKeywordClusters filter by workspace_id with fail-closed 42703 fallback', async () => {
-  // Non-default workspace fails closed ([]) on pre-migration 42703
+test('Pillar 3: Newborn listNewbornRuns and listNewbornKeywordClusters filter strictly by workspace_id without silent 42703 catches', async () => {
+  const seenRuns = [];
   const sqlRunsWs2 = createMockSql((query, values) => {
-    assert.match(query, /workspace_id/i);
-    assert.ok(values.includes(2));
-    const err = new Error('column "workspace_id" does not exist');
-    err.code = '42703';
-    throw err;
+    seenRuns.push({ query, values });
+    return [{ id: 12, workspace_id: 2, status: 'completed' }];
   });
   const ws2Runs = await listNewbornRuns(sqlRunsWs2, { limit: 10, workspaceId: 2 });
-  assert.deepEqual(ws2Runs, []);
+  assert.equal(ws2Runs.length, 1);
+  assert.match(seenRuns[0].query, /WHERE workspace_id = \?/i);
+  assert.ok(seenRuns[0].values.includes(2));
 
-  // Default workspace (1) gracefully falls back on 42703
-  let firstCall = true;
-  const sqlRunsWs1 = createMockSql((query, values) => {
-    if (firstCall) {
-      firstCall = false;
-      assert.match(query, /workspace_id/i);
-      assert.ok(values.includes(1));
-      const err = new Error('column "workspace_id" does not exist');
-      err.code = '42703';
-      throw err;
-    }
-    return [{ id: 1, status: 'completed' }];
-  });
-  const ws1Runs = await listNewbornRuns(sqlRunsWs1, { limit: 10, workspaceId: 1 });
-  assert.equal(ws1Runs.length, 1);
-
-  // Cluster builder fails closed for non-default workspace on 42703, falls back for workspace 1
-  const sqlClustersWs3 = createMockSql((query, values) => {
-    assert.match(query, /workspace_id/i);
-    assert.ok(values.includes(3));
+  // Pre-migration 42703 errors must propagate loudly instead of silently dropping workspace_id filtering
+  const sqlRuns42703 = createMockSql(() => {
     const err = new Error('column "workspace_id" does not exist');
     err.code = '42703';
     throw err;
   });
-  const ws3Clusters = await listNewbornKeywordClusters(sqlClustersWs3, { limit: 10, workspaceId: 3 });
-  assert.deepEqual(ws3Clusters, []);
+  await assert.rejects(() => listNewbornRuns(sqlRuns42703, { limit: 10, workspaceId: 1 }), { code: '42703' });
 
-  let clusterFirstCall = true;
-  const sqlClustersWs1 = createMockSql((query, values) => {
-    if (clusterFirstCall) {
-      clusterFirstCall = false;
-      assert.match(query, /workspace_id/i);
-      assert.ok(values.includes(1));
-      const err = new Error('column "workspace_id" does not exist');
-      err.code = '42703';
-      throw err;
-    }
-    return [{ id: 9, seed_keyword: 'soup' }];
+  const seenClusters = [];
+  const sqlClustersWs3 = createMockSql((query, values) => {
+    seenClusters.push({ query, values });
+    return [{ id: 9, workspace_id: 3, seed_keyword: 'soup' }];
   });
-  const ws1Clusters = await listNewbornKeywordClusters(sqlClustersWs1, { limit: 10, workspaceId: 1 });
-  assert.equal(ws1Clusters.length, 1);
-  assert.equal(ws1Clusters[0].seed_keyword, 'soup');
+  const ws3Clusters = await listNewbornKeywordClusters(sqlClustersWs3, { limit: 10, workspaceId: 3 });
+  assert.equal(ws3Clusters.length, 1);
+  assert.match(seenClusters[0].query, /workspace_id = \?/i);
+  assert.ok(seenClusters[0].values.includes(3));
+
+  const sqlClusters42703 = createMockSql(() => {
+    const err = new Error('column "workspace_id" does not exist');
+    err.code = '42703';
+    throw err;
+  });
+  await assert.rejects(() => listNewbornKeywordClusters(sqlClusters42703, { limit: 10, workspaceId: 1 }), { code: '42703' });
 });
 
 // =========================================================================

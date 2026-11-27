@@ -846,17 +846,23 @@ export function evaluateAutomationSchedule(settings = DEFAULT_NEWBORN_SETTINGS, 
   };
 }
 
+export function resolveNewbornSettingsKey(workspaceId = 1) {
+  const wid = cleanNullablePositiveInt(workspaceId, 1) || 1;
+  return wid === 1 ? NEWBORN_SETTINGS_KEY : `${NEWBORN_SETTINGS_KEY}_ws_${wid}`;
+}
+
 /**
- * Fetches persistent Newborn Engine settings from app_settings.
+ * Fetches persistent Newborn Engine settings from app_settings (strictly scoped by workspaceId).
  */
-export async function getNewbornSettings(sql) {
+export async function getNewbornSettings(sql, { workspaceId = 1 } = {}) {
   if (!sql || typeof sql !== 'function') {
     return normalizeNewbornSettings({});
   }
+  const settingsKey = resolveNewbornSettingsKey(workspaceId);
   const rows = await sql`
     SELECT key, value, updated_at
     FROM app_settings
-    WHERE key = ${NEWBORN_SETTINGS_KEY}
+    WHERE key = ${settingsKey}
     LIMIT 1;
   `;
   if (Array.isArray(rows) && rows.length > 0 && rows[0]?.value) {
@@ -871,13 +877,15 @@ export async function getNewbornSettings(sql) {
 }
 
 /**
- * Replaces / updates global Newborn Engine settings in app_settings (PUT semantics with default backfill).
+ * Replaces / updates workspace-scoped Newborn Engine settings in app_settings (PUT semantics with default backfill).
  */
-export async function updateNewbornSettings(sql, incomingSettings = {}) {
+export async function updateNewbornSettings(sql, incomingSettings = {}, { workspaceId = 1 } = {}) {
   if (!sql || typeof sql !== 'function') {
     throw new Error('Database client (sql) is required to persist Newborn settings.');
   }
-  const current = await getNewbornSettings(sql);
+  const wid = cleanNullablePositiveInt(workspaceId, 1) || 1;
+  const settingsKey = resolveNewbornSettingsKey(wid);
+  const current = await getNewbornSettings(sql, { workspaceId: wid });
   const preserveRunTimestamps = {
     automation: {
       schedule: {
@@ -906,7 +914,7 @@ export async function updateNewbornSettings(sql, incomingSettings = {}) {
 
   const [saved] = await sql`
     INSERT INTO app_settings (key, value, updated_at)
-    VALUES (${NEWBORN_SETTINGS_KEY}, ${JSON.stringify(sanitizeForJsonb(normalized))}::jsonb, NOW())
+    VALUES (${settingsKey}, ${JSON.stringify(sanitizeForJsonb(normalized))}::jsonb, NOW())
     ON CONFLICT (key) DO UPDATE SET
       value = EXCLUDED.value,
       updated_at = NOW()
@@ -920,18 +928,20 @@ export async function updateNewbornSettings(sql, incomingSettings = {}) {
 }
 
 /**
- * Partially patches global Newborn Engine settings in app_settings (PATCH semantics).
+ * Partially patches workspace-scoped Newborn Engine settings in app_settings (PATCH semantics).
  */
-export async function patchNewbornSettings(sql, patch = {}) {
+export async function patchNewbornSettings(sql, patch = {}, { workspaceId = 1 } = {}) {
   if (!sql || typeof sql !== 'function') {
     throw new Error('Database client (sql) is required to patch Newborn settings.');
   }
-  const current = await getNewbornSettings(sql);
+  const wid = cleanNullablePositiveInt(workspaceId, 1) || 1;
+  const settingsKey = resolveNewbornSettingsKey(wid);
+  const current = await getNewbornSettings(sql, { workspaceId: wid });
   const merged = normalizeNewbornSettings(patch, current);
 
   const [saved] = await sql`
     INSERT INTO app_settings (key, value, updated_at)
-    VALUES (${NEWBORN_SETTINGS_KEY}, ${JSON.stringify(sanitizeForJsonb(merged))}::jsonb, NOW())
+    VALUES (${settingsKey}, ${JSON.stringify(sanitizeForJsonb(merged))}::jsonb, NOW())
     ON CONFLICT (key) DO UPDATE SET
       value = EXCLUDED.value,
       updated_at = NOW()
@@ -945,18 +955,19 @@ export async function patchNewbornSettings(sql, patch = {}) {
 }
 
 /**
- * Resets global Newborn Engine settings back to factory defaults.
+ * Resets workspace-scoped Newborn Engine settings back to factory defaults.
  */
-export async function resetNewbornSettings(sql) {
-  return await updateNewbornSettings(sql, DEFAULT_NEWBORN_SETTINGS);
+export async function resetNewbornSettings(sql, { workspaceId = 1 } = {}) {
+  return await updateNewbornSettings(sql, DEFAULT_NEWBORN_SETTINGS, { workspaceId });
 }
 
 /**
  * Atomically stamps `last_discovery_run_at` or `last_watchlist_poll_at` in `app_settings`
  * using PostgreSQL `jsonb_set` (zero read-modify-write race across concurrent workers).
  */
-export async function stampAutomationRunTimestamp(sql, runKind = 'discovery', timestampIso = new Date().toISOString()) {
+export async function stampAutomationRunTimestamp(sql, runKind = 'discovery', timestampIso = new Date().toISOString(), { workspaceId = 1 } = {}) {
   if (!sql || typeof sql !== 'function') return null;
+  const settingsKey = resolveNewbornSettingsKey(workspaceId);
   const field = runKind === 'watchlist_poll' ? 'last_watchlist_poll_at' : 'last_discovery_run_at';
   const cleanIso = cleanIsoOrNull(timestampIso, new Date().toISOString());
   const initialDoc = normalizeNewbornSettings({
@@ -970,7 +981,7 @@ export async function stampAutomationRunTimestamp(sql, runKind = 'discovery', ti
 
   const [saved] = await sql`
     INSERT INTO app_settings (key, value, updated_at)
-    VALUES (${NEWBORN_SETTINGS_KEY}, ${JSON.stringify(sanitizeForJsonb(initialDoc))}::jsonb, NOW())
+    VALUES (${settingsKey}, ${JSON.stringify(sanitizeForJsonb(initialDoc))}::jsonb, NOW())
     ON CONFLICT (key) DO UPDATE SET
       value = jsonb_set(
         jsonb_set(
@@ -1014,6 +1025,7 @@ function normalizeRuleProfileRow(row) {
   if (!row) return null;
   return {
     id: Number(row.id),
+    workspace_id: row.workspace_id != null ? Number(row.workspace_id) : 1,
     slug: String(row.slug || ''),
     name: String(row.name || ''),
     description: String(row.description || ''),
@@ -1029,7 +1041,7 @@ function normalizeRuleProfileRow(row) {
 }
 
 /**
- * Lists Newborn rule profiles from newborn_rule_profiles.
+ * Lists Newborn rule profiles from newborn_rule_profiles, strictly scoped to `workspaceId`.
  */
 export async function listNewbornRuleProfiles(sql, { includeInactive = false, folderId = null, workspaceId = 1 } = {}) {
   if (!sql || typeof sql !== 'function') return [];
@@ -1040,41 +1052,35 @@ export async function listNewbornRuleProfiles(sql, { includeInactive = false, fo
     rows = includeInactive
       ? await sql`
           SELECT * FROM newborn_rule_profiles
-          WHERE folder_id = ${fid} OR is_default = TRUE
+          WHERE workspace_id = ${wid}
+            AND (folder_id = ${fid} OR is_default = TRUE)
           ORDER BY is_default DESC, id ASC;
         `
       : await sql`
           SELECT * FROM newborn_rule_profiles
-          WHERE is_active = TRUE AND (folder_id = ${fid} OR is_default = TRUE)
-          ORDER BY is_default DESC, id ASC;
-        `;
-  } else if (wid !== 1) {
-    rows = includeInactive
-      ? await sql`
-          SELECT * FROM newborn_rule_profiles
-          WHERE is_default = TRUE
-             OR folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
-          ORDER BY is_default DESC, id ASC;
-        `
-      : await sql`
-          SELECT * FROM newborn_rule_profiles
-          WHERE is_active = TRUE
-            AND (
-              is_default = TRUE
-              OR folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
-            )
+          WHERE workspace_id = ${wid}
+            AND is_active = TRUE
+            AND (folder_id = ${fid} OR is_default = TRUE)
           ORDER BY is_default DESC, id ASC;
         `;
   } else {
     rows = includeInactive
-      ? await sql`SELECT * FROM newborn_rule_profiles ORDER BY is_default DESC, id ASC;`
-      : await sql`SELECT * FROM newborn_rule_profiles WHERE is_active = TRUE ORDER BY is_default DESC, id ASC;`;
+      ? await sql`
+          SELECT * FROM newborn_rule_profiles
+          WHERE workspace_id = ${wid}
+          ORDER BY is_default DESC, id ASC;
+        `
+      : await sql`
+          SELECT * FROM newborn_rule_profiles
+          WHERE workspace_id = ${wid} AND is_active = TRUE
+          ORDER BY is_default DESC, id ASC;
+        `;
   }
   return (rows || []).map(normalizeRuleProfileRow).filter(Boolean);
 }
 
 /**
- * Fetches a single Newborn rule profile by numeric ID or slug.
+ * Fetches a single Newborn rule profile by numeric ID or slug inside `workspaceId`.
  */
 export async function getNewbornRuleProfile(sql, idOrSlug, { workspaceId = 1 } = {}) {
   if (!sql || typeof sql !== 'function' || idOrSlug === undefined || idOrSlug === null || idOrSlug === '') {
@@ -1084,12 +1090,11 @@ export async function getNewbornRuleProfile(sql, idOrSlug, { workspaceId = 1 } =
   const str = String(idOrSlug).trim();
   const isNum = /^\d+$/.test(str);
   const rows = isNum
-    ? await sql`SELECT * FROM newborn_rule_profiles WHERE id = ${Number(str)} LIMIT 1;`
-    : await sql`SELECT * FROM newborn_rule_profiles WHERE slug = ${str.toLowerCase()} LIMIT 1;`;
+    ? await sql`SELECT * FROM newborn_rule_profiles WHERE id = ${Number(str)} AND workspace_id = ${wid} LIMIT 1;`
+    : await sql`SELECT * FROM newborn_rule_profiles WHERE slug = ${str.toLowerCase()} AND workspace_id = ${wid} LIMIT 1;`;
   const profile = rows?.[0] ? normalizeRuleProfileRow(rows[0]) : null;
   if (!profile) return null;
-  if (wid !== 1 && !profile.is_default) {
-    if (!profile.folder_id) return null;
+  if (profile.folder_id) {
     const [kf] = await sql`SELECT id FROM keyword_folders WHERE id = ${profile.folder_id} AND workspace_id = ${wid} LIMIT 1;`;
     if (!kf) return null;
   }
@@ -1097,12 +1102,13 @@ export async function getNewbornRuleProfile(sql, idOrSlug, { workspaceId = 1 } =
 }
 
 /**
- * Creates a new Newborn rule profile, validating its override blocks via normalizeNewbornSettings.
+ * Creates a workspace-scoped Newborn rule profile, validating its override blocks via normalizeNewbornSettings.
  */
-export async function createNewbornRuleProfile(sql, payload = {}) {
+export async function createNewbornRuleProfile(sql, payload = {}, { workspaceId = 1 } = {}) {
   if (!sql || typeof sql !== 'function') {
     throw new Error('Database client (sql) is required to create a rule profile.');
   }
+  const wid = cleanNullablePositiveInt(workspaceId ?? payload.workspace_id, 1) || 1;
   const name = String(payload.name || '').trim();
   if (!name) {
     throw new Error('Profile name is required.');
@@ -1127,12 +1133,12 @@ export async function createNewbornRuleProfile(sql, payload = {}) {
   const runInTx = async (fn) => (typeof sql.begin === 'function' ? sql.begin(fn) : fn(sql));
   return await runInTx(async (tx) => {
     if (isDefault) {
-      await tx`UPDATE newborn_rule_profiles SET is_default = FALSE WHERE is_default = TRUE;`;
+      await tx`UPDATE newborn_rule_profiles SET is_default = FALSE WHERE workspace_id = ${wid} AND is_default = TRUE;`;
     }
     const [inserted] = await tx`
       INSERT INTO newborn_rule_profiles (
         slug, name, description, is_default, is_active, folder_id,
-        surfaces_config, qualification_config, automation_config, created_at, updated_at
+        surfaces_config, qualification_config, automation_config, workspace_id, created_at, updated_at
       )
       VALUES (
         ${slug},
@@ -1144,10 +1150,11 @@ export async function createNewbornRuleProfile(sql, payload = {}) {
         ${JSON.stringify(sanitizeForJsonb(surfacesConfig))}::jsonb,
         ${JSON.stringify(sanitizeForJsonb(qualificationConfig))}::jsonb,
         ${JSON.stringify(sanitizeForJsonb(automationConfig))}::jsonb,
+        ${wid},
         NOW(),
         NOW()
       )
-      ON CONFLICT (slug) DO UPDATE SET
+      ON CONFLICT (workspace_id, slug) DO UPDATE SET
         name = EXCLUDED.name,
         description = EXCLUDED.description,
         is_default = EXCLUDED.is_default,
@@ -1164,13 +1171,14 @@ export async function createNewbornRuleProfile(sql, payload = {}) {
 }
 
 /**
- * Updates an existing Newborn rule profile by numeric ID or slug.
+ * Updates an existing Newborn rule profile by numeric ID or slug inside `workspaceId`.
  */
 export async function updateNewbornRuleProfile(sql, idOrSlug, patch = {}, { workspaceId = 1 } = {}) {
   if (!sql || typeof sql !== 'function') {
     throw new Error('Database client (sql) is required to update a rule profile.');
   }
-  const existing = await getNewbornRuleProfile(sql, idOrSlug, { workspaceId });
+  const wid = cleanNullablePositiveInt(workspaceId, 1) || 1;
+  const existing = await getNewbornRuleProfile(sql, idOrSlug, { workspaceId: wid });
   if (!existing) return null;
 
   const nextName = patch.name !== undefined ? String(patch.name || '').trim() : existing.name;
@@ -1208,7 +1216,7 @@ export async function updateNewbornRuleProfile(sql, idOrSlug, patch = {}, { work
   const runInTx = async (fn) => (typeof sql.begin === 'function' ? sql.begin(fn) : fn(sql));
   return await runInTx(async (tx) => {
     if (nextDefault && !existing.is_default) {
-      await tx`UPDATE newborn_rule_profiles SET is_default = FALSE WHERE id <> ${existing.id} AND is_default = TRUE;`;
+      await tx`UPDATE newborn_rule_profiles SET is_default = FALSE WHERE workspace_id = ${wid} AND id <> ${existing.id} AND is_default = TRUE;`;
     }
     const [updated] = await tx`
       UPDATE newborn_rule_profiles
@@ -1222,7 +1230,7 @@ export async function updateNewbornRuleProfile(sql, idOrSlug, patch = {}, { work
         qualification_config = ${JSON.stringify(sanitizeForJsonb(nextQualification))}::jsonb,
         automation_config = ${JSON.stringify(sanitizeForJsonb(nextAutomation))}::jsonb,
         updated_at = NOW()
-      WHERE id = ${existing.id}
+      WHERE id = ${existing.id} AND workspace_id = ${wid}
       RETURNING *;
     `;
     return normalizeRuleProfileRow(updated);
@@ -1230,33 +1238,35 @@ export async function updateNewbornRuleProfile(sql, idOrSlug, patch = {}, { work
 }
 
 /**
- * Deletes a Newborn rule profile by numeric ID or slug.
+ * Deletes a Newborn rule profile by numeric ID or slug inside `workspaceId`.
  */
 export async function deleteNewbornRuleProfile(sql, idOrSlug, { workspaceId = 1 } = {}) {
   if (!sql || typeof sql !== 'function') {
     throw new Error('Database client (sql) is required to delete a rule profile.');
   }
-  const existing = await getNewbornRuleProfile(sql, idOrSlug, { workspaceId });
+  const wid = cleanNullablePositiveInt(workspaceId, 1) || 1;
+  const existing = await getNewbornRuleProfile(sql, idOrSlug, { workspaceId: wid });
   if (!existing) return { deleted: false, reason: 'not_found' };
   if (existing.is_default) {
     const err = new Error('Cannot delete the active default rule profile. Assign another default profile first.');
     err.status = 400;
     throw err;
   }
-  await sql`DELETE FROM newborn_rule_profiles WHERE id = ${existing.id};`;
+  await sql`DELETE FROM newborn_rule_profiles WHERE id = ${existing.id} AND workspace_id = ${wid};`;
   return { deleted: true, id: existing.id, slug: existing.slug };
 }
 
 /**
  * Resolves the effective Newborn configuration across:
- *   DEFAULT_NEWBORN_SETTINGS <- DB newborn_engine_settings <- newborn_rule_profiles <- runtime overrides
+ *   DEFAULT_NEWBORN_SETTINGS <- DB workspace newborn_engine_settings <- newborn_rule_profiles <- runtime overrides
  */
-export async function resolveEffectiveNewbornSettings(sql, { profileId = null, overrides = null } = {}) {
-  let effective = await getNewbornSettings(sql);
+export async function resolveEffectiveNewbornSettings(sql, { profileId = null, overrides = null, workspaceId = 1 } = {}) {
+  const wid = cleanNullablePositiveInt(workspaceId, 1) || 1;
+  let effective = await getNewbornSettings(sql, { workspaceId: wid });
   let appliedProfile = null;
 
   if (sql && profileId !== null && profileId !== undefined && profileId !== '') {
-    appliedProfile = await getNewbornRuleProfile(sql, profileId);
+    appliedProfile = await getNewbornRuleProfile(sql, profileId, { workspaceId: wid });
   }
 
   if (appliedProfile) {

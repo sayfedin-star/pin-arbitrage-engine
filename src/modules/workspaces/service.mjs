@@ -11,9 +11,12 @@
  */
 
 import { decodeHtmlEntities } from '../newborn/surface-normalizers.mjs';
-import { normalizeCandidateForMasterIngest } from '../newborn/promotions.mjs';
+import {
+  normalizeCandidateForMasterIngest,
+  enrollCampaignTrackedPinsTx,
+  syncNewbornAnchorsAndPromoteTx
+} from '../newborn/promotions.mjs';
 import { ingestPinsBatch } from '../pins/repository.mjs';
-import { sanitizeForJsonb } from '../../utils.mjs';
 
 export const DEFAULT_WORKSPACE_ID = 1;
 export const WORKSPACE_COOKIE_NAME = 'pae_workspace_id';
@@ -856,118 +859,57 @@ export async function addCampaignTrackedPins(sql, { folderId, workspaceId, pinId
     //    hydrate it into universal_master_pins so Campaigns never show ghost NULL rows.
     // 2) ONLY when cleanSource === 'newborn', create newborn_daily_anchors and promote
     //    newborn_candidates.stage -> 'promoted' (never contaminate anchors with 'search' pins!).
-    try {
-      const matchingNewbornCandidates = await tx`
-        SELECT nc.*, (ump.pin_id IS NULL) AS missing_in_master
-        FROM newborn_candidates nc
-        LEFT JOIN universal_master_pins ump ON ump.pin_id = nc.pin_id
-        WHERE nc.pin_id = ANY(${sortedPinIds}::text[])
-          AND (ump.pin_id IS NULL OR ${cleanSource} = 'newborn')
-        ORDER BY nc.pin_id ASC;
-      `;
+    const matchingNewbornCandidates = await tx`
+      SELECT nc.*, (ump.pin_id IS NULL) AS missing_in_master
+      FROM newborn_candidates nc
+      LEFT JOIN universal_master_pins ump ON ump.pin_id = nc.pin_id
+      WHERE nc.pin_id = ANY(${sortedPinIds}::text[])
+        AND (ump.pin_id IS NULL OR ${cleanSource} = 'newborn')
+      ORDER BY nc.pin_id ASC;
+    `;
 
-      if (Array.isArray(matchingNewbornCandidates) && matchingNewbornCandidates.length > 0) {
-        for (const c of matchingNewbornCandidates) {
-          const derivedSeed = String(c.seed_query || c.crossover_blueprint?.primary_keyword || '').trim();
-          if (derivedSeed) seedQueryByPin.set(String(c.pin_id), derivedSeed);
-        }
-
-        const toHydrateMaster = matchingNewbornCandidates.filter((c) => c.missing_in_master !== false);
-
-        if (toHydrateMaster.length > 0) {
-          const masterBatch = toHydrateMaster.map(normalizeCandidateForMasterIngest);
-          await ingestPinsBatch(tx, masterBatch, { pillar: cleanSource === 'newborn' ? 'newborn' : 'campaign', inTransaction: true });
-        }
-
-        if (cleanSource === 'newborn') {
-          promotedFromNewbornCount = matchingNewbornCandidates.length;
-          const anchorRecords = matchingNewbornCandidates.map((c) => ({
-            pin_id: String(c.pin_id),
-            source: 'campaign_send',
-            is_active: true,
-            folder_id: fid,
-            seed_query: c.seed_query || c.crossover_blueprint?.primary_keyword || null,
-            notes: cleanRef ? `Sent to Campaign (${cleanRef})` : 'Sent to Campaign from Discover'
-          }));
-          const anchorsJson = JSON.stringify(sanitizeForJsonb(anchorRecords));
-          await tx`
-            INSERT INTO newborn_daily_anchors (
-              pin_id, source, is_active, folder_id, seed_query, notes, promoted_at, updated_at
-            )
-            SELECT
-              u.pin_id,
-              u.source,
-              u.is_active,
-              u.folder_id,
-              u.seed_query,
-              u.notes,
-              NOW(),
-              NOW()
-            FROM jsonb_to_recordset(${anchorsJson}::jsonb) AS u(
-              pin_id text,
-              source text,
-              is_active boolean,
-              folder_id int,
-              seed_query text,
-              notes text
-            )
-            ORDER BY u.pin_id ASC
-            ON CONFLICT (pin_id) DO UPDATE SET
-              is_active = TRUE,
-              folder_id = COALESCE(EXCLUDED.folder_id, newborn_daily_anchors.folder_id),
-              seed_query = COALESCE(EXCLUDED.seed_query, newborn_daily_anchors.seed_query),
-              updated_at = NOW();
-          `;
-
-          const promotedPinIds = matchingNewbornCandidates.map((c) => String(c.pin_id)).sort((a, b) => a.localeCompare(b));
-          await tx`
-            UPDATE newborn_candidates
-            SET
-              stage = CASE WHEN stage = 'discovered' OR stage = 'watchlist' THEN 'promoted' ELSE stage END,
-              folder_id = COALESCE(folder_id, ${fid}),
-              promoted_at = COALESCE(promoted_at, NOW()),
-              updated_at = NOW()
-            WHERE pin_id = ANY(${promotedPinIds}::text[]);
-          `;
-        }
+    if (Array.isArray(matchingNewbornCandidates) && matchingNewbornCandidates.length > 0) {
+      for (const c of matchingNewbornCandidates) {
+        const derivedSeed = String(c.seed_query || c.crossover_blueprint?.primary_keyword || '').trim();
+        if (derivedSeed) seedQueryByPin.set(String(c.pin_id), derivedSeed);
       }
-    } catch (promoErr) {
-      // Graceful fallback for narrow unit-test mocks that don't simulate newborn_candidates/universal_master_pins tables
-      const code = String(promoErr?.code || '');
-      if (code && !['42P01', '42703'].includes(code)) throw promoErr;
+
+      const toHydrateMaster = matchingNewbornCandidates.filter((c) => c.missing_in_master !== false);
+      if (toHydrateMaster.length > 0) {
+        const masterBatch = toHydrateMaster.map(normalizeCandidateForMasterIngest);
+        await ingestPinsBatch(tx, masterBatch, { pillar: cleanSource === 'newborn' ? 'newborn' : 'campaign', inTransaction: true });
+      }
+
+      if (cleanSource === 'newborn') {
+        promotedFromNewbornCount = matchingNewbornCandidates.length;
+        await syncNewbornAnchorsAndPromoteTx(tx, matchingNewbornCandidates, {
+          folderId: fid,
+          source: 'campaign_send',
+          notes: cleanRef ? `Sent to Campaign (${cleanRef})` : 'Sent to Campaign from Discover'
+        });
+
+        const promotedPinIds = matchingNewbornCandidates.map((c) => String(c.pin_id)).sort((a, b) => a.localeCompare(b));
+        await tx`
+          UPDATE newborn_candidates
+          SET
+            stage = CASE WHEN stage = 'discovered' OR stage = 'watchlist' THEN 'promoted' ELSE stage END,
+            folder_id = COALESCE(folder_id, ${fid}),
+            promoted_at = COALESCE(promoted_at, NOW()),
+            updated_at = NOW()
+          WHERE pin_id = ANY(${promotedPinIds}::text[]);
+        `;
+      }
     }
 
-    const sortedSeedQueries = sortedPinIds.map(
-      (pid) => seedQueryByPin.get(pid) || (cleanSource === 'newborn' && cleanRef ? cleanRef : null)
-    );
-
-    let rows;
-    try {
-      rows = await tx`
-        INSERT INTO campaign_tracked_pins (folder_id, workspace_id, pin_id, source_type, source_ref, seed_query, is_active, added_at)
-        SELECT ${fid}, ${wid}, t.pin_id, ${cleanSource}, ${cleanRef}, t.seed_query, TRUE, NOW()
-        FROM UNNEST(${sortedPinIds}::text[], ${sortedSeedQueries}::text[]) AS t(pin_id, seed_query)
-        ORDER BY t.pin_id ASC
-        ON CONFLICT (folder_id, pin_id, source_type) DO UPDATE SET
-          is_active = TRUE,
-          source_ref = CASE WHEN EXCLUDED.source_ref <> '' THEN EXCLUDED.source_ref ELSE campaign_tracked_pins.source_ref END,
-          seed_query = COALESCE(NULLIF(EXCLUDED.seed_query, ''), campaign_tracked_pins.seed_query)
-        RETURNING pin_id, source_type;
-      `;
-    } catch (err) {
-      if (String(err?.code || '') !== '42703') throw err;
-      rows = await tx`
-        INSERT INTO campaign_tracked_pins (folder_id, workspace_id, pin_id, source_type, source_ref, is_active, added_at)
-        SELECT ${fid}, ${wid}, p_id, ${cleanSource}, ${cleanRef}, TRUE, NOW()
-        FROM UNNEST(${sortedPinIds}::text[]) AS p_id
-        ORDER BY p_id ASC
-        ON CONFLICT (folder_id, pin_id, source_type) DO UPDATE SET
-          is_active = TRUE,
-          source_ref = CASE WHEN EXCLUDED.source_ref <> '' THEN EXCLUDED.source_ref ELSE campaign_tracked_pins.source_ref END
-        RETURNING pin_id, source_type;
-      `;
-    }
-    addedCount = Array.isArray(rows) ? rows.length : 0;
+    addedCount = await enrollCampaignTrackedPinsTx(tx, {
+      folderId: fid,
+      workspaceId: wid,
+      pinIds: sortedPinIds,
+      sourceType: cleanSource,
+      sourceRef: cleanRef,
+      seedQueryByPin,
+      defaultSeedQuery: cleanSource === 'newborn' && cleanRef ? cleanRef : null
+    });
   });
 
   return {

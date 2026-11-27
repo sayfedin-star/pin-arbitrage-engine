@@ -10,7 +10,7 @@ import { invalidateEdgeCache } from '../src/http/security-and-response.mjs';
 import { getDomainsClientAppScript } from '../src/ui/domains/domains-client-app.mjs';
 import { getDashboardClientAppScript } from '../src/ui/dashboard/dashboard-client-app.mjs';
 import { getFoldersClientAppScript } from '../src/ui/folders/folders-client-app.mjs';
-import { getDiscoveryClientAppScript } from '../src/ui/discovery/discovery-client-app.mjs';
+import { getNewbornClientAppScript } from '../src/ui/newborn/newborn-client-app.mjs';
 import { getKeywordsClientAppScript } from '../src/ui/keywords/keywords-client-app.mjs';
 import { getPinDetailsClientAppScripts } from '../src/ui/pin-details/client-app.mjs';
 import { getPulseClientAppScript } from '../src/ui/pulse/pulse-client-app.mjs';
@@ -98,22 +98,21 @@ test('Hostile Audit 2: safeUrl rejects /\\ protocol-relative bypass and control 
     assert.equal(app.safeUrl('/pins/123'), '/pins/123', `${name} safeUrl must allow relative path`);
   }
 
-  // Discovery client script
-  const discCtx = {
-    window: { location: { origin: 'http://localhost:3000', pathname: '/', search: '' }, addEventListener: () => {} },
+  // Discover (Newborn) client script fail-closed board URL validation
+  const nbCtx = {
+    window: { location: { origin: 'http://localhost:3000', pathname: '/discover', search: '' }, addEventListener: () => {} },
     document: { addEventListener: () => {} },
     localStorage: { getItem: () => null, setItem: () => {} },
     fetch: async () => ({ ok: true, json: async () => ({}) }),
     AbortController,
     URLSearchParams
   };
-  vm.createContext(discCtx);
-  vm.runInContext(extractScriptBody(getDiscoveryClientAppScript()), discCtx);
-  const discApp = vm.runInContext('discoveryApp()', discCtx);
-  for (const vec of vectors) {
-    assert.equal(discApp.safeUrl(vec), '#', `discovery safeUrl fallback failed: ${JSON.stringify(vec)}`);
-  }
-  assert.equal(discApp.safeUrl('/keywords/dinner'), '/keywords/dinner');
+  vm.createContext(nbCtx);
+  vm.runInContext(extractScriptBody(getNewbornClientAppScript()), nbCtx);
+  const nbApp = vm.runInContext('newbornStudioApp("", "hunt")', nbCtx);
+  assert.equal(nbApp.formatBoardUrl('javascript:alert(1)'), '');
+  assert.equal(nbApp.formatBoardUrl('data:text/html,<script>alert(1)</script>'), '');
+  assert.equal(nbApp.formatBoardUrl('/chef/healthy-meals/'), 'https://www.pinterest.com/chef/healthy-meals/');
 });
 
 test('Hostile Audit 3: POST /api/internal/self-update requires auth and emits Cache-Control: no-store', async () => {

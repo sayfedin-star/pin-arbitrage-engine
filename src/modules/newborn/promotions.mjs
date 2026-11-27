@@ -74,11 +74,117 @@ export function normalizeCandidateForMasterIngest(cand) {
 }
 
 /**
+ * Shared atomic helper to enroll pins into `campaign_tracked_pins` inside an active transaction.
+ * Used by both `promoteNewbornCandidates` and `addCampaignTrackedPins` (`workspaces/service.mjs`).
+ */
+export async function enrollCampaignTrackedPinsTx(tx, {
+  folderId,
+  workspaceId = 1,
+  pinIds = [],
+  sourceType = 'newborn',
+  sourceRef = '',
+  seedQueryByPin = null,
+  defaultSeedQuery = null
+} = {}) {
+  const fid = Number(folderId);
+  const wid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
+  const cleanSource = String(sourceType || 'newborn').trim().toLowerCase();
+  const cleanRef = String(sourceRef || '').trim().slice(0, 255);
+  const sortedIds = Array.from(new Set((Array.isArray(pinIds) ? pinIds : []).map((id) => String(id || '').trim()).filter(Boolean)))
+    .sort((a, b) => a.localeCompare(b));
+  if (!fid || sortedIds.length === 0) return 0;
+
+  const seedQueries = sortedIds.map((pid) => (seedQueryByPin && seedQueryByPin.get(pid)) || defaultSeedQuery || null);
+
+  const trackedRows = await tx`
+    INSERT INTO campaign_tracked_pins (
+      folder_id, workspace_id, pin_id, source_type, source_ref, is_active, added_at, seed_query
+    )
+    SELECT
+      ${fid},
+      ${wid},
+      t.pin_id,
+      ${cleanSource},
+      ${cleanRef},
+      TRUE,
+      NOW(),
+      t.seed_query
+    FROM UNNEST(${sortedIds}::text[], ${seedQueries}::text[]) AS t(pin_id, seed_query)
+    ORDER BY t.pin_id ASC
+    ON CONFLICT (folder_id, pin_id, source_type) DO UPDATE SET
+      is_active = TRUE,
+      source_ref = CASE WHEN EXCLUDED.source_ref <> '' THEN EXCLUDED.source_ref ELSE campaign_tracked_pins.source_ref END,
+      seed_query = COALESCE(NULLIF(EXCLUDED.seed_query, ''), campaign_tracked_pins.seed_query)
+    WHERE campaign_tracked_pins.is_active IS DISTINCT FROM TRUE
+       OR (EXCLUDED.source_ref <> '' AND campaign_tracked_pins.source_ref IS DISTINCT FROM EXCLUDED.source_ref)
+       OR (NULLIF(EXCLUDED.seed_query, '') IS NOT NULL AND campaign_tracked_pins.seed_query IS DISTINCT FROM NULLIF(EXCLUDED.seed_query, ''))
+    RETURNING pin_id;
+  `;
+  return Array.isArray(trackedRows) ? trackedRows.length : sortedIds.length;
+}
+
+/**
+ * Shared transaction helper to hydrate Newborn candidates into SSOT (`universal_master_pins` +
+ * `pins_daily_metrics`), enroll active `newborn_daily_anchors`, and mark `stage = 'promoted'`.
+ */
+export async function syncNewbornAnchorsAndPromoteTx(tx, candidateRows = [], {
+  folderId = null,
+  source = 'manual',
+  notes = '',
+  appliedDestinations = null
+} = {}) {
+  if (!Array.isArray(candidateRows) || candidateRows.length === 0) return 0;
+  const anchorRecords = candidateRows.map((c) => ({
+    pin_id: String(c.pin_id),
+    source: String(source || 'manual').slice(0, 32),
+    is_active: true,
+    folder_id: folderId,
+    seed_query: c.seed_query || c.crossover_blueprint?.primary_keyword || null,
+    notes: String(notes || '').slice(0, 500)
+  }));
+  const anchorsJson = JSON.stringify(sanitizeForJsonb(anchorRecords));
+  await tx`
+    INSERT INTO newborn_daily_anchors (
+      pin_id, source, is_active, folder_id, seed_query, notes, promoted_at, updated_at
+    )
+    SELECT
+      u.pin_id,
+      u.source,
+      u.is_active,
+      u.folder_id,
+      u.seed_query,
+      u.notes,
+      NOW(),
+      NOW()
+    FROM jsonb_to_recordset(${anchorsJson}::jsonb) AS u(
+      pin_id text,
+      source text,
+      is_active boolean,
+      folder_id int,
+      seed_query text,
+      notes text
+    )
+    ORDER BY u.pin_id ASC
+    ON CONFLICT (pin_id) DO UPDATE SET
+      is_active = TRUE,
+      source = EXCLUDED.source,
+      folder_id = COALESCE(EXCLUDED.folder_id, newborn_daily_anchors.folder_id),
+      seed_query = COALESCE(EXCLUDED.seed_query, newborn_daily_anchors.seed_query),
+      notes = CASE WHEN EXCLUDED.notes <> '' THEN EXCLUDED.notes ELSE newborn_daily_anchors.notes END,
+      updated_at = NOW();
+  `;
+  if (Array.isArray(appliedDestinations)) {
+    // caller tracks destinations_applied
+  }
+  return anchorRecords.length;
+}
+
+/**
  * Promotes staged Newborn candidate pins into selected SSOT destinations inside a single
  * atomic PostgreSQL transaction (`sql.begin()`):
  * - `universal_master_pins` + `pins_daily_metrics` + `newborn_daily_anchors` (01:00 UTC Daily Velocity Continuity!)
- * - Optional Campaign Folder (`keyword_folders` / `keyword_folder_items` / `keyword_serp_positions` with NULL rank)
- * - Optional Tracked Keyword (`tracked_keywords` from top visual annotation / crossover keyword)
+ * - Optional Campaign Folder (`campaign_tracked_pins` with zero fake `keyword_serp_positions` rows)
+ * - Optional Tracked Keyword (`tracked_keywords` + `keyword_folder_items` only when explicitly requested)
  * - Optional Discovery Cluster Seeds (`cluster_seeds`)
  *
  * Invalidates ONLY real existing caches (`invalidateEdgeCache`, `invalidateGlobalPulseCache`, `invalidateFolderCache`).
@@ -162,52 +268,16 @@ export async function promoteNewbornCandidates(sql, options = {}) {
       await ingestPinsBatch(tx, masterBatch, { pillar: 'newborn', inTransaction: true });
       appliedDestinations.push('daily_ssot');
 
-      const anchorRecords = candidateRows.map((c) => ({
-        pin_id: String(c.pin_id),
-        source: String(source || 'manual').slice(0, 32),
-        is_active: true,
-        folder_id: numericFolderId,
-        seed_query: c.seed_query || c.crossover_blueprint?.primary_keyword || null,
-        notes: String(notes || '').slice(0, 500)
-      }));
-
-      const anchorsJson = JSON.stringify(sanitizeForJsonb(anchorRecords));
-      await tx`
-        INSERT INTO newborn_daily_anchors (
-          pin_id, source, is_active, folder_id, seed_query, notes, promoted_at, updated_at
-        )
-        SELECT
-          u.pin_id,
-          u.source,
-          u.is_active,
-          u.folder_id,
-          u.seed_query,
-          u.notes,
-          NOW(),
-          NOW()
-        FROM jsonb_to_recordset(${anchorsJson}::jsonb) AS u(
-          pin_id text,
-          source text,
-          is_active boolean,
-          folder_id int,
-          seed_query text,
-          notes text
-        )
-        ORDER BY u.pin_id ASC
-        ON CONFLICT (pin_id) DO UPDATE SET
-          is_active = TRUE,
-          source = EXCLUDED.source,
-          folder_id = COALESCE(EXCLUDED.folder_id, newborn_daily_anchors.folder_id),
-          seed_query = COALESCE(EXCLUDED.seed_query, newborn_daily_anchors.seed_query),
-          notes = CASE WHEN EXCLUDED.notes <> '' THEN EXCLUDED.notes ELSE newborn_daily_anchors.notes END,
-          updated_at = NOW();
-      `;
-      anchorsCreated = anchorRecords.length;
+      anchorsCreated = await syncNewbornAnchorsAndPromoteTx(tx, candidateRows, {
+        folderId: numericFolderId,
+        source,
+        notes
+      });
     }
 
-    // 2. Optional Keyword + Campaign Folder linking
-    if (promoteKeyword || numericFolderId !== null) {
-      const keywordToPinsMap = new Map();
+    // 2A. Explicit Keyword linking ONLY when requested (never fabricate fake keyword_serp_positions)
+    if (promoteKeyword) {
+      const keywordTermsSet = new Set();
       for (const c of candidateRows) {
         const derivedKw = explicitKeyword ||
           c.crossover_blueprint?.primary_keyword ||
@@ -215,18 +285,13 @@ export async function promoteNewbornCandidates(sql, options = {}) {
             ? String(typeof c.visual_annotations[0] === 'string' ? c.visual_annotations[0] : (c.visual_annotations[0]?.name || '')).trim().toLowerCase()
             : '') ||
           String(c.seed_query || '').trim().toLowerCase();
-
-        if (derivedKw && (promoteKeyword || numericFolderId !== null)) {
-          if (!keywordToPinsMap.has(derivedKw)) keywordToPinsMap.set(derivedKw, []);
-          keywordToPinsMap.get(derivedKw).push(c);
-        }
+        if (derivedKw) keywordTermsSet.add(derivedKw);
       }
 
-      for (const [kwTerm, pinsForKw] of keywordToPinsMap.entries()) {
+      for (const kwTerm of keywordTermsSet) {
         const kwRow = await addKeyword(tx, { keyword: kwTerm, category: 'Newborn Breakout' });
         if (kwRow && kwRow.id) {
           createdKeywords.push({ id: Number(kwRow.id), keyword: kwRow.keyword || kwTerm });
-
           if (numericFolderId !== null) {
             await tx`
               INSERT INTO keyword_folder_items (folder_id, keyword_id, notes, added_at)
@@ -234,94 +299,27 @@ export async function promoteNewbornCandidates(sql, options = {}) {
               ON CONFLICT (folder_id, keyword_id) DO NOTHING;
             `;
           }
-
-          // NEVER fabricate fake SERP rank positions (1, 2, 3) for non-SERP promoted pins!
-          // Use rank_position = NULL, is_displaced = TRUE, last_known_rank = NULL until a real SERP crawl ranks them.
-          const serpRows = pinsForKw
-            .map((c) => ({ pin_id: String(c.pin_id) }))
-            .sort((a, b) => a.pin_id.localeCompare(b.pin_id));
-          await tx`
-            INSERT INTO keyword_serp_positions (
-              keyword_id, pin_id, rank_position, is_displaced, last_known_rank, crawled_at, updated_at
-            )
-            SELECT
-              ${Number(kwRow.id)},
-              s.pin_id,
-              NULL::int,
-              TRUE,
-              NULL::int,
-              NOW(),
-              NOW()
-            FROM jsonb_to_recordset(${JSON.stringify(serpRows)}::jsonb) AS s(pin_id text)
-            ORDER BY s.pin_id ASC
-            ON CONFLICT (keyword_id, pin_id) DO NOTHING;
-          `;
         }
       }
+      if (createdKeywords.length > 0) appliedDestinations.push('tracked_keywords');
+    }
 
-      if (numericFolderId !== null) {
-        // Unified Campaign Tracking: also enroll promoted pins directly into campaign_tracked_pins
-        // so they appear immediately inside the Campaign AND track daily velocity without ghost rows!
-        const trackedPayloads = candidateRows
-          .map((c) => ({
-            pin_id: String(c.pin_id),
-            seed_query: c.seed_query || c.crossover_blueprint?.primary_keyword || null
-          }))
-          .sort((a, b) => a.pin_id.localeCompare(b.pin_id));
-        const trackedJson = JSON.stringify(sanitizeForJsonb(trackedPayloads));
-        try {
-          const trackedRows = await tx`
-            INSERT INTO campaign_tracked_pins (
-              folder_id, workspace_id, pin_id, source_type, source_ref, seed_query, is_active, added_at
-            )
-            SELECT
-              ${numericFolderId},
-              ${resolvedWorkspaceId},
-              t.pin_id,
-              'newborn',
-              ${String(source || 'discover_promote').slice(0, 255)},
-              t.seed_query,
-              TRUE,
-              NOW()
-            FROM jsonb_to_recordset(${trackedJson}::jsonb) AS t(pin_id text, seed_query text)
-            ORDER BY t.pin_id ASC
-            ON CONFLICT (folder_id, pin_id, source_type) DO UPDATE SET
-              is_active = TRUE,
-              source_ref = CASE WHEN EXCLUDED.source_ref <> '' THEN EXCLUDED.source_ref ELSE campaign_tracked_pins.source_ref END,
-              seed_query = COALESCE(NULLIF(EXCLUDED.seed_query, ''), campaign_tracked_pins.seed_query)
-            RETURNING pin_id;
-          `;
-          campaignTrackedCreated = Array.isArray(trackedRows) ? trackedRows.length : promotedIds.length;
-        } catch (err) {
-          if (String(err?.code || '') === '42703') {
-            const trackedRows = await tx`
-              INSERT INTO campaign_tracked_pins (
-                folder_id, workspace_id, pin_id, source_type, source_ref, is_active, added_at
-              )
-              SELECT
-                ${numericFolderId},
-                ${resolvedWorkspaceId},
-                p_id,
-                'newborn',
-                ${String(source || 'discover_promote').slice(0, 255)},
-                TRUE,
-                NOW()
-              FROM UNNEST(${promotedIds}::text[]) AS p_id
-              ORDER BY p_id ASC
-              ON CONFLICT (folder_id, pin_id, source_type) DO UPDATE SET
-                is_active = TRUE,
-                source_ref = CASE WHEN EXCLUDED.source_ref <> '' THEN EXCLUDED.source_ref ELSE campaign_tracked_pins.source_ref END
-              RETURNING pin_id;
-            `;
-            campaignTrackedCreated = Array.isArray(trackedRows) ? trackedRows.length : promotedIds.length;
-          } else if (String(err?.code || '') !== '42P01') {
-            throw err;
-          }
-        }
+    // 2B. Campaign Folder tracking (independent of promoteKeyword; clean schema, zero catch in tx)
+    if (numericFolderId !== null) {
+      const seedQueryByPin = new Map();
+      for (const c of candidateRows) {
+        const sq = c.seed_query || c.crossover_blueprint?.primary_keyword || null;
+        if (sq) seedQueryByPin.set(String(c.pin_id), sq);
       }
-
-      if (promoteKeyword && createdKeywords.length > 0) appliedDestinations.push('tracked_keywords');
-      if (numericFolderId !== null) appliedDestinations.push(`campaign_folder:${numericFolderId}`);
+      campaignTrackedCreated = await enrollCampaignTrackedPinsTx(tx, {
+        folderId: numericFolderId,
+        workspaceId: resolvedWorkspaceId,
+        pinIds: promotedIds,
+        sourceType: 'newborn',
+        sourceRef: String(source || 'discover_promote').slice(0, 255),
+        seedQueryByPin
+      });
+      appliedDestinations.push(`campaign_folder:${numericFolderId}`);
     }
 
     // 3. Optional /discovery Cluster Seeds promotion

@@ -98,8 +98,9 @@ function normalizeVisualAnnotations(raw) {
 /**
  * Shared 4-query pure read loader (eliminates duplicate queries across dossier entrypoints).
  */
-async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30) {
+async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30, workspaceId = null) {
   const effectiveSnapLimit = Math.max(1, Math.min(Number(snapshotLimit) || 30, 365));
+  const cleanWid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : null;
   let dbError = null;
   const captureDbErr = (err) => {
     if (!dbError && err) dbError = err;
@@ -169,33 +170,21 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30) {
     sql`
       SELECT
         ctp.folder_id,
+        ctp.workspace_id,
         kf.name AS folder_name,
         ctp.source_type,
+        ctp.source_ref,
         ctp.seed_query,
         ctp.added_at,
-        ctp.notes
+        NULL::text AS notes
       FROM campaign_tracked_pins ctp
       JOIN keyword_folders kf ON kf.id = ctp.folder_id
       WHERE ctp.pin_id = ${cleanPinId}
         AND ctp.is_active = TRUE
+        AND (${cleanWid}::int IS NULL OR ctp.workspace_id = ${cleanWid})
       ORDER BY ctp.added_at DESC;
-    `.catch(async (err) => {
-      if (String(err?.code || '') === '42703') {
-        return sql`
-          SELECT
-            ctp.folder_id,
-            kf.name AS folder_name,
-            ctp.source_type,
-            NULL::text AS seed_query,
-            ctp.added_at,
-            ctp.notes
-          FROM campaign_tracked_pins ctp
-          JOIN keyword_folders kf ON kf.id = ctp.folder_id
-          WHERE ctp.pin_id = ${cleanPinId}
-            AND ctp.is_active = TRUE
-          ORDER BY ctp.added_at DESC;
-        `.catch(() => []);
-      }
+    `.catch((err) => {
+      console.warn(`[dossier-reader] Campaign provenance query warning for pin ${cleanPinId}:`, err?.message || err);
       return [];
     }),
     sql`
@@ -203,19 +192,24 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30) {
         nc.pin_id,
         nc.seed_query,
         nc.stage,
-        nc.discovery_surface,
+        nc.first_surface AS discovery_surface,
+        nc.discovered_surfaces,
         nc.folder_id,
         nc.first_seen_at,
         nc.promoted_at,
+        nc.save_count AS anchor_baseline_saves,
         nda.is_active AS anchor_active,
-        nda.baseline_saves AS anchor_baseline_saves,
-        nda.last_crawled_at AS anchor_last_crawled_at
+        nda.last_crawled_at AS anchor_last_crawled_at,
+        nda.notes AS anchor_notes
       FROM newborn_candidates nc
       LEFT JOIN newborn_daily_anchors nda ON nda.pin_id = nc.pin_id
       WHERE nc.pin_id = ${cleanPinId}
       ORDER BY nc.promoted_at DESC NULLS LAST, nc.first_seen_at DESC NULLS LAST
       LIMIT 1;
-    `.catch(() => [])
+    `.catch((err) => {
+      console.warn(`[dossier-reader] Newborn provenance query warning for pin ${cleanPinId}:`, err?.message || err);
+      return [];
+    })
   ]);
 
   return {
@@ -1141,11 +1135,11 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, tr
  * @param {object} [options]
  * @returns {Promise<object|null>}
  */
-export async function getPinDossier(sql, pinId, { snapshotLimit = 30 } = {}) {
+export async function getPinDossier(sql, pinId, { snapshotLimit = 30, workspaceId = null } = {}) {
   const cleanPinId = String(pinId || '').trim();
   if (!cleanPinId || !sql) return null;
 
-  const raw = await loadRawPinDossierRows(sql, cleanPinId, snapshotLimit);
+  const raw = await loadRawPinDossierRows(sql, cleanPinId, snapshotLimit, workspaceId);
   if (raw.dbError) throw raw.dbError;
   if (!raw.pin) return null;
 
@@ -1157,7 +1151,7 @@ export async function getPinDossier(sql, pinId, { snapshotLimit = 30 } = {}) {
  * 6. Unified Universal 4-Pillar Pin Dossier (`fetchUniversalPinDossier`)
  * Single-DB pure read-only dossier retrieval returning unified dossier or structured error envelope.
  */
-export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinId } = {}) {
+export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinId, workspaceId = null } = {}) {
   const dbSql = sql || hubSql;
   const cleanPinId = String(pinId || '').trim();
   if (!cleanPinId) throw new Error('Pin ID is required');
@@ -1170,7 +1164,7 @@ export async function fetchUniversalPinDossier({ sql = null, hubSql = null, pinI
     };
   }
 
-  const raw = await loadRawPinDossierRows(dbSql, cleanPinId, 90);
+  const raw = await loadRawPinDossierRows(dbSql, cleanPinId, 90, workspaceId);
   const built = buildUnifiedDossier({ ...raw, cleanPinId });
 
   if (built?.notFound) {

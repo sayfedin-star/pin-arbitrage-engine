@@ -277,6 +277,14 @@ export function canSatisfyPinFromPidgets(pin, pidgetsPin, currentUtcTimestamp = 
   return hasCompleteStructuralDna(pin, currentUtcTimestamp);
 }
 
+export function resolvePinKeywordId(pin, kw = null) {
+  const direct = Number(pin?.keyword_id);
+  if (Number.isInteger(direct) && direct > 0) return direct;
+  if (kw?.is_synthetic_context) return null;
+  const ctxId = Number(kw?.id);
+  return Number.isInteger(ctxId) && ctxId > 0 ? ctxId : null;
+}
+
 function buildCachedCarryoverRecord(pin, kw, reuseTelemetry) {
   const cleanAnnotations = sanitizeVisualAnnotations(pin.visual_annotations ?? pin.metadata?.visual_annotations, { maxItems: 15 });
   const boardName = pin.board_name || pin.metadata?.board_name || '';
@@ -309,7 +317,7 @@ function buildCachedCarryoverRecord(pin, kw, reuseTelemetry) {
     catalog_rank: pin.catalog_rank || pin.rank_position,
     last_known_rank: pin.last_known_rank,
     is_displaced: Boolean(pin.is_displaced),
-    keyword_id: pin.keyword_id || kw?.id || null,
+    keyword_id: resolvePinKeywordId(pin, kw),
     is_deleted: false,
     from_hydration_cache: true,
     was_live_scraped: false,
@@ -425,7 +433,7 @@ export function buildPidgetsEnrichedPin(pin, pidgetsPin, kw = null) {
     catalog_rank: pin.catalog_rank || pin.rank_position,
     last_known_rank: pin.last_known_rank,
     is_displaced: Boolean(pin.is_displaced),
-    keyword_id: pin.keyword_id || kw?.id || null,
+    keyword_id: resolvePinKeywordId(pin, kw),
     is_deleted: false,
     from_hydration_cache: false,
     was_live_scraped: true,
@@ -813,7 +821,7 @@ async function inspectPin(pin, kw, options = {}) {
     share_count: authenticShares,
     daily_save_velocity: computedVelocity,
     rank_position: pin.rank_position,
-    keyword_id: pin.keyword_id || kw?.id || null,
+    keyword_id: resolvePinKeywordId(pin, kw),
     is_deleted: isDead,
     from_hydration_cache: false,
     was_live_scraped: true,
@@ -1483,29 +1491,60 @@ export async function syncKeywordTopNIntoCampaigns(targetSql, keywordId) {
     }
     let totalSynced = 0;
     const sourceRef = `kw:${kid}`;
+    const [kwMeta] = await targetSql`
+      SELECT keyword FROM tracked_keywords WHERE id = ${kid} LIMIT 1;
+    `;
+    const kwTerm = kwMeta?.keyword ? String(kwMeta.keyword).trim() : null;
     for (const c of campaigns) {
       const fid = Number(c.folder_id);
       const wid = Number(c.workspace_id) || 1;
       const topN = Math.min(100, Math.max(5, Math.round(Number(c.serp_top_n || 20))));
       const inserted = await targetSql`
         WITH top_pins AS (
-          SELECT ksp.pin_id
+          SELECT ksp.pin_id, ksp.rank_position
           FROM keyword_serp_positions ksp
           WHERE ksp.keyword_id = ${kid}
             AND ksp.is_displaced = FALSE
+            AND ksp.rank_position IS NOT NULL
+            AND ksp.rank_position >= 1
             AND ksp.pin_id IS NOT NULL
             AND ksp.pin_id <> ''
-          ORDER BY ksp.rank_position ASC NULLS LAST, ksp.pin_id ASC
+          ORDER BY ksp.rank_position ASC, ksp.pin_id ASC
           LIMIT ${topN}
         )
-        INSERT INTO campaign_tracked_pins (folder_id, workspace_id, pin_id, source_type, source_ref, is_active, added_at)
-        SELECT ${fid}, ${wid}, tp.pin_id, 'search', ${sourceRef}, TRUE, NOW()
+        INSERT INTO campaign_tracked_pins (folder_id, workspace_id, pin_id, source_type, source_ref, seed_query, is_active, added_at)
+        SELECT ${fid}, ${wid}, tp.pin_id, 'search', ${sourceRef}, ${kwTerm}, TRUE, NOW()
         FROM top_pins tp
+        WHERE tp.rank_position <= ${topN}
         ORDER BY tp.pin_id ASC
         ON CONFLICT (folder_id, pin_id, source_type) DO UPDATE SET
           is_active = TRUE,
-          source_ref = EXCLUDED.source_ref
+          source_ref = EXCLUDED.source_ref,
+          seed_query = COALESCE(NULLIF(EXCLUDED.seed_query, ''), campaign_tracked_pins.seed_query)
+        WHERE campaign_tracked_pins.is_active IS DISTINCT FROM TRUE
+           OR campaign_tracked_pins.source_ref IS DISTINCT FROM EXCLUDED.source_ref
+           OR campaign_tracked_pins.seed_query IS DISTINCT FROM EXCLUDED.seed_query
         RETURNING pin_id;
+      `;
+      await targetSql`
+        UPDATE campaign_tracked_pins ctp
+        SET is_active = FALSE
+        WHERE ctp.folder_id = ${fid}
+          AND ctp.workspace_id = ${wid}
+          AND ctp.source_type = 'search'
+          AND ctp.is_active = TRUE
+          AND NOT EXISTS (
+            SELECT 1
+            FROM keyword_folder_items kfi
+            JOIN keyword_serp_positions ksp
+              ON ksp.keyword_id = kfi.keyword_id
+             AND ksp.pin_id = ctp.pin_id
+            WHERE kfi.folder_id = ${fid}
+              AND ksp.is_displaced = FALSE
+              AND ksp.rank_position IS NOT NULL
+              AND ksp.rank_position >= 1
+              AND ksp.rank_position <= ${topN}
+          );
       `;
       totalSynced += Array.isArray(inserted) ? inserted.length : 0;
     }
@@ -2153,11 +2192,20 @@ function buildUnifiedSyncList(candidatePins, enrichedPins, defaultKeywordId = nu
     if (!cp || !cp.pin_id) continue;
     const pid = String(cp.pin_id);
     const enriched = enrichedMap.get(pid);
+    const hasFolderPositions = Array.isArray(cp.folder_positions) && cp.folder_positions.length > 0;
+    const hasSerpSignal = Boolean(
+      cp.rank_position != null ||
+      cp.last_known_rank != null ||
+      cp.is_displaced === true ||
+      hasFolderPositions
+    );
+    const resolvedFallbackKwId = hasSerpSignal ? (cp.keyword_id || defaultKeywordId || null) : null;
     const baseMethod = cp.creation_method || cp.method || cp.metadata?.creation_method || cp.metadata?.method || 'pinterest_platform';
     const isCached = enriched ? Boolean(enriched.from_hydration_cache) : true;
     const wasLiveScraped = enriched ? Boolean(!enriched.from_hydration_cache && !enriched.scrape_failed) : false;
     const basePin = enriched ? {
       ...enriched,
+      keyword_id: hasSerpSignal ? (enriched.keyword_id || resolvedFallbackKwId) : null,
       from_hydration_cache: isCached,
       was_live_scraped: wasLiveScraped
     } : {
@@ -2183,7 +2231,7 @@ function buildUnifiedSyncList(candidatePins, enrichedPins, defaultKeywordId = nu
         creation_method: baseMethod,
         method: baseMethod
       },
-      keyword_id: cp.keyword_id || defaultKeywordId || null,
+      keyword_id: resolvedFallbackKwId,
       rank_position: cp.rank_position,
       catalog_rank: cp.catalog_rank || cp.rank_position,
       last_known_rank: cp.last_known_rank,
@@ -2199,7 +2247,7 @@ function buildUnifiedSyncList(candidatePins, enrichedPins, defaultKeywordId = nu
       is_hydrated: Boolean(cp.is_hydrated || cp.is_deep_hydrated)
     };
 
-    if (Array.isArray(cp.folder_positions) && cp.folder_positions.length > 0) {
+    if (hasFolderPositions) {
       for (const pos of cp.folder_positions) {
         merged.push({
           ...basePin,
@@ -2568,10 +2616,11 @@ async function run() {
     }
     const folderKeywordIds = Array.from(folderKeywordIdSet);
     const folderContext = {
+      is_synthetic_context: true,
       folder_id: fid,
       keyword: folderRow.name,
       all_keyword_ids: folderKeywordIds,
-      id: folderKeywordIds[0] || null
+      id: null
     };
 
     const enrichedList = await inspectPinsConcurrently(
@@ -3092,23 +3141,21 @@ async function run() {
       await closeCrawlerDb(0);
     }
 
+    const fleetContext = {
+      is_global_fleet: true,
+      is_synthetic_context: true,
+      all_keyword_ids: allFleetKeywordIds,
+      id: null
+    };
     const enrichedList = await inspectPinsConcurrently(
       myPins,
-      {
-        is_global_fleet: true,
-        all_keyword_ids: allFleetKeywordIds,
-        id: mySerpKeywordIds[0] || allFleetKeywordIds[0]
-      },
+      fleetContext,
       `Global Swarm Slice ${workerIndex + 1}/${workerTotal}`
     );
 
     const unifiedDbSynced = await flushToUnifiedPostgres(
       buildUnifiedSyncList(myPins, enrichedList),
-      {
-        is_global_fleet: true,
-        all_keyword_ids: allFleetKeywordIds,
-        id: mySerpKeywordIds[0] || allFleetKeywordIds[0]
-      }
+      fleetContext
     );
     console.log(`\n✅ Global Swarm Slice ${workerIndex + 1}/${workerTotal} Complete: Enriched ${enrichedList.length}/${myPins.length} unique pins | Synced to Unified PostgreSQL.`);
 

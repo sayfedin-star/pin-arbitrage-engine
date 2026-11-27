@@ -111,13 +111,13 @@ test('Wave 6B.1: Newborn SSR Studio DOM tree, Light-Mode default invariant, offi
   assert.equal(/\p{Extended_Pictographic}/u.test(mainMatch[1]), false, 'Global Newborn <main> must contain zero UI emojis');
   assert.equal(/>\s*(Comments|Reactions|Shares)\s*</i.test(globalHtml), false, 'Wave 6D /newborn UI must not render Comments, Reactions, or Shares');
 
-  // Folder-scoped mode renders shared Campaign Workspace Header with active Newborn tab and safe Settings link
+  // Folder-scoped mode keeps /folders/42/newborn HTTP 200 route while removing redundant 5th header tab
   const folderTree = parseHtmlElementTree(folderHtml);
   const folderNewbornLinks = collectNodes(
     folderTree,
     (n) => n.tag === 'a' && n.attrs.href === '/folders/42/newborn'
   );
-  assert.equal(folderNewbornLinks.length, 1, 'Folder-scoped view must render /folders/42/newborn tab');
+  assert.equal(folderNewbornLinks.length, 0, 'Redundant 5th header tab must be removed from Campaign Workspace Header');
   assert.ok(folderHtml.includes("newbornStudioApp('42', 'hunt')"));
   assert.ok(settingsHtml.includes("newbornStudioApp('', 'settings')"));
   assert.ok(folderHtml.includes('href="/folders/42/settings"'), 'Folder header Settings tab must route cleanly to Room 5');
@@ -656,20 +656,22 @@ test('Wave 6B.3: newbornStudioApp 3-Second Studio VM execution — HTTP 202 + 1.
   await studio.resetSettingsToDefaults();
   assert.equal(studio.settingsDraft.qualification.max_age_days, 30);
 
-  // 4. Verify Rule Profile CRUD uses EXACT backend keys (surfaces_config, qualification_config, automation_config)
-  studio.openProfileModal(null);
-  studio.profileForm.name = 'Patio 14d Rockets';
-  studio.profileForm.maxAgeDays = 14;
-  studio.profileForm.minRepins = 50;
-  studio.profileForm.minSaves = 0;
-  await studio.saveProfile();
-  const createRuleCall = apiRequests.find((r) => r.url === '/api/newborn/rules' && r.method === 'POST');
-  assert.ok(createRuleCall);
-  assert.ok('surfaces_config' in createRuleCall.body && 'qualification_config' in createRuleCall.body && 'automation_config' in createRuleCall.body);
-  assert.equal(createRuleCall.body.qualification_config.max_age_days, 14);
-  assert.equal(createRuleCall.body.qualification_config.min_repin_count, 50);
-  assert.equal(createRuleCall.body.qualification_config.min_save_count, 0);
-  await studio.deleteProfile({ id: 9, slug: 'patio-14d', name: 'Patio 14d Rockets', is_default: false });
+  // 4. Verify Past Hunts multi-select & 2-step bulk delete calls /api/newborn/runs/bulk-delete
+  assert.equal('profileModalOpen' in studio, false, 'Dead profile modal state must be removed');
+  assert.equal('loadWatchlist' in studio, false, 'Legacy watchlist polling methods must be removed');
+  studio.runs = [
+    { id: 101, status: 'completed', execution_mode: 'fleet' },
+    { id: 102, status: 'running', execution_mode: 'fleet' },
+    { id: 103, status: 'failed', execution_mode: 'fleet' }
+  ];
+  studio.toggleSelectAllRuns();
+  assert.deepEqual(studio.selectedRunIds, [101, 103], 'Select All must include only non-active Past Hunts');
+  await studio.deleteSelectedRuns();
+  assert.equal(studio.confirmBulkDeleteRuns, true, 'First click arms confirmation');
+  await studio.deleteSelectedRuns();
+  const bulkDeleteCall = apiRequests.find((r) => r.url === '/api/newborn/runs/bulk-delete' && r.method === 'POST');
+  assert.ok(bulkDeleteCall);
+  assert.deepEqual(bulkDeleteCall.body.run_ids, [101, 103]);
 
   // 5. Verify Redacted Cookie Vault uses exact `preview` key & wipes raw input immediately
   studio.cookieInput = 'super_secret_pinterest_sess_token_999';
@@ -725,9 +727,6 @@ test('Wave 6B.3: newbornStudioApp 3-Second Studio VM execution — HTTP 202 + 1.
 
   const exportedCsv = studio.exportCsv();
   assert.ok(exportedCsv.includes('"\'=HYPERLINK('), 'CSV export must neutralize formula injection payloads');
-
-  await studio.pollWatchlistNow();
-  await new Promise((r) => setTimeout(r, 30));
 
   studio.openPromoteModal(['901000200030004001']);
   studio.promoteForm.promoteClusterSeeds = true;

@@ -19,7 +19,6 @@ import * as acorn from 'acorn';
 
 import { getDashboardHtml } from '../src/ui/dashboard/index.mjs';
 import { getKeywordsPageHtml } from '../src/ui/keywords/index.mjs';
-import { getDiscoveryPageHtml } from '../src/ui/discovery/index.mjs';
 import { getPinDetailPageHtml } from '../src/ui/pin-details/index.mjs';
 import { getCampaignFoldersPageHtml } from '../src/ui/folders/index.mjs';
 import { getDomainsPageHtml } from '../src/ui/domains/index.mjs';
@@ -292,7 +291,6 @@ export function runSyntaxAndTemplateChecks(rootDir = process.cwd()) {
     ['dashboard-ui', getDashboardHtml('test_folder_123')],
     ['keywords-ui', getKeywordsPageHtml()],
     ['keywords-ui (folder-scoped)', getKeywordsPageHtml('', '', 'test_folder_123')],
-    ['discovery-ui', getDiscoveryPageHtml()],
     ['pin-details-ui', getPinDetailPageHtml('1098245059167667976')],
     ['campaign-folders-ui', getCampaignFoldersPageHtml()],
     ['campaign-folders-ui (settings)', foldersSettingsHtml],

@@ -289,6 +289,20 @@ export function getFoldersClientAppScript() {
           }
         },
 
+        applyTrackedSourceScope(srcKey = 'all') {
+          const clean = String(srcKey || 'all').trim().toLowerCase();
+          this.loadTrackedPinsSummary(clean);
+          const scopeMap = {
+            all: 'all',
+            search: 'active_only',
+            newborn: 'newborn_only',
+            creator: 'creator_only',
+            related: 'related_only'
+          };
+          this.scopeFilter = scopeMap[clean] || 'all';
+          this.currentPage = 1;
+        },
+
         async loadPinGraphSeeds() {
           if (!this.activeFolderId) return;
           try {
@@ -2045,6 +2059,16 @@ export function getFoldersClientAppScript() {
               ? this.crossoverData.all_pins
               : (this.crossoverData?.super_pins || []);
             list = source.filter(p => Boolean(p.is_newborn_tracked));
+          } else if (this.scopeFilter === 'creator_only') {
+            const source = (this.crossoverData?.all_pins && this.crossoverData.all_pins.length > 0)
+              ? this.crossoverData.all_pins
+              : (this.crossoverData?.super_pins || []);
+            list = source.filter(p => Array.isArray(p.tracked_sources) && p.tracked_sources.includes('creator'));
+          } else if (this.scopeFilter === 'related_only') {
+            const source = (this.crossoverData?.all_pins && this.crossoverData.all_pins.length > 0)
+              ? this.crossoverData.all_pins
+              : (this.crossoverData?.super_pins || []);
+            list = source.filter(p => Array.isArray(p.tracked_sources) && p.tracked_sources.includes('related'));
           } else {
             list = (this.crossoverData?.all_pins && this.crossoverData.all_pins.length > 0) 
               ? this.crossoverData.all_pins 
@@ -2052,7 +2076,15 @@ export function getFoldersClientAppScript() {
           }
 
           // 1. Scope filter by individual keyword
-          if (this.scopeFilter !== 'all' && this.scopeFilter !== 'super_only' && this.scopeFilter !== 'active_only' && this.scopeFilter !== 'vault_only' && this.scopeFilter !== 'newborn_only') {
+          if (
+            this.scopeFilter !== 'all' &&
+            this.scopeFilter !== 'super_only' &&
+            this.scopeFilter !== 'active_only' &&
+            this.scopeFilter !== 'vault_only' &&
+            this.scopeFilter !== 'newborn_only' &&
+            this.scopeFilter !== 'creator_only' &&
+            this.scopeFilter !== 'related_only'
+          ) {
             const kw = this.scopeFilter.toLowerCase().trim();
             list = list.filter(p =>
               (p.rankings || []).some(r => (r.keyword || '').toLowerCase().trim() === kw) ||

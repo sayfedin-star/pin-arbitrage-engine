@@ -193,12 +193,7 @@ export function getNewbornSettingsAndModalsHtml() {
             </label>
           </div>
 
-          <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-[#27272A]">
-            <button type="button"
-                    @click="stagePins(promotePinIds, 'watchlist'); promoteModalOpen = false"
-                    class="px-3 py-2 rounded-xl border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 text-xs font-semibold cursor-pointer">
-              Stage to Watchlist Only
-            </button>
+          <div class="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-[#27272A]">
             <button type="button"
                     @click="submitPromotePins()"
                     :disabled="isPromoting"
@@ -210,63 +205,7 @@ export function getNewbornSettingsAndModalsHtml() {
     </template>
 
     <!-- ====================================================================== -->
-    <!-- 4. RULE PROFILE CREATE / EDIT MODAL (z-[75])                           -->
-    <!-- ====================================================================== -->
-    <template x-if="profileModalOpen">
-      <div class="fixed inset-0 z-[75] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="newborn-profile-modal-title">
-        <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-[1px]" @click="profileModalOpen = false"></div>
-
-        <form @submit.prevent="saveProfile()" class="relative z-10 w-full max-w-md bg-white dark:bg-[#18181B] rounded-2xl border border-slate-200 dark:border-[#27272A] shadow-2xl p-5 space-y-4">
-          <div class="flex items-center justify-between gap-2">
-            <h2 id="newborn-profile-modal-title" class="text-base font-bold text-slate-900 dark:text-[#FAFAFA]" x-text="profileForm.id ? 'Edit Rule Profile' : 'Create Rule Profile'"></h2>
-            <button type="button" @click="profileModalOpen = false" aria-label="Close profile dialog" class="p-1 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer">
-              <i data-lucide="x" class="w-4 h-4" aria-hidden="true"></i>
-            </button>
-          </div>
-
-          <div class="space-y-3 text-xs">
-            <label class="block space-y-1">
-              <span class="font-semibold text-slate-700 dark:text-[#E4E4E7]">Profile Name</span>
-              <input type="text" required x-model="profileForm.name" placeholder="e.g. 14-Day High Re-pin Recipes" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215]" />
-            </label>
-            <label class="block space-y-1">
-              <span class="font-semibold text-slate-700 dark:text-[#E4E4E7]">Description</span>
-              <input type="text" x-model="profileForm.description" placeholder="Short summary of when to use this profile" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215]" />
-            </label>
-            <div class="grid grid-cols-3 gap-2.5">
-              <label class="block space-y-1">
-                <span class="font-semibold text-slate-700 dark:text-[#E4E4E7]">Max Age (d)</span>
-                <input type="number" min="1" max="365" x-model.number="profileForm.maxAgeDays" class="w-full px-2.5 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] font-mono tabular-nums" />
-              </label>
-              <label class="block space-y-1">
-                <span class="font-semibold text-slate-700 dark:text-[#E4E4E7]">Min Re-pins</span>
-                <input type="number" min="0" x-model.number="profileForm.minRepins" class="w-full px-2.5 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] font-mono tabular-nums" />
-              </label>
-              <label class="block space-y-1">
-                <span class="font-semibold text-slate-700 dark:text-[#E4E4E7]">Min Saves</span>
-                <input type="number" min="0" x-model.number="profileForm.minSaves" class="w-full px-2.5 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#121215] font-mono tabular-nums" />
-              </label>
-            </div>
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" x-model="profileForm.linklessOnly" class="rounded text-rose-600 focus:ring-rose-500" />
-              <span class="font-medium text-slate-700 dark:text-[#E4E4E7]">Only No Link / Linkless Pins</span>
-            </label>
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" x-model="profileForm.isDefault" class="rounded text-rose-600 focus:ring-rose-500" />
-              <span class="font-medium text-slate-700 dark:text-[#E4E4E7]">Set as Default Profile</span>
-            </label>
-          </div>
-
-          <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-[#27272A]">
-            <button type="button" @click="profileModalOpen = false" class="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-[#27272A] text-xs font-semibold cursor-pointer">Cancel</button>
-            <button type="submit" :disabled="isSavingProfile" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white text-xs font-semibold cursor-pointer" x-text="isSavingProfile ? 'Saving...' : 'Save Profile'"></button>
-          </div>
-        </form>
-      </div>
-    </template>
-
-    <!-- ====================================================================== -->
-    <!-- 5. FLOATING CLUSTER BASKET BAR (z-[55])                                -->
+    <!-- 4. FLOATING CLUSTER BASKET BAR (z-[55])                                -->
     <!-- ====================================================================== -->
     <template x-if="clusterBasket.length > 0">
       <div id="discover-cluster-basket-bar"

@@ -248,7 +248,8 @@ export async function runNewbornFleetDispatch({ sql, parsedArgs, env = process.e
   const githubOutputPath = env?.GITHUB_OUTPUT || null;
   const stepSummaryPath = env?.GITHUB_STEP_SUMMARY || null;
 
-  const settings = await getNewbornSettings(sql);
+  const wid = parsePositiveInt(parsedArgs?.workspaceId ?? env?.WORKSPACE_ID) || 1;
+  const settings = await getNewbornSettings(sql, { workspaceId: wid });
   const schedule = evaluateAutomationSchedule(settings, new Date(nowMs));
 
   let watchlistCount = 0;
@@ -713,10 +714,12 @@ export async function runNewbornFleetConsolidate({ sql, parsedArgs = null, env =
   const runId = parsedArgs?.runId ?? parsePositiveInt(env?.NEWBORN_RUN_ID ?? env?.RUN_ID);
   let consolidatedRun = null;
 
+  let wid = parsePositiveInt(parsedArgs?.workspaceId) || parsePositiveInt(env?.WORKSPACE_ID) || 1;
+
   if (runId && sql && typeof sql === 'function') {
     const [runRow] = await sql`
       SELECT
-        id, status, cancel_requested_at, shards_total, shards_completed, shards_failed,
+        id, workspace_id, status, cancel_requested_at, shards_total, shards_completed, shards_failed,
         surfaces_used, telemetry, candidates_discovered, candidates_qualified, golden_pins_count
       FROM newborn_runs
       WHERE id = ${runId}
@@ -724,6 +727,7 @@ export async function runNewbornFleetConsolidate({ sql, parsedArgs = null, env =
     `.catch(() => []);
 
     if (runRow) {
+      wid = parsePositiveInt(runRow.workspace_id) || wid;
       const existingTelemetry = runRow.telemetry && typeof runRow.telemetry === 'object' ? runRow.telemetry : {};
       const shardsMap = existingTelemetry.shards && typeof existingTelemetry.shards === 'object'
         ? existingTelemetry.shards
@@ -833,7 +837,7 @@ export async function runNewbornFleetConsolidate({ sql, parsedArgs = null, env =
         WHERE id = ${runId};
       `.catch(() => {});
 
-      await stampAutomationRunTimestamp(sql, 'discovery', new Date(nowMs).toISOString()).catch(() => {});
+      await stampAutomationRunTimestamp(sql, 'discovery', new Date(nowMs).toISOString(), { workspaceId: wid }).catch(() => {});
       await invalidateEdgeCache('newborn').catch(() => {});
 
       consolidatedRun = {
@@ -851,7 +855,7 @@ export async function runNewbornFleetConsolidate({ sql, parsedArgs = null, env =
     }
   }
 
-  const overview = await getNewbornOverview(sql, env);
+  const overview = await getNewbornOverview(sql, env, { workspaceId: wid, includeHighlights: true });
   const c = overview.counts || {};
 
   let md = '## Newborn Breakout Hunter — Executive Telemetry Summary\n\n';

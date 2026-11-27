@@ -47,6 +47,7 @@ import {
   listNewbornRookies,
   listNewbornRuns,
   deleteNewbornRun,
+  deleteNewbornRunsBulk,
   clearFailedAndEmptyNewbornRuns,
   getNewbornRunById,
   listNewbornDailyAnchors,
@@ -366,9 +367,9 @@ export async function handleNewbornRoutes({
   if (pathname === '/api/newborn/settings') {
     if (method === 'GET') {
       const [settings, cookieStatus, profiles] = await Promise.all([
-        getNewbornSettings(sql),
+        getNewbornSettings(sql, { workspaceId }),
         getNewbornCookieStatus(sql, env, { workspaceId }),
-        sql ? listNewbornRuleProfiles(sql, { includeInactive: true }).catch(() => []) : Promise.resolve([])
+        sql ? listNewbornRuleProfiles(sql, { includeInactive: true, workspaceId }).catch(() => []) : Promise.resolve([])
       ]);
       const schedule = evaluateAutomationSchedule(settings);
       return jsonResponse({
@@ -392,8 +393,8 @@ export async function handleNewbornRoutes({
         : (body || {});
 
       const settings = method === 'PUT'
-        ? await updateNewbornSettings(sql, rawPayload)
-        : await patchNewbornSettings(sql, rawPayload);
+        ? await updateNewbornSettings(sql, rawPayload, { workspaceId })
+        : await patchNewbornSettings(sql, rawPayload, { workspaceId });
       const schedule = evaluateAutomationSchedule(settings);
       await invalidateEdgeCache('newborn');
 
@@ -412,7 +413,7 @@ export async function handleNewbornRoutes({
     if (method !== 'POST') {
       return methodNotAllowedResponse('POST, OPTIONS');
     }
-    const settings = await resetNewbornSettings(sql);
+    const settings = await resetNewbornSettings(sql, { workspaceId });
     const schedule = evaluateAutomationSchedule(settings);
     await invalidateEdgeCache('newborn');
     return jsonResponse({
@@ -449,7 +450,7 @@ export async function handleNewbornRoutes({
       if (body?.folder_id !== undefined && body?.folder_id !== null && String(body.folder_id).trim() !== '') {
         await assertFolderInWorkspace(sql, body.folder_id, workspaceId);
       }
-      const profile = await createNewbornRuleProfile(sql, body);
+      const profile = await createNewbornRuleProfile(sql, body, { workspaceId });
       await invalidateEdgeCache('newborn');
       return jsonResponse({
         success: true,
@@ -474,7 +475,7 @@ export async function handleNewbornRoutes({
           message: `Rule profile "${idOrSlug}" not found.`
         }, 404, -1);
       }
-      const { settings: effectiveSettings } = await resolveEffectiveNewbornSettings(sql, { profileId: profile.id });
+      const { settings: effectiveSettings } = await resolveEffectiveNewbornSettings(sql, { profileId: profile.id, workspaceId });
       return jsonResponse({
         success: true,
         profile,
@@ -803,7 +804,7 @@ export async function handleNewbornRoutes({
       limit: clampLimit(searchParams.get('limit'), 50, 200),
       offset: Math.max(0, parseInt(searchParams.get('offset') || '0', 10) || 0)
     };
-    const cacheKey = buildCanonicalCacheKey('newborn:rookies', searchParams);
+    const cacheKey = buildCanonicalCacheKey(`newborn:rookies:ws${workspaceId}`, searchParams);
     const data = await getCachedOrFetch(cacheKey, () => listNewbornRookies(sql, filters), 10_000);
     return jsonResponse({ success: true, ...data }, 200, filters.run_id ? -1 : 10);
   }
@@ -883,6 +884,24 @@ export async function handleNewbornRoutes({
     const body = await request.json().catch(() => ({}));
     const folderId = body?.folder_id ?? searchParams.get('folder_id') ?? null;
     const res = await clearFailedAndEmptyNewbornRuns(sql, { workspaceId, folderId });
+    return jsonResponse({ success: true, ...res }, 200, -1);
+  }
+
+  // 8A2. /api/newborn/runs/bulk-delete (POST multi-select delete Past Hunts with strict workspace isolation)
+  if (pathname === '/api/newborn/runs/bulk-delete') {
+    if (method !== 'POST') {
+      return methodNotAllowedResponse('POST, OPTIONS');
+    }
+    const body = await request.json().catch(() => ({}));
+    const rawIds = body?.run_ids ?? body?.runIds ?? [];
+    const res = await deleteNewbornRunsBulk(sql, rawIds, { workspaceId });
+    if (!res.ok) {
+      return jsonResponse({
+        success: false,
+        error: res.error || 'BAD_REQUEST',
+        message: res.message || 'Failed to bulk-delete selected Past Hunts.'
+      }, res.status || 400, -1);
+    }
     return jsonResponse({ success: true, ...res }, 200, -1);
   }
 

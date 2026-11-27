@@ -191,7 +191,7 @@ test('P0-2: getNewbornOverview, getNewbornCrossoverReport, and listNewbornDailyA
     return Promise.resolve([]);
   };
 
-  const ov = await getNewbornOverview(mockSql, {}, { workspaceId: 1, folderId: 5 });
+  const ov = await getNewbornOverview(mockSql, {}, { workspaceId: 1, folderId: 5, includeHighlights: true });
   assert.equal(ov.folder_id, 5);
   assert.equal(ov.counts.total_candidates, 7);
 
@@ -216,7 +216,7 @@ test('P0-2: getNewbornOverview, getNewbornCrossoverReport, and listNewbornDailyA
   assert.ok(anchorsQuery.values.includes(5), 'anchors query must bind folderId=5');
 });
 
-test('P0-2: newbornStudioApp propagates folder_id to overview, crossover, clusters, watchlist, and anchors', async () => {
+test('P0-2: newbornStudioApp propagates folder_id to overview, crossover, clusters, and candidates', async () => {
   const fetchedUrls = [];
   const newbornFactory = evalFactory(getNewbornClientAppScript(), 'newbornStudioApp', {
     fetch: async (url) => {
@@ -224,7 +224,7 @@ test('P0-2: newbornStudioApp propagates folder_id to overview, crossover, cluste
       return {
         ok: true,
         status: 200,
-        json: async () => ({ runs: [], clusters: [], candidates: [], anchors: [], settings: {} })
+        json: async () => ({ runs: [], clusters: [], candidates: [], settings: {} })
       };
     }
   });
@@ -233,15 +233,13 @@ test('P0-2: newbornStudioApp propagates folder_id to overview, crossover, cluste
   await studio.loadOverviewAndRuns();
   await studio.loadCrossoverForActiveHunt();
   await studio.loadRecentClusters();
-  await studio.loadWatchlist();
-  await studio.loadDailyAnchors();
+  await studio.loadCandidates();
 
   assert.ok(fetchedUrls.some((u) => u.includes('/api/newborn/overview?folder_id=5')), 'overview must pass folder_id=5');
   assert.ok(fetchedUrls.some((u) => u.includes('/api/newborn/runs?') && u.includes('folder_id=5')), 'runs must pass folder_id=5');
   assert.ok(fetchedUrls.some((u) => u.includes('/api/newborn/crossover?') && u.includes('folder_id=5')), 'crossover must pass folder_id=5');
   assert.ok(fetchedUrls.some((u) => u.includes('/api/newborn/clusters?') && u.includes('folder_id=5')), 'clusters must pass folder_id=5');
-  assert.ok(fetchedUrls.some((u) => u.includes('/api/newborn/candidates?stage=watchlist') && u.includes('folder_id=5')), 'watchlist must pass folder_id=5');
-  assert.ok(fetchedUrls.some((u) => u.includes('/api/newborn/anchors?') && u.includes('folder_id=5')), 'anchors must pass folder_id=5');
+  assert.ok(fetchedUrls.some((u) => u.includes('/api/newborn/candidates?') && u.includes('folder_id=5')), 'candidates must pass folder_id=5');
 });
 
 // ============================================================================

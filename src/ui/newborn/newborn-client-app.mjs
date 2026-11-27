@@ -233,12 +233,11 @@ export function getNewbornClientAppScript() {
         pullingAccountPins: {},
         isPullingBulkAccounts: false,
 
-        // Tracked / Watchlist & Past Hunts
-        watchlistSubView: 'anchors',
-        watchlistCandidates: [],
-        dailyAnchors: [],
-        isSubmittingWatchlistPoll: false,
+        // Past Hunts
         runs: [],
+        selectedRunIds: [],
+        confirmBulkDeleteRuns: false,
+        isBulkDeletingRuns: false,
         deletingRunId: null,
         confirmDeleteRunId: null,
         isClearingRuns: false,
@@ -277,20 +276,6 @@ export function getNewbornClientAppScript() {
         quickCampaignTarget: 'target',
         quickCampaignPrevValue: '',
         isCreatingQuickCampaign: false,
-
-        // Rule Profile Modal
-        profileModalOpen: false,
-        isSavingProfile: false,
-        profileForm: {
-          id: null,
-          name: '',
-          description: '',
-          maxAgeDays: 30,
-          minRepins: 20,
-          minSaves: 0,
-          linklessOnly: false,
-          isDefault: false
-        },
 
         get activeIdeaPage() {
           if (this.ideaPageInfo && this.ideaPageInfo.found) return this.ideaPageInfo;
@@ -351,9 +336,7 @@ export function getNewbornClientAppScript() {
             this.lookupIdeaPage(this.huntInput);
           }
 
-          if (this.activeView === 'watchlist') {
-            await Promise.all([this.loadWatchlist(), this.loadDailyAnchors()]);
-          } else if (this.activeView === 'cluster') {
+          if (this.activeView === 'cluster') {
             if (this.huntInput && this.huntInput.trim()) {
               this.clusterForm.seed_keyword = this.huntInput.trim();
             }
@@ -445,7 +428,6 @@ export function getNewbornClientAppScript() {
         handleEscapeKey() {
           if (this.quickCampaignModalOpen) { this.closeQuickCampaignModal(); return; }
           if (this.basketCampaignModalOpen) { this.basketCampaignModalOpen = false; return; }
-          if (this.profileModalOpen) { this.profileModalOpen = false; return; }
           if (this.promoteModalOpen) { this.promoteModalOpen = false; return; }
           if (this.dossierOpen) { this.dossierOpen = false; return; }
         },
@@ -525,9 +507,8 @@ export function getNewbornClientAppScript() {
         async refreshWorkspace(force = false) {
           await Promise.all([
             this.loadOverviewAndRuns(),
-            this.activeView === 'watchlist'
-              ? Promise.all([this.loadWatchlist(), this.loadDailyAnchors()])
-              : Promise.all([this.loadCandidates(), this.loadCrossoverForActiveHunt()])
+            this.loadCandidates(),
+            this.loadCrossoverForActiveHunt()
           ]);
           if (force) this.toast('Workspace refreshed', 'success');
           this.refreshIcons();
@@ -878,6 +859,7 @@ export function getNewbornClientAppScript() {
             const campaignName = (this.foldersList || []).find((f) => Number(f.id) === targetId)?.name || ('Campaign #' + targetId);
             this.toast('Sent ' + (data?.added ?? data?.added_count ?? pinIds.length) + ' pin(s) to "' + campaignName + '" for daily tracking', 'success');
             this.selectedPinIds = [];
+            await Promise.all([this.loadCandidates(), this.loadFoldersList()]);
           } catch (err) {
             this.toast('Send to campaign failed: ' + err.message, 'error');
           } finally {
@@ -917,7 +899,7 @@ export function getNewbornClientAppScript() {
         },
 
         async switchView(view) {
-          this._abortSlots('candidates', 'crossover', 'watchlist', 'anchors', 'clusters');
+          this._abortSlots('candidates', 'crossover', 'clusters');
           this.activeView = view;
           this.refreshIcons();
           try {
@@ -925,8 +907,6 @@ export function getNewbornClientAppScript() {
               await Promise.all([this.loadCandidates(), this.loadCrossoverForActiveHunt()]);
             } else if (view === 'cluster') {
               await this.loadRecentClusters();
-            } else if (view === 'watchlist') {
-              await Promise.all([this.loadWatchlist(), this.loadDailyAnchors()]);
             } else if (view === 'history') {
               await this.loadOverviewAndRuns();
             }
@@ -1343,6 +1323,16 @@ export function getNewbornClientAppScript() {
           this.refreshIcons();
         },
 
+        openSingleKeywordCampaignModal(rawTerm) {
+          const clean = String(rawTerm || '').trim();
+          if (!clean) return;
+          const exists = (this.clusterBasket || []).some((k) => String(k || '').trim().toLowerCase() === clean.toLowerCase());
+          if (!exists) {
+            this.clusterBasket.push(clean);
+          }
+          this.openBasketCampaignModal();
+        },
+
         async launchBasketQuickHunt() {
           if (!this.clusterBasket || this.clusterBasket.length === 0) return;
           this.isLaunchingBasketHunt = true;
@@ -1350,6 +1340,7 @@ export function getNewbornClientAppScript() {
             const picked = Array.from(new Set(this.clusterBasket.map((k) => String(k || '').trim()).filter(Boolean)));
             const payload = {
               keywords: picked,
+              cluster_id: this.activeCluster?.id || null,
               folder_id: this.scopedFolderId || undefined,
               execution_mode: this.executionMode || 'fleet',
               shards: Math.max(1, Math.min(20, Number(this.fleetShards) || 20)),
@@ -1360,11 +1351,13 @@ export function getNewbornClientAppScript() {
               body: JSON.stringify(payload)
             });
             const runId = data?.run_id || data?.run?.id || null;
+            this.activeView = 'hunt';
             if (runId) {
               this.activeRunId = runId;
               this.activeRun = data.run || { id: runId, status: 'queued', progress_pct: 5 };
               this.startPollingRun(runId);
             }
+            await Promise.all([this.loadOverviewAndRuns(), this.loadCandidates(true)]);
             this.toast('Launched Quick Newborn Hunt for ' + picked.length + ' basket keywords', 'success');
           } catch (err) {
             this.toast('Quick Hunt failed: ' + err.message, 'error');
@@ -1622,6 +1615,70 @@ export function getNewbornClientAppScript() {
           }).length;
         },
 
+        isRunSelected(runId) {
+          const id = Number(runId);
+          return Number.isInteger(id) && (this.selectedRunIds || []).includes(id);
+        },
+
+        toggleRunSelection(runId) {
+          const id = Number(runId);
+          if (!Number.isInteger(id) || id <= 0) return;
+          this.confirmBulkDeleteRuns = false;
+          if ((this.selectedRunIds || []).includes(id)) {
+            this.selectedRunIds = (this.selectedRunIds || []).filter((x) => x !== id);
+          } else {
+            this.selectedRunIds = [...(this.selectedRunIds || []), id];
+          }
+        },
+
+        areAllVisibleRunsSelected() {
+          const deletable = (this.runs || []).filter((r) => r && r.id && !this.isRunActiveStatus(r.status)).map((r) => Number(r.id));
+          if (deletable.length === 0) return false;
+          return deletable.every((id) => (this.selectedRunIds || []).includes(id));
+        },
+
+        toggleSelectAllRuns() {
+          this.confirmBulkDeleteRuns = false;
+          const deletable = (this.runs || []).filter((r) => r && r.id && !this.isRunActiveStatus(r.status)).map((r) => Number(r.id));
+          if (this.areAllVisibleRunsSelected()) {
+            this.selectedRunIds = [];
+          } else {
+            this.selectedRunIds = deletable;
+          }
+        },
+
+        async deleteSelectedRuns() {
+          const ids = Array.from(new Set((this.selectedRunIds || []).map(Number).filter((n) => Number.isInteger(n) && n > 0)));
+          if (ids.length === 0 || this.isBulkDeletingRuns) return;
+          if (!this.confirmBulkDeleteRuns) {
+            this.confirmBulkDeleteRuns = true;
+            return;
+          }
+          this.isBulkDeletingRuns = true;
+          try {
+            const { data } = await this.apiJson('/api/newborn/runs/bulk-delete', {
+              method: 'POST',
+              body: JSON.stringify({ run_ids: ids })
+            });
+            const deletedIds = Array.isArray(data?.deleted_run_ids) ? data.deleted_run_ids.map(Number) : ids;
+            const deletedCount = Number(data?.deleted_runs ?? deletedIds.length);
+            const pruned = Number(data?.orphans_pruned || 0);
+            this.selectedRunIds = [];
+            this.confirmBulkDeleteRuns = false;
+            if (this.activeRunId && deletedIds.includes(Number(this.activeRunId))) {
+              this.activeRunId = null;
+              this.activeRun = null;
+            }
+            this.toast('Deleted ' + deletedCount + ' selected hunt' + (deletedCount === 1 ? '' : 's') + (pruned > 0 ? (' (' + pruned + ' orphan pins cleaned)') : ''), 'success');
+            await Promise.all([this.loadOverviewAndRuns(), this.loadCandidates(true), this.loadCrossoverForActiveHunt()]);
+          } catch (err) {
+            this.toast('Bulk delete failed: ' + err.message, 'error');
+          } finally {
+            this.isBulkDeletingRuns = false;
+            this.refreshIcons();
+          }
+        },
+
         async deletePastRun(run) {
           if (!run || !run.id || this.isRunActiveStatus(run.status)) return;
           const runId = Number(run.id);
@@ -1635,6 +1692,7 @@ export function getNewbornClientAppScript() {
               method: 'DELETE'
             });
             this.confirmDeleteRunId = null;
+            this.selectedRunIds = (this.selectedRunIds || []).filter((id) => id !== runId);
             if (Number(this.activeRunId) === runId) {
               this.activeRunId = null;
               this.activeRun = null;
@@ -2281,12 +2339,8 @@ export function getNewbornClientAppScript() {
               this.showRunCompleteBanner = true;
               await this.loadOverviewAndRuns();
 
-              if (mergedRun.run_type === 'watchlist_poll') {
-                await Promise.all([this.loadWatchlist(), this.loadDailyAnchors()]);
-              } else {
-                this.activeRunId = Number(mergedRun.id);
-                await Promise.all([this.loadCandidates(true), this.loadCrossoverForActiveHunt()]);
-              }
+              this.activeRunId = Number(mergedRun.id);
+              await Promise.all([this.loadCandidates(true), this.loadCrossoverForActiveHunt()]);
 
               const f = this.getRunFunnel(mergedRun);
               if (mergedRun.status === 'failed') {
@@ -2449,7 +2503,7 @@ export function getNewbornClientAppScript() {
             this.selectedPinIds = [];
             await Promise.all([
               this.loadOverviewAndRuns(),
-              this.activeView === 'watchlist' ? this.loadWatchlist() : this.loadCandidates()
+              this.loadCandidates()
             ]);
             this.toast('Updated ' + clean.length + ' pin(s) to ' + nextStage, 'success');
           } catch (err) {
@@ -2490,71 +2544,13 @@ export function getNewbornClientAppScript() {
             await Promise.all([
               this.loadOverviewAndRuns(),
               this.loadCandidates(),
-              this.loadWatchlist(),
-              this.loadDailyAnchors()
+              this.loadFoldersList()
             ]);
             this.toast('Enrolled ' + (data?.pins?.promoted_count || this.promotePinIds.length) + ' pin(s) in Daily Tracking', 'success');
           } catch (err) {
             this.toast('Track Daily failed: ' + err.message, 'error');
           } finally {
             this.isPromoting = false;
-          }
-        },
-
-        async loadWatchlist() {
-          const signal = this._nextAbortSignal('watchlist');
-          try {
-            const url = this.scopedFolderId
-              ? ('/api/newborn/candidates?stage=watchlist&limit=200&sort=repins&folder_id=' + encodeURIComponent(this.scopedFolderId))
-              : '/api/newborn/candidates?stage=watchlist&limit=200&sort=repins';
-            const { data } = await this.apiJson(url, signal ? { signal } : {});
-            if (signal && signal.aborted) return;
-            this.watchlistCandidates = Array.isArray(data?.candidates) ? data.candidates : [];
-          } catch (err) {
-            if (this._isAbortError(err, signal)) return;
-          }
-        },
-
-        async loadDailyAnchors() {
-          const signal = this._nextAbortSignal('anchors');
-          try {
-            const url = this.scopedFolderId
-              ? ('/api/newborn/anchors?active_only=true&limit=200&folder_id=' + encodeURIComponent(this.scopedFolderId))
-              : '/api/newborn/anchors?active_only=true&limit=200';
-            const { data } = await this.apiJson(url, signal ? { signal } : {});
-            if (signal && signal.aborted) return;
-            this.dailyAnchors = Array.isArray(data?.anchors) ? data.anchors : [];
-          } catch (err) {
-            if (this._isAbortError(err, signal)) return;
-          }
-        },
-
-        async pollWatchlistNow() {
-          this.isSubmittingWatchlistPoll = true;
-          try {
-            const { data } = await this.apiJson('/api/newborn/watchlist/poll', {
-              method: 'POST',
-              body: JSON.stringify({
-                profile_id: this.selectedProfileId || null,
-                folder_id: this.scopedFolderId ? Number(this.scopedFolderId) : null
-              })
-            });
-            if (data?.run_id) {
-              this.activeRun = data.run || {
-                id: Number(data.run_id),
-                run_type: 'watchlist_poll',
-                status: 'running',
-                progress_stage: 'queued',
-                progress_detail: 'Polling watchlisted pins on Pinterest...',
-                progress_pct: 5
-              };
-              this.startPollingRun(data.run_id);
-              this.toast('Watchlist poll started (Run #' + data.run_id + ')', 'info');
-            }
-          } catch (err) {
-            this.toast('Watchlist poll failed: ' + err.message, 'error');
-          } finally {
-            this.isSubmittingWatchlistPoll = false;
           }
         },
 
@@ -2684,90 +2680,6 @@ export function getNewbornClientAppScript() {
             this.toast('Dispatched GitHub Actions Newborn Fleet', 'success');
           } catch (err) {
             this.toast('Fleet dispatch failed: ' + err.message, 'error');
-          }
-        },
-
-        openProfileModal(prof = null) {
-          if (prof) {
-            const q = prof.qualification_config || {};
-            this.profileForm = {
-              id: prof.id,
-              name: prof.name || '',
-              description: prof.description || '',
-              maxAgeDays: Number(q.max_age_days || 30),
-              minRepins: Number(q.min_repin_count ?? 20),
-              minSaves: Number(q.min_save_count ?? 0),
-              linklessOnly: Boolean(q.linkless_vacuum?.linkless_vacuum_only || q.linkless_vacuum?.mode === 'only'),
-              isDefault: Boolean(prof.is_default)
-            };
-          } else {
-            this.profileForm = {
-              id: null,
-              name: '',
-              description: '',
-              maxAgeDays: 14,
-              minRepins: 20,
-              minSaves: 0,
-              linklessOnly: false,
-              isDefault: false
-            };
-          }
-          this.profileModalOpen = true;
-          this.refreshIcons();
-        },
-
-        async saveProfile() {
-          if (!this.profileForm.name.trim()) return;
-          this.isSavingProfile = true;
-          try {
-            const payload = {
-              name: this.profileForm.name.trim(),
-              description: this.profileForm.description.trim(),
-              is_default: Boolean(this.profileForm.isDefault),
-              folder_id: this.scopedFolderId ? Number(this.scopedFolderId) : null,
-              surfaces_config: {},
-              qualification_config: {
-                age_window_preset: [7, 14, 30, 60, 90].includes(Number(this.profileForm.maxAgeDays)) ? (this.profileForm.maxAgeDays + 'd') : 'custom',
-                max_age_days: Number(this.profileForm.maxAgeDays || 30),
-                min_repin_count: Number(this.profileForm.minRepins ?? 20),
-                min_save_count: Number(this.profileForm.minSaves ?? 0),
-                linkless_vacuum: {
-                  mode: this.profileForm.linklessOnly ? 'only' : 'boost',
-                  linkless_vacuum_only: Boolean(this.profileForm.linklessOnly)
-                }
-              },
-              automation_config: {}
-            };
-
-            if (this.profileForm.id) {
-              await this.apiJson('/api/newborn/rules/' + encodeURIComponent(this.profileForm.id), {
-                method: 'PUT',
-                body: JSON.stringify(payload)
-              });
-            } else {
-              await this.apiJson('/api/newborn/rules', {
-                method: 'POST',
-                body: JSON.stringify(payload)
-              });
-            }
-            this.profileModalOpen = false;
-            await this.loadSettingsAndProfiles();
-            this.toast('Rule profile saved', 'success');
-          } catch (err) {
-            this.toast('Profile save failed: ' + err.message, 'error');
-          } finally {
-            this.isSavingProfile = false;
-          }
-        },
-
-        async deleteProfile(prof) {
-          if (!prof || !prof.id || prof.is_default) return;
-          try {
-            await this.apiJson('/api/newborn/rules/' + encodeURIComponent(prof.id), { method: 'DELETE' });
-            await this.loadSettingsAndProfiles();
-            this.toast('Deleted profile "' + prof.name + '"', 'success');
-          } catch (err) {
-            this.toast('Delete failed: ' + err.message, 'error');
           }
         },
 
@@ -2970,7 +2882,7 @@ export function getNewbornClientAppScript() {
 
         formatBoardUrl(rawUrl) {
           const str = String(rawUrl || '').trim();
-          if (!str) return '';
+          if (!str || /^(?:javascript|data|vbscript):/i.test(str)) return '';
           if (/^https?:\\/\\//i.test(str)) return str;
           if (str.startsWith('//')) return 'https:' + str;
           return 'https://www.pinterest.com' + (str.startsWith('/') ? str : ('/' + str));

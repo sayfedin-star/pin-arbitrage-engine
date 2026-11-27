@@ -299,7 +299,7 @@ function createStatefulNewbornSqlMock() {
       }
       return [];
     }
-    if (/FROM newborn_runs/i.test(q)) {
+    if (/FROM newborn_runs/i.test(q) && !/newborn_candidates/i.test(q)) {
       if (q.includes('WHERE id =')) {
         const found = state.runs.get(Number(values[0]));
         return found ? [found] : [];
@@ -1478,20 +1478,20 @@ test('Wave 6A.5: End-to-end 8-Surface Harvest + Snowball keeps staging isolated,
   assert.equal(sql.state.candidates.get('81000000000001').consecutive_qualifying_days, 1);
   assert.equal(sql.state.masterPins.size, 0);
 
-  // Day 2 Watchlist Poll -> consecutive_qualifying_days reaches 2 -> auto-promotes pins & rookie creator!
+  // Day 2 Watchlist Poll -> consecutive_qualifying_days reaches 2 -> auto-promotes pins (rookie batch writes retired)
   const day2Poll = await pollNewbornWatchlist(sql, {
     routerOptions: { fetchImpl: mockFetch },
     nowMs: day2Ms
   });
   assert.equal(day2Poll.auto_promoted_pins.length, 2);
-  assert.deepEqual(day2Poll.auto_promoted_rookies, ['dumpling_rookie']);
+  assert.deepEqual(day2Poll.auto_promoted_rookies, []);
+  assert.equal(sql.state.rookies.size, 0);
+  assert.equal(sql.state.candidateSnapshots.size, 0);
   assert.equal(sql.state.masterPins.size, 2);
   assert.equal(sql.state.anchors.size, 2);
   assert.equal(sql.state.clusterSeeds.size, 2);
   assert.equal(sql.state.trackedKeywords.size, 1);
   assert.equal(sql.state.folderItems.length, 1);
-  assert.equal(sql.state.competitors.size, 1);
-  assert.equal(sql.state.folderCompetitorItems.length, 1);
   assert.equal(sql.state.candidates.get('81000000000001').stage, 'promoted');
 
   // Verify standalone 01:00 UTC velocity fleet continuity EVEN when 0 tracked keywords exist!
@@ -2011,9 +2011,8 @@ test('Wave 6C.2: Child Repin root canonicalization, zero cross-topic pollution, 
   const masterPin = sql.state.masterPins.get('66000000000001');
   assert.equal(masterPin.daily_save_velocity, 0, 'Must preserve Day-1 anti-hydration-spike velocity 0');
   assert.equal(masterPin.is_hydrated, true);
-  const serpPos = Array.from(sql.state.serpPositions.values())[0];
-  assert.equal(serpPos.rank_position, null, 'Must never fabricate fake rank_position 1,2,3');
-  assert.equal(serpPos.is_displaced, true);
+  assert.equal(sql.state.serpPositions.size, 0, 'Must never fabricate null-rank Vault #100 rows in keyword_serp_positions');
+  assert.equal(sql.state.anchors.has('66000000000001'), true, 'Must still enroll daily anchor cleanly');
 
   // 7. Additive Migration 004 & Workflow InstaBox sleep gate verification
   const mig004 = fs.readFileSync(path.resolve('scripts/migrations/004_newborn_scoping_and_hygiene.sql'), 'utf8');

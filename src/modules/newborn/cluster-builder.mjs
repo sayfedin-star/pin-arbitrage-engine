@@ -770,63 +770,33 @@ export async function buildNewbornKeywordCluster(sql, options = {}) {
   let createdAt = new Date().toISOString();
 
   if (sql && typeof sql === 'function') {
-    let row;
-    try {
-      const rows = await sql`
-        INSERT INTO newborn_keyword_clusters (
-          seed_keyword, country, l1_interest, include_terms, exclude_terms,
-          idea_page, keywords, discovered_accounts, keyword_count, enriched_count,
-          status, metadata, created_at, updated_at, workspace_id, folder_id
-        )
-        VALUES (
-          ${seedKeyword},
-          ${country},
-          ${l1Interest},
-          ${JSON.stringify(effectiveIncludeTerms)}::jsonb,
-          ${JSON.stringify(excludeTerms)}::jsonb,
-          ${JSON.stringify(cleanIdeaPage)}::jsonb,
-          ${JSON.stringify(sanitizeForJsonb(mergedKeywords))}::jsonb,
-          ${JSON.stringify(sanitizeForJsonb(discoveredAccounts))}::jsonb,
-          ${mergedKeywords.length},
-          ${enrichedCount},
-          'ready',
-          ${JSON.stringify(metadata)}::jsonb,
-          NOW(),
-          NOW(),
-          ${wid},
-          ${fid}
-        )
-        RETURNING id, created_at, updated_at;
-      `;
-      row = rows?.[0];
-    } catch (err) {
-      if (String(err?.code || '') !== '42703') throw err;
-      const rows = await sql`
-        INSERT INTO newborn_keyword_clusters (
-          seed_keyword, country, l1_interest, include_terms, exclude_terms,
-          idea_page, keywords, discovered_accounts, keyword_count, enriched_count,
-          status, metadata, created_at, updated_at
-        )
-        VALUES (
-          ${seedKeyword},
-          ${country},
-          ${l1Interest},
-          ${JSON.stringify(effectiveIncludeTerms)}::jsonb,
-          ${JSON.stringify(excludeTerms)}::jsonb,
-          ${JSON.stringify(cleanIdeaPage)}::jsonb,
-          ${JSON.stringify(sanitizeForJsonb(mergedKeywords))}::jsonb,
-          ${JSON.stringify(sanitizeForJsonb(discoveredAccounts))}::jsonb,
-          ${mergedKeywords.length},
-          ${enrichedCount},
-          'ready',
-          ${JSON.stringify(metadata)}::jsonb,
-          NOW(),
-          NOW()
-        )
-        RETURNING id, created_at, updated_at;
-      `;
-      row = rows?.[0];
-    }
+    const rows = await sql`
+      INSERT INTO newborn_keyword_clusters (
+        seed_keyword, country, l1_interest, include_terms, exclude_terms,
+        idea_page, keywords, discovered_accounts, keyword_count, enriched_count,
+        status, metadata, created_at, updated_at, workspace_id, folder_id
+      )
+      VALUES (
+        ${seedKeyword},
+        ${country},
+        ${l1Interest},
+        ${JSON.stringify(effectiveIncludeTerms)}::jsonb,
+        ${JSON.stringify(excludeTerms)}::jsonb,
+        ${JSON.stringify(cleanIdeaPage)}::jsonb,
+        ${JSON.stringify(sanitizeForJsonb(mergedKeywords))}::jsonb,
+        ${JSON.stringify(sanitizeForJsonb(discoveredAccounts))}::jsonb,
+        ${mergedKeywords.length},
+        ${enrichedCount},
+        'ready',
+        ${JSON.stringify(metadata)}::jsonb,
+        NOW(),
+        NOW(),
+        ${wid},
+        ${fid}
+      )
+      RETURNING id, created_at, updated_at;
+    `;
+    const row = rows?.[0];
     if (row?.id) {
       persistedId = Number(row.id);
       createdAt = row.created_at ? new Date(row.created_at).toISOString() : createdAt;
@@ -872,28 +842,15 @@ export async function enrichClusterRemainingVolumes(sql, clusterId, options = {}
     ? Number(options.workspaceId)
     : null;
 
-  let rows;
-  try {
-    rows = wid !== null
-      ? await sql`
-          SELECT * FROM newborn_keyword_clusters
-          WHERE id = ${numericId} AND workspace_id = ${wid}
-          LIMIT 1;
-        `
-      : await sql`
-          SELECT * FROM newborn_keyword_clusters WHERE id = ${numericId} LIMIT 1;
-        `;
-  } catch (err) {
-    if (String(err?.code || '') !== '42703') throw err;
-    if (wid !== null && wid !== 1) {
-      const notFound = new Error(`Keyword cluster #${numericId} not found.`);
-      notFound.status = 404;
-      throw notFound;
-    }
-    rows = await sql`
-      SELECT * FROM newborn_keyword_clusters WHERE id = ${numericId} LIMIT 1;
-    `;
-  }
+  const rows = wid !== null
+    ? await sql`
+        SELECT * FROM newborn_keyword_clusters
+        WHERE id = ${numericId} AND workspace_id = ${wid}
+        LIMIT 1;
+      `
+    : await sql`
+        SELECT * FROM newborn_keyword_clusters WHERE id = ${numericId} LIMIT 1;
+      `;
   const existing = rows?.[0];
   if (!existing) {
     const err = new Error(`Keyword cluster #${numericId} not found.`);
@@ -1013,39 +970,19 @@ export async function enrichClusterRemainingVolumes(sql, clusterId, options = {}
     last_enriched_at: new Date().toISOString()
   });
 
-  try {
-    if (wid !== null) {
-      await sql`
-        UPDATE newborn_keyword_clusters
-        SET
-          idea_page = ${JSON.stringify(sanitizeForJsonb(updatedIdeaPage))}::jsonb,
-          keywords = ${JSON.stringify(sanitizeForJsonb(reMerged))}::jsonb,
-          keyword_count = ${reMerged.length},
-          enriched_count = ${enrichedCount},
-          metadata = ${JSON.stringify(updatedMeta)}::jsonb,
-          updated_at = NOW()
-        WHERE id = ${numericId} AND workspace_id = ${wid};
-      `;
-    } else {
-      await sql`
-        UPDATE newborn_keyword_clusters
-        SET
-          idea_page = ${JSON.stringify(sanitizeForJsonb(updatedIdeaPage))}::jsonb,
-          keywords = ${JSON.stringify(sanitizeForJsonb(reMerged))}::jsonb,
-          keyword_count = ${reMerged.length},
-          enriched_count = ${enrichedCount},
-          metadata = ${JSON.stringify(updatedMeta)}::jsonb,
-          updated_at = NOW()
-        WHERE id = ${numericId};
-      `;
-    }
-  } catch (err) {
-    if (String(err?.code || '') !== '42703') throw err;
-    if (wid !== null && wid !== 1) {
-      const notFound = new Error(`Keyword cluster #${numericId} not found.`);
-      notFound.status = 404;
-      throw notFound;
-    }
+  if (wid !== null) {
+    await sql`
+      UPDATE newborn_keyword_clusters
+      SET
+        idea_page = ${JSON.stringify(sanitizeForJsonb(updatedIdeaPage))}::jsonb,
+        keywords = ${JSON.stringify(sanitizeForJsonb(reMerged))}::jsonb,
+        keyword_count = ${reMerged.length},
+        enriched_count = ${enrichedCount},
+        metadata = ${JSON.stringify(updatedMeta)}::jsonb,
+        updated_at = NOW()
+      WHERE id = ${numericId} AND workspace_id = ${wid};
+    `;
+  } else {
     await sql`
       UPDATE newborn_keyword_clusters
       SET
@@ -1089,40 +1026,26 @@ export async function listNewbornKeywordClusters(sql, { limit = 20, workspaceId 
   const lim = Math.max(1, Math.min(100, Number(limit) || 20));
   const wid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
   const fid = folderId !== null && folderId !== undefined && Number(folderId) > 0 ? Number(folderId) : null;
-  try {
-    const rows = fid !== null
-      ? await sql`
-          SELECT
-            id, workspace_id, folder_id, seed_keyword, country, l1_interest, include_terms, exclude_terms,
-            keyword_count, enriched_count, status, last_run_id, metadata, created_at, updated_at
-          FROM newborn_keyword_clusters
-          WHERE workspace_id = ${wid} AND folder_id = ${fid}
-          ORDER BY updated_at DESC, id DESC
-          LIMIT ${lim};
-        `
-      : await sql`
-          SELECT
-            id, workspace_id, folder_id, seed_keyword, country, l1_interest, include_terms, exclude_terms,
-            keyword_count, enriched_count, status, last_run_id, metadata, created_at, updated_at
-          FROM newborn_keyword_clusters
-          WHERE workspace_id = ${wid}
-          ORDER BY updated_at DESC, id DESC
-          LIMIT ${lim};
-        `;
-    return rows || [];
-  } catch (err) {
-    if (String(err?.code || '') !== '42703') throw err;
-    if (wid !== 1) return [];
-    const rows = await sql`
-      SELECT
-        id, seed_keyword, country, l1_interest, include_terms, exclude_terms,
-        keyword_count, enriched_count, status, last_run_id, metadata, created_at, updated_at
-      FROM newborn_keyword_clusters
-      ORDER BY updated_at DESC, id DESC
-      LIMIT ${lim};
-    `;
-    return rows || [];
-  }
+  const rows = fid !== null
+    ? await sql`
+        SELECT
+          id, workspace_id, folder_id, seed_keyword, country, l1_interest, include_terms, exclude_terms,
+          keyword_count, enriched_count, status, last_run_id, metadata, created_at, updated_at
+        FROM newborn_keyword_clusters
+        WHERE workspace_id = ${wid} AND folder_id = ${fid}
+        ORDER BY updated_at DESC, id DESC
+        LIMIT ${lim};
+      `
+    : await sql`
+        SELECT
+          id, workspace_id, folder_id, seed_keyword, country, l1_interest, include_terms, exclude_terms,
+          keyword_count, enriched_count, status, last_run_id, metadata, created_at, updated_at
+        FROM newborn_keyword_clusters
+        WHERE workspace_id = ${wid}
+        ORDER BY updated_at DESC, id DESC
+        LIMIT ${lim};
+      `;
+  return rows || [];
 }
 
 export async function getNewbornKeywordClusterById(sql, clusterId, { workspaceId = null } = {}) {
@@ -1130,16 +1053,9 @@ export async function getNewbornKeywordClusterById(sql, clusterId, { workspaceId
   const numericId = Number(clusterId);
   if (!Number.isFinite(numericId) || numericId <= 0) return null;
   const wid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : null;
-  let rows;
-  try {
-    rows = wid !== null
-      ? await sql`SELECT * FROM newborn_keyword_clusters WHERE id = ${numericId} AND workspace_id = ${wid} LIMIT 1;`
-      : await sql`SELECT * FROM newborn_keyword_clusters WHERE id = ${numericId} LIMIT 1;`;
-  } catch (err) {
-    if (String(err?.code || '') !== '42703') throw err;
-    if (wid !== null && wid !== 1) return null;
-    rows = await sql`SELECT * FROM newborn_keyword_clusters WHERE id = ${numericId} LIMIT 1;`;
-  }
+  const rows = wid !== null
+    ? await sql`SELECT * FROM newborn_keyword_clusters WHERE id = ${numericId} AND workspace_id = ${wid} LIMIT 1;`
+    : await sql`SELECT * FROM newborn_keyword_clusters WHERE id = ${numericId} LIMIT 1;`;
   const row = rows?.[0] || null;
   if (!row) return null;
   const keywords = Array.isArray(row.keywords) ? row.keywords : [];

@@ -280,7 +280,6 @@ export async function upsertStagedCandidatesBatch(
   }
 
   const preparedRecords = [];
-  const snapshotRecords = [];
 
   for (const pid of pinIds) {
     const c = dedupMap.get(pid);
@@ -407,23 +406,9 @@ export async function upsertStagedCandidatesBatch(
     };
 
     preparedRecords.push(record);
-    snapshotRecords.push({
-      pin_id: pid,
-      recorded_date: todayDate,
-      save_count: record.save_count,
-      repin_count: record.repin_count,
-      comment_count: record.comment_count,
-      share_count: record.share_count,
-      reaction_count: record.reaction_count,
-      repin_per_day: record.repin_per_day,
-      save_per_day: record.save_per_day,
-      golden_score: record.golden_score,
-      qualified: record.qualified
-    });
   }
 
   const candidatesJson = JSON.stringify(sanitizeForJsonb(preparedRecords));
-  const snapshotsJson = JSON.stringify(sanitizeForJsonb(snapshotRecords));
   const runCandidatesRecords = numericRunId !== null
     ? preparedRecords.map((r) => ({
         run_id: numericRunId,
@@ -622,248 +607,66 @@ export async function upsertStagedCandidatesBatch(
         updated_at = NOW();
     `;
 
-    try {
-      await upsertCandidatesFull();
-    } catch (err) {
-      if (String(err?.code || '') !== '42703') throw err;
-      // Legacy schema fallback before migration 016
-      await tx`
-        INSERT INTO newborn_candidates (
-          pin_id, stage, qualified, first_run_id, last_run_id, folder_id,
-          first_surface, discovered_surfaces, seed_query,
-          snowball_parent_pin_id, snowball_hop, title, description, alt_text,
-          image_url, image_signature, dominant_color, destination_url, clean_domain, is_linkless,
-          pinner_username, pinner_full_name, pinner_followers,
-          origin_creator_username, origin_creator_full_name, origin_creator_followers,
-          effective_creator_username, effective_creator_followers,
-          creator_monthly_reach, creator_profile_views, creator_pin_count, is_repin,
-          board_id, board_name, board_url, board_order_modified_at,
-          upload_provenance, raw_creation_method, has_ai_disclosure,
-          is_video, is_carousel, is_product,
-          created_at_pinterest, age_days,
-          save_count, repin_count, comment_count, share_count, reaction_count, is_hydrated,
-          repin_per_day, save_per_day, daily_repin_delta, daily_save_delta,
-          golden_score, is_golden_pin, is_rookie_outlier, outlier_ratio,
-          visual_annotations, guided_capsules, crossover_blueprint,
-          consecutive_qualifying_days, last_qualified_date,
-          watchlist_added_at, last_polled_at, profile_id, metadata,
-          first_seen_at, last_seen_at, updated_at
-        )
-        SELECT
-          u.pin_id, u.stage, u.qualified, u.first_run_id, u.last_run_id, u.folder_id,
-          u.first_surface, u.discovered_surfaces, u.seed_query,
-          u.snowball_parent_pin_id, u.snowball_hop, u.title, u.description, u.alt_text,
-          u.image_url, u.image_signature, u.dominant_color, u.destination_url, u.clean_domain, u.is_linkless,
-          u.pinner_username, u.pinner_full_name, u.pinner_followers,
-          u.origin_creator_username, u.origin_creator_full_name, u.origin_creator_followers,
-          u.effective_creator_username, u.effective_creator_followers,
-          u.creator_monthly_reach, u.creator_profile_views, u.creator_pin_count, u.is_repin,
-          u.board_id, u.board_name, u.board_url, NULLIF(u.board_order_modified_at, '')::timestamptz,
-          u.upload_provenance, u.raw_creation_method, u.has_ai_disclosure,
-          u.is_video, u.is_carousel, u.is_product,
-          NULLIF(u.created_at_pinterest, '')::timestamptz, u.age_days,
-          u.save_count, u.repin_count, u.comment_count, u.share_count, u.reaction_count, u.is_hydrated,
-          u.repin_per_day, u.save_per_day, u.daily_repin_delta, u.daily_save_delta,
-          u.golden_score, u.is_golden_pin, u.is_rookie_outlier, u.outlier_ratio,
-          u.visual_annotations, u.guided_capsules, u.crossover_blueprint,
-          u.consecutive_qualifying_days, NULLIF(u.last_qualified_date, '')::date,
-          NULLIF(u.watchlist_added_at, '')::timestamptz,
-          NULLIF(u.last_polled_at, '')::timestamptz,
-          u.profile_id, u.metadata,
-          NOW(), NOW(), NOW()
-        FROM jsonb_to_recordset(${candidatesJson}::jsonb) AS u(
-          pin_id text, stage text, qualified boolean, first_run_id bigint, last_run_id bigint, folder_id int,
-          first_surface text, discovered_surfaces jsonb, seed_query text,
-          snowball_parent_pin_id text, snowball_hop int, title text, description text, alt_text text,
-          image_url text, image_signature text, dominant_color text, destination_url text, clean_domain text, is_linkless boolean,
-          pinner_username text, pinner_full_name text, pinner_followers int,
-          origin_creator_username text, origin_creator_full_name text, origin_creator_followers int,
-          effective_creator_username text, effective_creator_followers int,
-          creator_monthly_reach bigint, creator_profile_views bigint, creator_pin_count int, is_repin boolean,
-          board_id text, board_name text, board_url text, board_order_modified_at text,
-          upload_provenance text, raw_creation_method text, has_ai_disclosure boolean,
-          is_video boolean, is_carousel boolean, is_product boolean,
-          created_at_pinterest text, age_days double precision,
-          save_count bigint, repin_count bigint, comment_count int, share_count int, reaction_count int, is_hydrated boolean,
-          repin_per_day double precision, save_per_day double precision, daily_repin_delta double precision, daily_save_delta double precision,
-          golden_score double precision, is_golden_pin boolean, is_rookie_outlier boolean, outlier_ratio double precision,
-          visual_annotations jsonb, guided_capsules jsonb, crossover_blueprint jsonb,
-          consecutive_qualifying_days int, last_qualified_date text,
-          watchlist_added_at text, last_polled_at text, profile_id int, metadata jsonb
-        )
-        ORDER BY u.pin_id ASC
-        ON CONFLICT (pin_id) DO UPDATE SET
-          stage = CASE WHEN newborn_candidates.stage IN ('promoted', 'discarded') THEN newborn_candidates.stage ELSE EXCLUDED.stage END,
-          qualified = EXCLUDED.qualified,
-          first_run_id = COALESCE(newborn_candidates.first_run_id, EXCLUDED.first_run_id),
-          last_run_id = COALESCE(EXCLUDED.last_run_id, newborn_candidates.last_run_id),
-          folder_id = COALESCE(EXCLUDED.folder_id, newborn_candidates.folder_id),
-          discovered_surfaces = COALESCE((
-            SELECT jsonb_agg(DISTINCT elem)
-            FROM (
-              SELECT jsonb_array_elements(COALESCE(newborn_candidates.discovered_surfaces, '[]'::jsonb)) AS elem
-              UNION
-              SELECT jsonb_array_elements(COALESCE(EXCLUDED.discovered_surfaces, '[]'::jsonb)) AS elem
-            ) merged_surfaces
-            WHERE elem #>> '{}' <> 'pin_resource'
-          ), '[]'::jsonb),
-          consecutive_qualifying_days = CASE
-            WHEN EXCLUDED.qualified = TRUE THEN GREATEST(newborn_candidates.consecutive_qualifying_days, EXCLUDED.consecutive_qualifying_days)
-            ELSE 0
-          END,
-          last_seen_at = NOW(),
-          updated_at = NOW();
-      `;
-    }
+    await upsertCandidatesFull();
 
-    await tx`
-      INSERT INTO newborn_candidate_snapshots (
-        pin_id, recorded_date, save_count, repin_count, comment_count, share_count, reaction_count,
-        repin_per_day, save_per_day, golden_score, qualified, updated_at
-      )
-      SELECT
-        s.pin_id,
-        s.recorded_date::date,
-        s.save_count,
-        s.repin_count,
-        s.comment_count,
-        s.share_count,
-        s.reaction_count,
-        s.repin_per_day,
-        s.save_per_day,
-        s.golden_score,
-        s.qualified,
-        NOW()
-      FROM jsonb_to_recordset(${snapshotsJson}::jsonb) AS s(
-        pin_id text,
-        recorded_date text,
-        save_count bigint,
-        repin_count bigint,
-        comment_count int,
-        share_count int,
-        reaction_count int,
-        repin_per_day double precision,
-        save_per_day double precision,
-        golden_score double precision,
-        qualified boolean
-      )
-      ORDER BY s.pin_id ASC
-      ON CONFLICT (pin_id, recorded_date) DO UPDATE SET
-        save_count = COALESCE(EXCLUDED.save_count, newborn_candidate_snapshots.save_count),
-        repin_count = COALESCE(EXCLUDED.repin_count, newborn_candidate_snapshots.repin_count),
-        comment_count = COALESCE(EXCLUDED.comment_count, newborn_candidate_snapshots.comment_count),
-        share_count = COALESCE(EXCLUDED.share_count, newborn_candidate_snapshots.share_count),
-        reaction_count = COALESCE(EXCLUDED.reaction_count, newborn_candidate_snapshots.reaction_count),
-        repin_per_day = COALESCE(EXCLUDED.repin_per_day, newborn_candidate_snapshots.repin_per_day),
-        save_per_day = COALESCE(EXCLUDED.save_per_day, newborn_candidate_snapshots.save_per_day),
-        golden_score = EXCLUDED.golden_score,
-        qualified = EXCLUDED.qualified,
-        updated_at = NOW();
-    `;
+    // Per-harvest writes to newborn_candidate_snapshots retired to eliminate dead tuples / bloat.
 
     if (runCandidatesJson) {
-      try {
-        await tx`
-          INSERT INTO newborn_run_candidates (
-            run_id, pin_id, seed_query, matched_queries, surface, surfaces, qualified_in_run, golden_score_in_run, created_at
-          )
-          SELECT
-            r.run_id,
-            r.pin_id,
-            r.seed_query,
-            COALESCE(r.matched_queries, '[]'::jsonb),
-            r.surface,
-            COALESCE(r.surfaces, jsonb_build_array(r.surface)),
-            r.qualified_in_run,
-            r.golden_score_in_run,
-            NOW()
-          FROM jsonb_to_recordset(${runCandidatesJson}::jsonb) AS r(
-            run_id bigint,
-            pin_id text,
-            seed_query text,
-            matched_queries jsonb,
-            surface text,
-            surfaces jsonb,
-            qualified_in_run boolean,
-            golden_score_in_run double precision
-          )
-          ORDER BY r.pin_id ASC
-          ON CONFLICT (run_id, pin_id) DO UPDATE SET
-            seed_query = COALESCE(EXCLUDED.seed_query, newborn_run_candidates.seed_query),
-            matched_queries = COALESCE((
-              SELECT jsonb_agg(DISTINCT elem)
-              FROM (
-                SELECT jsonb_array_elements(COALESCE(newborn_run_candidates.matched_queries, '[]'::jsonb)) AS elem
-                UNION
-                SELECT jsonb_array_elements(COALESCE(EXCLUDED.matched_queries, '[]'::jsonb)) AS elem
-              ) merged_queries
-            ), '[]'::jsonb),
-            surfaces = COALESCE((
-              SELECT jsonb_agg(DISTINCT elem)
-              FROM (
-                SELECT jsonb_array_elements(COALESCE(newborn_run_candidates.surfaces, '[]'::jsonb)) AS elem
-                UNION
-                SELECT jsonb_array_elements(COALESCE(EXCLUDED.surfaces, '[]'::jsonb)) AS elem
-              ) merged_run_surfaces
-              WHERE elem #>> '{}' <> 'pin_resource'
-            ), '[]'::jsonb),
-            surface = CASE
-              WHEN newborn_run_candidates.surface IS NOT NULL
-                AND newborn_run_candidates.surface <> ''
-                AND newborn_run_candidates.surface <> 'related_pin_snowball'
-                AND newborn_run_candidates.surface <> 'pin_resource'
-              THEN newborn_run_candidates.surface
-              ELSE COALESCE(NULLIF(EXCLUDED.surface, ''), newborn_run_candidates.surface)
-            END,
-            qualified_in_run = (newborn_run_candidates.qualified_in_run OR EXCLUDED.qualified_in_run),
-            golden_score_in_run = GREATEST(COALESCE(newborn_run_candidates.golden_score_in_run, 0), COALESCE(EXCLUDED.golden_score_in_run, 0));
-        `;
-      } catch (err) {
-        if (String(err?.code || '') !== '42703') throw err;
-        await tx`
-          INSERT INTO newborn_run_candidates (
-            run_id, pin_id, seed_query, matched_queries, surface, qualified_in_run, golden_score_in_run, created_at
-          )
-          SELECT
-            r.run_id,
-            r.pin_id,
-            r.seed_query,
-            COALESCE(r.matched_queries, '[]'::jsonb),
-            r.surface,
-            r.qualified_in_run,
-            r.golden_score_in_run,
-            NOW()
-          FROM jsonb_to_recordset(${runCandidatesJson}::jsonb) AS r(
-            run_id bigint,
-            pin_id text,
-            seed_query text,
-            matched_queries jsonb,
-            surface text,
-            qualified_in_run boolean,
-            golden_score_in_run double precision
-          )
-          ORDER BY r.pin_id ASC
-          ON CONFLICT (run_id, pin_id) DO UPDATE SET
-            seed_query = COALESCE(EXCLUDED.seed_query, newborn_run_candidates.seed_query),
-            matched_queries = COALESCE((
-              SELECT jsonb_agg(DISTINCT elem)
-              FROM (
-                SELECT jsonb_array_elements(COALESCE(newborn_run_candidates.matched_queries, '[]'::jsonb)) AS elem
-                UNION
-                SELECT jsonb_array_elements(COALESCE(EXCLUDED.matched_queries, '[]'::jsonb)) AS elem
-              ) merged_queries
-            ), '[]'::jsonb),
-            surface = CASE
-              WHEN newborn_run_candidates.surface IS NOT NULL
-                AND newborn_run_candidates.surface <> ''
-                AND newborn_run_candidates.surface <> 'related_pin_snowball'
-              THEN newborn_run_candidates.surface
-              ELSE COALESCE(NULLIF(EXCLUDED.surface, ''), newborn_run_candidates.surface)
-            END,
-            qualified_in_run = (newborn_run_candidates.qualified_in_run OR EXCLUDED.qualified_in_run),
-            golden_score_in_run = GREATEST(COALESCE(newborn_run_candidates.golden_score_in_run, 0), COALESCE(EXCLUDED.golden_score_in_run, 0));
-        `;
-      }
+      await tx`
+        INSERT INTO newborn_run_candidates (
+          run_id, pin_id, seed_query, matched_queries, surface, surfaces, qualified_in_run, golden_score_in_run, created_at
+        )
+        SELECT
+          r.run_id,
+          r.pin_id,
+          r.seed_query,
+          COALESCE(r.matched_queries, '[]'::jsonb),
+          r.surface,
+          COALESCE(r.surfaces, jsonb_build_array(r.surface)),
+          r.qualified_in_run,
+          r.golden_score_in_run,
+          NOW()
+        FROM jsonb_to_recordset(${runCandidatesJson}::jsonb) AS r(
+          run_id bigint,
+          pin_id text,
+          seed_query text,
+          matched_queries jsonb,
+          surface text,
+          surfaces jsonb,
+          qualified_in_run boolean,
+          golden_score_in_run double precision
+        )
+        ORDER BY r.pin_id ASC
+        ON CONFLICT (run_id, pin_id) DO UPDATE SET
+          seed_query = COALESCE(EXCLUDED.seed_query, newborn_run_candidates.seed_query),
+          matched_queries = COALESCE((
+            SELECT jsonb_agg(DISTINCT elem)
+            FROM (
+              SELECT jsonb_array_elements(COALESCE(newborn_run_candidates.matched_queries, '[]'::jsonb)) AS elem
+              UNION
+              SELECT jsonb_array_elements(COALESCE(EXCLUDED.matched_queries, '[]'::jsonb)) AS elem
+            ) merged_queries
+          ), '[]'::jsonb),
+          surfaces = COALESCE((
+            SELECT jsonb_agg(DISTINCT elem)
+            FROM (
+              SELECT jsonb_array_elements(COALESCE(newborn_run_candidates.surfaces, '[]'::jsonb)) AS elem
+              UNION
+              SELECT jsonb_array_elements(COALESCE(EXCLUDED.surfaces, '[]'::jsonb)) AS elem
+            ) merged_run_surfaces
+            WHERE elem #>> '{}' <> 'pin_resource'
+          ), '[]'::jsonb),
+          surface = CASE
+            WHEN newborn_run_candidates.surface IS NOT NULL
+              AND newborn_run_candidates.surface <> ''
+              AND newborn_run_candidates.surface <> 'related_pin_snowball'
+              AND newborn_run_candidates.surface <> 'pin_resource'
+            THEN newborn_run_candidates.surface
+            ELSE COALESCE(NULLIF(EXCLUDED.surface, ''), newborn_run_candidates.surface)
+          END,
+          qualified_in_run = (newborn_run_candidates.qualified_in_run OR EXCLUDED.qualified_in_run),
+          golden_score_in_run = GREATEST(COALESCE(newborn_run_candidates.golden_score_in_run, 0), COALESCE(EXCLUDED.golden_score_in_run, 0));
+      `;
     }
   });
 
@@ -1027,17 +830,19 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
     onAutoPromoteRookies = null
   } = options;
 
+  const wid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
   const isShardMode = Boolean(shardMode);
   const numericShardIndex = Math.max(0, Number(shardIndex) || 0);
   const numericShardTotal = Math.max(1, Number(shardTotal) || 1);
 
   const { settings, profile } = await resolveEffectiveNewbornSettings(sql, {
     profileId,
-    overrides: settingsOverrides
+    overrides: settingsOverrides,
+    workspaceId: wid
   });
 
   if (sql && typeof sql === 'function') {
-    const wsSettings = await getWorkspaceSettings(sql, workspaceId).catch(() => null);
+    const wsSettings = await getWorkspaceSettings(sql, wid).catch(() => null);
     if (wsSettings && wsSettings.updated_at) {
       applyWorkspaceExtractionTargetsToSettings(settings, wsSettings, settingsOverrides);
     }
@@ -1047,7 +852,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
 
   const resolvedCookie = rawCookieOverride !== null && rawCookieOverride !== undefined
     ? { rawCookie: String(rawCookieOverride).trim(), source: 'override' }
-    : await resolveNewbornRawCookie(sql, routerOptions.env || {}, { workspaceId });
+    : await resolveNewbornRawCookie(sql, routerOptions.env || {}, { workspaceId: wid });
 
   const router = new NewbornCookieRouter({
     rawCookie: resolvedCookie.rawCookie,
@@ -1080,7 +885,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
       const [insertedRun] = await sql`
         INSERT INTO newborn_runs (
           run_type, status, progress_stage, progress_detail, progress_pct,
-          profile_id, folder_id, cluster_id, seed_queries, cookie_mode, started_at
+          profile_id, folder_id, cluster_id, workspace_id, seed_queries, cookie_mode, started_at
         )
         VALUES (
           ${runType},
@@ -1091,6 +896,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
           ${profile?.id ?? null},
           ${numericFolderId},
           ${numericClusterId},
+          ${wid},
           ${JSON.stringify(cleanSeeds)}::jsonb,
           ${router.effectiveMode},
           NOW()
@@ -2243,10 +2049,8 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
         });
         persistedCandidates = upRes.rows;
       }
-      if (persistedRookies.length > 0) {
-        const rkRes = await upsertStagedRookiesBatch(sql, persistedRookies, { nowMs });
-        persistedRookies = rkRes.rows;
-      }
+      // Per-harvest writes to newborn_rookie_accounts retired in favor of on-demand account fetch.
+      persistedRookies = [];
     }
 
     // Trigger immediate auto-promotion ONLY if `auto_track_enabled` AND `min_consecutive_days` is already satisfied
@@ -2379,7 +2183,7 @@ export async function executeNewbornHarvestPipeline(sql, options = {}) {
           `.catch(() => {});
         }
       } else {
-        await stampAutomationRunTimestamp(sql, 'discovery', new Date(nowMs).toISOString()).catch(() => {});
+        await stampAutomationRunTimestamp(sql, 'discovery', new Date(nowMs).toISOString(), { workspaceId: wid }).catch(() => {});
         if (runRowId !== null) {
           await sql`
             UPDATE newborn_runs

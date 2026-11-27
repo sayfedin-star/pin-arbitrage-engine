@@ -20,20 +20,16 @@ import { NewbornCookieRouter } from './cookie-router.mjs';
 import { mergeCandidatePinRecords } from './surface-normalizers.mjs';
 import {
   pretriageCandidatesWithPidgets,
-  hydratePinZeroCookie,
-  hydrateUserZeroCookie
+  hydratePinZeroCookie
 } from './surface-hydrators.mjs';
 import {
   scoreNewbornCandidate,
   evaluatePinAutoRules,
-  scoreRookieCreator,
-  evaluateRookieAutoRules,
   buildPeerAnnotationCounts,
   synthesizeNewbornCrossoverBlueprint
 } from './intelligence.mjs';
 import {
   upsertStagedCandidatesBatch,
-  upsertStagedRookiesBatch,
   executeNewbornHarvestPipeline
 } from './harvester.mjs';
 import {
@@ -80,6 +76,9 @@ export async function runNewbornDiscovery(sql, options = {}) {
  * or the top staged Golden Pins in `newborn_candidates`.
  */
 export async function runNewbornSnowball(sql, options = {}) {
+  const wid = Number.isInteger(Number(options.workspaceId)) && Number(options.workspaceId) > 0
+    ? Number(options.workspaceId)
+    : 1;
   let seedPinIds = Array.isArray(options.seedPinIds)
     ? options.seedPinIds.map((id) => String(id || '').trim()).filter(isValidPinId)
     : [];
@@ -87,22 +86,55 @@ export async function runNewbornSnowball(sql, options = {}) {
   if (seedPinIds.length === 0 && sql && typeof sql === 'function') {
     const { settings } = await resolveEffectiveNewbornSettings(sql, {
       profileId: options.profileId,
-      overrides: options.settingsOverrides
+      overrides: options.settingsOverrides,
+      workspaceId: wid
     });
     const cap = settings.discovery.snowball.seed_cap || 10;
-    const rows = await sql`
-      SELECT pin_id
-      FROM newborn_candidates
-      WHERE stage IN ('discovered', 'watchlist')
-        AND is_golden_pin = TRUE
-      ORDER BY repin_count DESC NULLS LAST, golden_score DESC, first_seen_at DESC
-      LIMIT ${cap};
-    `;
+    const rows = wid !== 1
+      ? await sql`
+          SELECT nc.pin_id
+          FROM newborn_candidates nc
+          WHERE nc.stage IN ('discovered', 'watchlist')
+            AND nc.is_golden_pin = TRUE
+            AND (
+              nc.folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
+              OR nc.first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = ${wid})
+              OR EXISTS (
+                SELECT 1 FROM newborn_run_candidates nrc_ws
+                JOIN newborn_runs nr_ws ON nr_ws.id = nrc_ws.run_id
+                WHERE nrc_ws.pin_id = nc.pin_id AND nr_ws.workspace_id = ${wid}
+              )
+            )
+          ORDER BY nc.repin_count DESC NULLS LAST, nc.golden_score DESC, nc.first_seen_at DESC
+          LIMIT ${cap};
+        `
+      : await sql`
+          SELECT nc.pin_id
+          FROM newborn_candidates nc
+          WHERE nc.stage IN ('discovered', 'watchlist')
+            AND nc.is_golden_pin = TRUE
+            AND (
+              nc.folder_id IS NULL
+              OR nc.folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = 1)
+            )
+            AND (
+              nc.first_run_id IS NULL
+              OR nc.first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = 1)
+              OR EXISTS (
+                SELECT 1 FROM newborn_run_candidates nrc_w1
+                JOIN newborn_runs nr_w1 ON nr_w1.id = nrc_w1.run_id
+                WHERE nrc_w1.pin_id = nc.pin_id AND nr_w1.workspace_id = 1
+              )
+            )
+          ORDER BY nc.repin_count DESC NULLS LAST, nc.golden_score DESC, nc.first_seen_at DESC
+          LIMIT ${cap};
+        `;
     seedPinIds = (rows || []).map((r) => String(r.pin_id));
   }
 
   return await runNewbornDiscovery(sql, {
     ...options,
+    workspaceId: wid,
     seedPinIds,
     snowballOnly: true,
     runType: 'snowball'
@@ -133,14 +165,17 @@ export async function pollNewbornWatchlist(sql, options = {}) {
     ctx = null
   } = options;
 
+  const wid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
+
   const { settings, profile } = await resolveEffectiveNewbornSettings(sql, {
     profileId,
-    overrides: settingsOverrides
+    overrides: settingsOverrides,
+    workspaceId: wid
   });
 
   const resolvedCookie = rawCookieOverride !== null && rawCookieOverride !== undefined
     ? { rawCookie: String(rawCookieOverride).trim() }
-    : await resolveNewbornRawCookie(sql, env || routerOptions.env || {}, { workspaceId });
+    : await resolveNewbornRawCookie(sql, env || routerOptions.env || {}, { workspaceId: wid });
 
   const router = new NewbornCookieRouter({
     rawCookie: resolvedCookie.rawCookie,
@@ -160,11 +195,11 @@ export async function pollNewbornWatchlist(sql, options = {}) {
       const [rRow] = await sql`
         INSERT INTO newborn_runs (
           run_type, status, progress_stage, progress_detail, progress_pct,
-          profile_id, folder_id, cookie_mode, started_at
+          profile_id, folder_id, workspace_id, cookie_mode, started_at
         )
         VALUES (
           'watchlist_poll', 'running', 'hydrating_pins', 'Polling watchlist pins on Pinterest...', 15,
-          ${profile?.id ?? null}, ${numericFolderId}, 'zero_cookie', NOW()
+          ${profile?.id ?? null}, ${numericFolderId}, ${wid}, 'zero_cookie', NOW()
         )
         RETURNING id;
       `;
@@ -190,37 +225,57 @@ export async function pollNewbornWatchlist(sql, options = {}) {
   try {
     await updateRunProgress('hydrating_pins', 'Loading watchlisted pins & creators...', 15);
 
+    const wsWatchlistScope = wid !== 1
+      ? sql`(
+          nc.folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
+          OR nc.first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = ${wid})
+          OR EXISTS (
+            SELECT 1 FROM newborn_run_candidates nrc_ws
+            JOIN newborn_runs nr_ws ON nr_ws.id = nrc_ws.run_id
+            WHERE nrc_ws.pin_id = nc.pin_id AND nr_ws.workspace_id = ${wid}
+          )
+        )`
+      : sql`(
+          (nc.folder_id IS NULL OR nc.folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = 1))
+          AND (
+            nc.first_run_id IS NULL
+            OR nc.first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = 1)
+            OR EXISTS (
+              SELECT 1 FROM newborn_run_candidates nrc_w1
+              JOIN newborn_runs nr_w1 ON nr_w1.id = nrc_w1.run_id
+              WHERE nrc_w1.pin_id = nc.pin_id AND nr_w1.workspace_id = 1
+            )
+          )
+        )`;
+
     const watchlistPins = wTotal === 20
       ? await sql`
-          SELECT *
-          FROM newborn_candidates
-          WHERE stage = 'watchlist'
-            AND (ABS(hashtext(pin_id::text)::bigint) % 20) = ${wIdx}
-          ORDER BY pin_id ASC;
+          SELECT nc.*
+          FROM newborn_candidates nc
+          WHERE nc.stage = 'watchlist'
+            AND (${numericFolderId}::int IS NULL OR nc.folder_id = ${numericFolderId})
+            AND ${wsWatchlistScope}
+            AND (ABS(hashtext(nc.pin_id::text)::bigint) % 20) = ${wIdx}
+          ORDER BY nc.pin_id ASC;
         `
       : (wTotal > 1
           ? await sql`
-              SELECT *
-              FROM newborn_candidates
-              WHERE stage = 'watchlist'
-                AND (ABS(hashtext(pin_id::text)::bigint) % ${wTotal}) = ${wIdx}
-              ORDER BY pin_id ASC;
+              SELECT nc.*
+              FROM newborn_candidates nc
+              WHERE nc.stage = 'watchlist'
+                AND (${numericFolderId}::int IS NULL OR nc.folder_id = ${numericFolderId})
+                AND ${wsWatchlistScope}
+                AND (ABS(hashtext(nc.pin_id::text)::bigint) % ${wTotal}) = ${wIdx}
+              ORDER BY nc.pin_id ASC;
             `
           : await sql`
-              SELECT *
-              FROM newborn_candidates
-              WHERE stage = 'watchlist'
-              ORDER BY pin_id ASC;
+              SELECT nc.*
+              FROM newborn_candidates nc
+              WHERE nc.stage = 'watchlist'
+                AND (${numericFolderId}::int IS NULL OR nc.folder_id = ${numericFolderId})
+                AND ${wsWatchlistScope}
+              ORDER BY nc.pin_id ASC;
             `);
-
-    const watchlistRookies = wIdx === 0
-      ? await sql`
-          SELECT *
-          FROM newborn_rookie_accounts
-          WHERE stage = 'watchlist'
-          ORDER BY username ASC;
-        `
-      : [];
 
     const pinIds = (watchlistPins || []).map((p) => String(p.pin_id));
     const pidgetsMap = pinIds.length > 0 && !signal?.aborted
@@ -274,52 +329,15 @@ export async function pollNewbornWatchlist(sql, options = {}) {
       persistedPins = upRes.rows;
     }
 
-    await updateRunProgress('hydrating_creators', `Refreshing ${(watchlistRookies || []).length} watchlisted creator${(watchlistRookies || []).length === 1 ? '' : 's'}...`, 78);
-
-    const persistedPinsByUser = new Map();
-    for (const p of persistedPins) {
-      const uname = p?.effective_creator_username;
-      if (!uname) continue;
-      let list = persistedPinsByUser.get(uname);
-      if (!list) {
-        list = [];
-        persistedPinsByUser.set(uname, list);
-      }
-      list.push(p);
-    }
-
-    const userSem = new Semaphore(4);
-    const refreshedRookiesRaw = await Promise.all(
-      (watchlistRookies || []).map((rkRow) => userSem.run(async () => {
-        if (signal?.aborted) return null;
-        const uRes = await hydrateUserZeroCookie(rkRow.username, router, { signal });
-        if (uRes.ok && uRes.user) {
-          const assocPins = persistedPinsByUser.get(rkRow.username) || [];
-          const scoredRk = scoreRookieCreator(uRes.user, assocPins, settings);
-          scoredRk.stage = 'watchlist';
-          scoredRk.golden_pins_count = Math.max(Number(rkRow.golden_pins_count || 0), scoredRk.golden_pins_count);
-          return scoredRk;
-        }
-        return null;
-      }))
-    );
-    const refreshedRookies = refreshedRookiesRaw.filter(Boolean);
-
-    let persistedRookies = [];
-    if (refreshedRookies.length > 0) {
-      const rkUpRes = await upsertStagedRookiesBatch(sql, refreshedRookies, {
-        nowMs,
-        isWatchlistPoll: true
-      });
-      persistedRookies = rkUpRes.rows;
-    }
+    // Per-harvest writes to newborn_rookie_accounts retired in favor of on-demand fetch.
+    const persistedRookies = [];
 
     const shouldAutoPromote = autoPromote !== null
       ? Boolean(autoPromote)
       : Boolean(settings.automation.auto_track_enabled);
 
     let promotedPinsResult = { promoted_count: 0, pin_ids: [] };
-    let promotedRookiesResult = { promoted_count: 0, competitors: [] };
+    const promotedRookiesResult = { promoted_count: 0, competitors: [] };
 
     if (shouldAutoPromote) {
       const winningPinIds = persistedPins
@@ -336,25 +354,9 @@ export async function pollNewbornWatchlist(sql, options = {}) {
           ctx
         });
       }
-
-      const winningRookies = persistedRookies
-        .filter((r) => evaluateRookieAutoRules(r, settings).meets_promotion)
-        .map((r) => r.username);
-
-      if (winningRookies.length > 0) {
-        const rRules = settings.automation.rookie_promotion_rules;
-        promotedRookiesResult = await promoteNewbornRookies(sql, {
-          usernames: winningRookies,
-          trackingMode: rRules.destination_tracking_mode,
-          folderId: rRules.destination_folder_id,
-          source: 'watchlist_auto_rule',
-          env,
-          ctx
-        });
-      }
     }
 
-    await stampAutomationRunTimestamp(sql, 'watchlist_poll', new Date(nowMs).toISOString()).catch(() => {});
+    await stampAutomationRunTimestamp(sql, 'watchlist_poll', new Date(nowMs).toISOString(), { workspaceId: wid }).catch(() => {});
 
     const totalAutoPromoted = Number(promotedPinsResult.promoted_count || 0) + Number(promotedRookiesResult.promoted_count || 0);
     const completedDetail = `Polled ${persistedPins.length} watchlisted pin${persistedPins.length === 1 ? '' : 's'} (${totalAutoPromoted} auto-promoted).`;
@@ -464,7 +466,8 @@ export async function runNewbornAutoCycle(sql, options = {}) {
     ctx = null
   } = options;
 
-  const { settings } = await resolveEffectiveNewbornSettings(sql, { profileId });
+  const wid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
+  const { settings } = await resolveEffectiveNewbornSettings(sql, { profileId, workspaceId: wid });
   const schedule = evaluateAutomationSchedule(settings, new Date(nowMs));
   const numericRunId = existingRunId !== null && existingRunId !== undefined && Number(existingRunId) > 0
     ? Number(existingRunId)

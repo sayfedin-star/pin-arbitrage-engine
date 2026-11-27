@@ -658,7 +658,7 @@ export async function createFleetBackedNewbornRun(sql, options = {}) {
 
   let resolvedProfileId = null;
   if (profileId !== null && profileId !== undefined && profileId !== '') {
-    const prof = await getNewbornRuleProfile(sql, profileId).catch(() => null);
+    const prof = await getNewbornRuleProfile(sql, profileId, { workspaceId: wid }).catch(() => null);
     resolvedProfileId = prof?.id ?? null;
   }
 
@@ -667,70 +667,36 @@ export async function createFleetBackedNewbornRun(sql, options = {}) {
   if (normalizedPinIds.length > 0) baseSnapshot.seed_pin_ids = normalizedPinIds;
   const configSnapshot = sanitizeForJsonb(baseSnapshot);
 
-  let createdRow;
-  try {
-    const rows = await sql`
-      INSERT INTO newborn_runs (
-        run_type, status, execution_mode, progress_stage, progress_detail, progress_pct,
-        profile_id, folder_id, cluster_id, seed_queries, selected_keywords, config_snapshot,
-        shards_total, shards_completed, shards_failed, cookie_mode, telemetry, started_at, workspace_id
-      )
-      VALUES (
-        ${runType},
-        'queued',
-        'fleet',
-        'queued',
-        ${`Queued — dispatching ${clampedShards} GitHub Actions Fleet runner${clampedShards === 1 ? '' : 's'}…`},
-        2,
-        ${resolvedProfileId},
-        ${numericFolderId},
-        ${numericClusterId},
-        ${JSON.stringify(combinedKeywords)}::jsonb,
-        ${JSON.stringify(combinedKeywords)}::jsonb,
-        ${JSON.stringify(configSnapshot)}::jsonb,
-        ${clampedShards},
-        0,
-        0,
-        'pending',
-        '{"shards":{},"funnel":{}}'::jsonb,
-        NOW(),
-        ${wid}
-      )
-      RETURNING *;
-    `;
-    createdRow = rows?.[0];
-  } catch (err) {
-    if (String(err?.code || '') !== '42703') throw err;
-    const rows = await sql`
-      INSERT INTO newborn_runs (
-        run_type, status, execution_mode, progress_stage, progress_detail, progress_pct,
-        profile_id, folder_id, cluster_id, seed_queries, selected_keywords, config_snapshot,
-        shards_total, shards_completed, shards_failed, cookie_mode, telemetry, started_at
-      )
-      VALUES (
-        ${runType},
-        'queued',
-        'fleet',
-        'queued',
-        ${`Queued — dispatching ${clampedShards} GitHub Actions Fleet runner${clampedShards === 1 ? '' : 's'}…`},
-        2,
-        ${resolvedProfileId},
-        ${numericFolderId},
-        ${numericClusterId},
-        ${JSON.stringify(combinedKeywords)}::jsonb,
-        ${JSON.stringify(combinedKeywords)}::jsonb,
-        ${JSON.stringify(configSnapshot)}::jsonb,
-        ${clampedShards},
-        0,
-        0,
-        'pending',
-        '{"shards":{},"funnel":{}}'::jsonb,
-        NOW()
-      )
-      RETURNING *;
-    `;
-    createdRow = rows?.[0];
-  }
+  const rows = await sql`
+    INSERT INTO newborn_runs (
+      run_type, status, execution_mode, progress_stage, progress_detail, progress_pct,
+      profile_id, folder_id, cluster_id, seed_queries, selected_keywords, config_snapshot,
+      shards_total, shards_completed, shards_failed, cookie_mode, telemetry, started_at, workspace_id
+    )
+    VALUES (
+      ${runType},
+      'queued',
+      'fleet',
+      'queued',
+      ${`Queued — dispatching ${clampedShards} GitHub Actions Fleet runner${clampedShards === 1 ? '' : 's'}…`},
+      2,
+      ${resolvedProfileId},
+      ${numericFolderId},
+      ${numericClusterId},
+      ${JSON.stringify(combinedKeywords)}::jsonb,
+      ${JSON.stringify(combinedKeywords)}::jsonb,
+      ${JSON.stringify(configSnapshot)}::jsonb,
+      ${clampedShards},
+      0,
+      0,
+      'pending',
+      '{"shards":{},"funnel":{}}'::jsonb,
+      NOW(),
+      ${wid}
+    )
+    RETURNING *;
+  `;
+  const createdRow = rows?.[0];
 
   const runRowId = Number(createdRow.id);
 
@@ -941,7 +907,7 @@ export async function enqueueNewbornRun(sql, options = {}) {
     // Resolve numeric profile ID quickly if slug/ID passed
     let resolvedProfileId = null;
     if (profileId !== null && profileId !== undefined && profileId !== '') {
-      const prof = await getNewbornRuleProfile(sql, profileId).catch(() => null);
+      const prof = await getNewbornRuleProfile(sql, profileId, { workspaceId: wid }).catch(() => null);
       resolvedProfileId = prof?.id ?? null;
     }
 
@@ -951,54 +917,28 @@ export async function enqueueNewbornRun(sql, options = {}) {
       ...cleanPinIds.map((id) => `pin:${id}`)
     ];
 
-    let createdRow;
-    try {
-      const rows = await sql`
-        INSERT INTO newborn_runs (
-          run_type, status, progress_stage, progress_detail, progress_pct,
-          profile_id, folder_id, cluster_id, seed_queries, cookie_mode, started_at, workspace_id
-        )
-        VALUES (
-          ${runType},
-          'running',
-          'queued',
-          'Queued — starting Newborn hunt...',
-          0,
-          ${resolvedProfileId},
-          ${numericFolderId},
-          ${numericClusterId},
-          ${JSON.stringify(displaySeedList)}::jsonb,
-          'pending',
-          NOW(),
-          ${wid}
-        )
-        RETURNING *;
-      `;
-      createdRow = rows?.[0];
-    } catch (err) {
-      if (String(err?.code || '') !== '42703') throw err;
-      const rows = await sql`
-        INSERT INTO newborn_runs (
-          run_type, status, progress_stage, progress_detail, progress_pct,
-          profile_id, folder_id, cluster_id, seed_queries, cookie_mode, started_at
-        )
-        VALUES (
-          ${runType},
-          'running',
-          'queued',
-          'Queued — starting Newborn hunt...',
-          0,
-          ${resolvedProfileId},
-          ${numericFolderId},
-          ${numericClusterId},
-          ${JSON.stringify(displaySeedList)}::jsonb,
-          'pending',
-          NOW()
-        )
-        RETURNING *;
-      `;
-      createdRow = rows?.[0];
-    }
+    const rows = await sql`
+      INSERT INTO newborn_runs (
+        run_type, status, progress_stage, progress_detail, progress_pct,
+        profile_id, folder_id, cluster_id, seed_queries, cookie_mode, started_at, workspace_id
+      )
+      VALUES (
+        ${runType},
+        'running',
+        'queued',
+        'Queued — starting Newborn hunt...',
+        0,
+        ${resolvedProfileId},
+        ${numericFolderId},
+        ${numericClusterId},
+        ${JSON.stringify(displaySeedList)}::jsonb,
+        'pending',
+        NOW(),
+        ${wid}
+      )
+      RETURNING *;
+    `;
+    const createdRow = rows?.[0];
     insertedRun = createdRow;
     runRowId = Number(insertedRun.id);
 

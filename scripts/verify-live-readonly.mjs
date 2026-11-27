@@ -393,10 +393,10 @@ export async function runLiveReadOnlyVerification(env = process.env) {
     `HTTP ${folder5NewbornPage.status}, ${folder5NewbornCheck.kib}, forbidden=${folder5NewbornCheck.foundForbidden.join(',') || 'none'}, missing=${folder5NewbornCheck.missingRequired.join(',') || 'none'}`
   );
 
-  const candFolder5Ws1 = await fetchReadOnly(baseUrl, '/api/newborn/candidates?folder_id=5', { apiKey, workspaceId: 1 });
+  const candFolder5Ws1 = await fetchReadOnly(baseUrl, '/api/newborn/candidates?folder_id=5&stage=discovered', { apiKey, workspaceId: 1 });
   const f5Count = Array.isArray(candFolder5Ws1.json?.candidates) ? candFolder5Ws1.json.candidates.length : -1;
   addCheck(
-    'GET /api/newborn/candidates?folder_id=5 (WS1 zero leakage)',
+    'GET /api/newborn/candidates?folder_id=5&stage=discovered (WS1 zero global leakage)',
     candFolder5Ws1.status === 200 && f5Count === 0,
     `HTTP ${candFolder5Ws1.status}, candidates=${f5Count} (expected 0)`
   );

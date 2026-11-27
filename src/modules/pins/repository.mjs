@@ -326,11 +326,19 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
       }
 
       // Only include SERP & Competitor Board join rows for pins that pass master qualification
-      // (prevents SQLSTATE 23503 foreign key violations against universal_master_pins(pin_id))
-      if (kwId && kwId > 0) {
+      // (prevents SQLSTATE 23503 foreign key violations against universal_master_pins(pin_id)).
+      // Never stage synthetic SERP rows that lack both rank_position >= 1 and last_known_rank >= 1.
+      const incomingRank = p.rank_position != null && Number.isFinite(Number(p.rank_position)) && Number(p.rank_position) >= 1
+        ? Math.round(Number(p.rank_position))
+        : null;
+      const incomingLastKnown = p.last_known_rank != null && Number.isFinite(Number(p.last_known_rank)) && Number(p.last_known_rank) >= 1
+        ? Math.round(Number(p.last_known_rank))
+        : null;
+      const incomingDisplaced = Boolean(p.is_displaced);
+
+      if (kwId && kwId > 0 && (incomingRank !== null || incomingLastKnown !== null || incomingDisplaced)) {
         const serpKey = `${kwId}:${pid}`;
         const existingSerp = serpPositionDedupMap.get(serpKey);
-        const incomingRank = p.rank_position != null ? Number(p.rank_position) : null;
         const serpIsCached = Boolean(p.from_hydration_cache === true || p.scrape_failed === true || p.fromCache === true);
         const serpWasLive = p.was_live_scraped !== undefined ? Boolean(p.was_live_scraped) : !serpIsCached;
         if (!existingSerp) {
@@ -338,8 +346,8 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
             pin_id: pid,
             keyword_id: kwId,
             rank_position: incomingRank,
-            is_displaced: Boolean(p.is_displaced),
-            last_known_rank: p.last_known_rank != null ? Number(p.last_known_rank) : null,
+            is_displaced: incomingDisplaced,
+            last_known_rank: incomingLastKnown,
             catalog_rank: p.catalog_rank != null ? Number(p.catalog_rank) : incomingRank,
             vacuum_opportunity_score: p.vacuum_opportunity_score != null ? Number(p.vacuum_opportunity_score) : null,
             was_live_scraped: serpWasLive,
@@ -351,8 +359,8 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           if (incomingRank != null && (existingSerp.rank_position == null || incomingRank < existingSerp.rank_position)) {
             existingSerp.rank_position = incomingRank;
             if (p.catalog_rank != null) existingSerp.catalog_rank = Number(p.catalog_rank);
-            if (p.is_displaced != null) existingSerp.is_displaced = Boolean(p.is_displaced);
-            if (p.last_known_rank != null) existingSerp.last_known_rank = Number(p.last_known_rank);
+            if (p.is_displaced != null) existingSerp.is_displaced = incomingDisplaced;
+            if (incomingLastKnown != null) existingSerp.last_known_rank = incomingLastKnown;
             if (p.vacuum_opportunity_score != null) existingSerp.vacuum_opportunity_score = Number(p.vacuum_opportunity_score);
           }
         }
@@ -766,7 +774,7 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
           CASE WHEN COALESCE(u.is_displaced, FALSE) THEN NULL ELSE u.rank_position END,
           COALESCE(u.is_displaced, FALSE),
           CASE WHEN COALESCE(u.is_displaced, FALSE) THEN NOW() ELSE NULL END,
-          u.last_known_rank,
+          COALESCE(u.last_known_rank, CASE WHEN COALESCE(u.is_displaced, FALSE) THEN COALESCE(k_ex.rank_position, k_ex.last_known_rank) ELSE NULL END),
           u.vacuum_opportunity_score,
           NULL,
           CASE
@@ -786,6 +794,10 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
         LEFT JOIN keyword_serp_positions k_ex
           ON k_ex.keyword_id = u.keyword_id AND k_ex.pin_id = u.pin_id
         WHERE u.keyword_id IS NOT NULL AND u.keyword_id > 0
+          AND (
+            (CASE WHEN COALESCE(u.is_displaced, FALSE) THEN NULL ELSE u.rank_position END) >= 1
+            OR COALESCE(u.last_known_rank, k_ex.rank_position, k_ex.last_known_rank) >= 1
+          )
           AND EXISTS (SELECT 1 FROM universal_master_pins ump WHERE ump.pin_id = u.pin_id)
         ORDER BY u.keyword_id ASC, u.pin_id ASC
         ON CONFLICT (keyword_id, pin_id) DO UPDATE SET

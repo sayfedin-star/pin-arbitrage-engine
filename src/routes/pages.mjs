@@ -402,11 +402,6 @@ export async function handlePagesRoutes(routeCtx) {
     const slugLower = rawSlug.toLowerCase();
 
     if (rawSlug && RESERVED_KEYWORD_SLUGS.has(slugLower)) {
-      if (slugLower === 'discovery') {
-        if (method === 'HEAD') return sendNative(null, 200, HTML_HEADERS);
-        const { getDiscoveryPageHtml } = await import('../ui/discovery/index.mjs');
-        return sendNative(getDiscoveryPageHtml(), 200, HTML_HEADERS);
-      }
       if (slugLower === 'folders') {
         if (method === 'HEAD') return sendNative(null, 200, HTML_HEADERS);
         const folderId = segments[2] || '';

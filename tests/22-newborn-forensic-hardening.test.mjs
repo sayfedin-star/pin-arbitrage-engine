@@ -55,7 +55,20 @@ import {
 } from '../src/routes/newborn.mjs';
 import { handleFoldersRoutes } from '../src/routes/folders.mjs';
 import { parseNewbornFleetArgs } from '../scripts/newborn-fleet.mjs';
-import { getNewbornCrossoverReport, listNewbornCandidates } from '../src/modules/newborn/queries.mjs';
+import { resolvePinKeywordId, syncKeywordTopNIntoCampaigns } from '../scripts/keyword-velocity-crawler.mjs';
+import { ingestPinsBatch } from '../src/modules/pins/repository.mjs';
+import { getPinDossier } from '../src/modules/pins/dossier-reader.mjs';
+import {
+  deleteNewbornRunsBulk,
+  getNewbornCrossoverReport,
+  listNewbornCandidates,
+  updateNewbornCandidateStage
+} from '../src/modules/newborn/queries.mjs';
+import {
+  createNewbornRuleProfile,
+  getNewbornSettings,
+  listNewbornRuleProfiles
+} from '../src/modules/newborn/settings.mjs';
 import { getNewbornPageHtml } from '../src/ui/newborn/index.mjs';
 import { getNewbornClientAppScript } from '../src/ui/newborn/newborn-client-app.mjs';
 import { getCampaignFoldersPageHtml } from '../src/ui/folders/index.mjs';
@@ -819,4 +832,142 @@ test('UI SSR Byte Budgets & Alpine Client Behavior: Fleet(20) default, no Hydrat
     discovered_surfaces: ['pin_resource', 'ideas_feeds']
   });
   assert.deepEqual(Array.from(displaySurfaces), ['board_more_ideas', 'pin_serp_capsules', 'ideas_feeds']);
+});
+
+test('Forensic 019 Regressions: zero null-rank KSP pollution, clean Top-N stale deactivation, dossier schema fidelity, strict workspace isolation & bulk run delete', async () => {
+  // 1. resolvePinKeywordId ignores synthetic multi-pin context objects for non-SERP pins
+  assert.equal(resolvePinKeywordId({ pin_id: '1100145015261315845', keyword_id: null }, { id: 1384, is_synthetic_context: true }), null);
+  assert.equal(resolvePinKeywordId({ pin_id: '1100145015261315845', keyword_id: null }, { id: 1384 }), 1384);
+  assert.equal(resolvePinKeywordId({ pin_id: '1100145015261315845', keyword_id: 99 }, { id: 1384, is_synthetic_context: true }), 99);
+
+  // 2. ingestPinsBatch skips bogus (rank=null, last_known_rank=null) entries before keyword_serp_positions
+  const repoSql = makeFakeSql(() => []);
+  await ingestPinsBatch(repoSql, [
+    {
+      pin_id: '1100145015261315845',
+      keyword_id: 1384,
+      rank_position: null,
+      last_known_rank: null,
+      is_displaced: false,
+      save_count: 100,
+      repin_count: 25
+    },
+    {
+      pin_id: '2200145015261315845',
+      keyword_id: 1384,
+      rank_position: 7,
+      last_known_rank: 7,
+      is_displaced: false,
+      save_count: 200,
+      repin_count: 40
+    }
+  ]);
+  const kspInsert = repoSql.calls.find((c) => c.query.includes('INSERT INTO keyword_serp_positions'));
+  assert.ok(kspInsert, 'Valid rank=7 pin must write keyword_serp_positions');
+  const kspRows = JSON.parse(kspInsert.values[0]);
+  assert.equal(kspRows.length, 1);
+  assert.equal(kspRows[0].pin_id, '2200145015261315845');
+  assert.ok(kspInsert.query.includes('COALESCE(u.last_known_rank, k_ex.rank_position, k_ex.last_known_rank)'));
+
+  // 3. syncKeywordTopNIntoCampaigns populates seed_query and deactivates stale search rows only
+  const syncSql = makeFakeSql((entry) => {
+    if (entry.query.includes('FROM keyword_folder_items kfi JOIN keyword_folders')) {
+      return [{ folder_id: 5, workspace_id: 1, serp_top_n: 20 }];
+    }
+    if (entry.query.includes('SELECT keyword FROM tracked_keywords')) {
+      return [{ keyword: 'high protein' }];
+    }
+    if (entry.query.includes('INSERT INTO campaign_tracked_pins')) {
+      return [{ pin_id: '330000000000001' }];
+    }
+    return [];
+  });
+  const syncRes = await syncKeywordTopNIntoCampaigns(syncSql, 44);
+  assert.equal(syncRes.synced, 1);
+  const deactCall = syncSql.calls.find((c) => c.query.includes('UPDATE campaign_tracked_pins ctp SET is_active = FALSE'));
+  assert.ok(deactCall && deactCall.query.includes("ctp.source_type = 'search'"), 'Must deactivate only stale search rows');
+
+  // 4. getPinDossier uses verified schema columns without ctp.notes / nc.discovery_surface / nda.baseline_saves errors
+  const dossierSql = makeFakeSql((entry) => {
+    assert.equal(entry.query.includes('ctp.notes'), false);
+    assert.equal(entry.query.includes('nc.discovery_surface'), false);
+    assert.equal(entry.query.includes('nda.baseline_saves'), false);
+    if (entry.query.includes('FROM universal_master_pins')) {
+      return [{ pin_id: '1100145015261315845', title: 'High Protein Casserole', save_count: 150, repin_count: 30 }];
+    }
+    if (entry.query.includes('FROM campaign_tracked_pins ctp')) {
+      return [{ folder_id: 5, workspace_id: 1, folder_name: 'high protein', source_type: 'newborn', seed_query: 'green bean casserole', added_at: '2026-11-25T00:00:00Z', notes: null }];
+    }
+    if (entry.query.includes('FROM newborn_candidates nc')) {
+      return [{ pin_id: '1100145015261315845', seed_query: 'green bean casserole', stage: 'promoted', discovery_surface: 'pin_serp_capsules', anchor_active: true, anchor_baseline_saves: 150 }];
+    }
+    return [];
+  });
+  const pinDossier = await getPinDossier(dossierSql, '1100145015261315845', { workspaceId: 1 });
+  assert.equal(pinDossier.tracked_campaigns[0].folder_name, 'high protein');
+  assert.equal(pinDossier.newborn_context.stage, 'promoted');
+
+  // 5. Workspace-scoped settings & rule profiles isolate WS 2 from WS 1
+  const wsSql = makeFakeSql((entry) => {
+    if (entry.query.includes('FROM app_settings WHERE key =')) {
+      return entry.values[0] === 'newborn_engine_settings_ws_2'
+        ? [{ value: { discovery: { country: 'CA' } } }]
+        : [{ value: { discovery: { country: 'US' } } }];
+    }
+    if (entry.query.includes('FROM newborn_rule_profiles WHERE')) {
+      return [{ id: 1, workspace_id: 2, slug: 'ws2-rule', name: 'WS2 Rule', surfaces_config: {}, qualification_config: {}, automation_config: {} }];
+    }
+    if (entry.query.includes('INSERT INTO newborn_rule_profiles')) {
+      return [{ id: 88, workspace_id: entry.values[9], slug: entry.values[0], name: entry.values[1] }];
+    }
+    return [];
+  });
+  const s1 = await getNewbornSettings(wsSql, { workspaceId: 1 });
+  const s2 = await getNewbornSettings(wsSql, { workspaceId: 2 });
+  assert.equal(s1.discovery.country, 'US');
+  assert.equal(s2.discovery.country, 'CA');
+  await listNewbornRuleProfiles(wsSql, { workspaceId: 2 });
+  const createdProf = await createNewbornRuleProfile(wsSql, { name: 'WS2 Rule' }, { workspaceId: 2 });
+  assert.equal(createdProf.workspace_id, 2);
+
+  // 6. deleteNewbornRunsBulk enforces workspace isolation, skips active runs, and prunes orphans
+  const bulkSql = makeFakeSql((entry) => {
+    if (entry.query.includes('SELECT id, status FROM newborn_runs')) {
+      if (Number(entry.values[1]) !== 1) return [];
+      return [
+        { id: 10, status: 'completed' },
+        { id: 11, status: 'running' },
+        { id: 12, status: 'failed' }
+      ];
+    }
+    if (entry.query.includes('SELECT pin_id FROM newborn_run_candidates')) {
+      return [{ pin_id: '999000111222' }];
+    }
+    if (entry.query.includes('DELETE FROM newborn_runs')) {
+      return (entry.values[0] || []).map((id) => ({ id }));
+    }
+    if (entry.query.includes('DELETE FROM newborn_candidates nc')) {
+      return [{ pin_id: '999000111222' }];
+    }
+    return [];
+  });
+  const ws2Blocked = await deleteNewbornRunsBulk(bulkSql, [10, 11, 12], { workspaceId: 2 });
+  assert.equal(ws2Blocked.status, 404);
+  const ws1Bulk = await deleteNewbornRunsBulk(bulkSql, [10, 11, 12], { workspaceId: 1 });
+  assert.equal(ws1Bulk.ok, true);
+  assert.deepEqual(ws1Bulk.deleted_run_ids, [10, 12]);
+  assert.deepEqual(ws1Bulk.skipped_active_ids, [11]);
+  assert.equal(ws1Bulk.orphans_pruned, 1);
+
+  // 7. updateNewbornCandidateStage(..., 'discarded') deactivates workspace newborn CTP + orphan daily anchors
+  const discSql = makeFakeSql((entry) => {
+    if (entry.query.includes('UPDATE newborn_candidates')) {
+      return [{ pin_id: '1100145015261315845', stage: 'discarded' }];
+    }
+    return [];
+  });
+  const discRes = await updateNewbornCandidateStage(discSql, ['1100145015261315845'], 'discarded', { workspaceId: 2 });
+  assert.equal(discRes.updated, 1);
+  assert.ok(discSql.calls.some((c) => c.query.includes('UPDATE campaign_tracked_pins') && c.values.includes(2)));
+  assert.ok(discSql.calls.some((c) => c.query.includes('UPDATE newborn_daily_anchors nda')));
 });

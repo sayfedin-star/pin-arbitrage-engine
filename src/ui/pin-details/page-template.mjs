@@ -1054,6 +1054,12 @@ export function getPinDetailsBodyHtml(safePinId) {
                         <template x-if="(day.ranking_keywords || []).length > 4">
                           <span class="text-[10.5px] text-slate-500 dark:text-slate-400 font-mono" x-text="'+' + ((day.ranking_keywords || []).length - 4) + ' more'"></span>
                         </template>
+                        <template x-if="(!day.ranking_keywords || day.ranking_keywords.length === 0) && (dossier?.newborn_context || (dossier?.tracked_campaigns || []).some(tc => tc.source_type === 'newborn'))">
+                          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-mono bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60">
+                            <span>Newborn Velocity Anchor</span>
+                            <span x-show="dossier?.newborn_context?.seed_query" x-text="'· ' + dossier.newborn_context.seed_query"></span>
+                          </span>
+                        </template>
                       </div>
                     </td>
 

@@ -1094,34 +1094,12 @@ test('Wave 1.13: Newborn polling pauses on document.hidden, enforces mutex & 5-e
   assert.equal(dashToasts.some((m) => m.includes('Snapshot deleted successfully')), false, 'deleteSnapshotAction must NOT toast success on HTTP 500');
   assert.equal(creatorInst.activeCreatorSnapshots.length, 1, 'Snapshot must remain in list on HTTP 500');
 
-  // 3. Discovery submitAddToFolder aborts when POST /api/folders fails
-  const discRes = await app.inject({ method: 'GET', url: '/assets/js/discovery.js' });
-  assert.equal(discRes.statusCode, 200);
-  const discScript = discRes.body;
-  assert.ok(discScript.includes('function discoveryApp('));
-  const discToasts = [];
-  const discFetchUrls = [];
-  const discVm = {
-    console,
-    URLSearchParams,
-    setTimeout: () => 1,
-    window: {
-      apiFetch: async (url) => {
-        discFetchUrls.push(String(url));
-        return new Response(JSON.stringify({ error: 'CREATE_FAILED' }), { status: 500 });
-      }
-    }
-  };
-  discVm.globalThis = discVm;
-  new vm.Script(discScript).runInNewContext(discVm);
-  const discApp = discVm.discoveryApp();
-  discApp.selectedKeywords = ['autumn soup'];
-  discApp.newFolderName = 'Broken Folder';
-  discApp.showToast = (msg, type) => discToasts.push({ msg, type });
-  await discApp.submitAddToFolder();
-  assert.deepEqual(discFetchUrls, ['/api/folders'], 'submitAddToFolder must abort instead of calling bulk-import when folder creation fails');
-  assert.equal(discToasts.some((toast) => toast.msg.includes('Assigned')), false);
-  assert.ok(discToasts.some((toast) => toast.type === 'error'));
+  // 3. Removed /assets/js/discovery.js returns 404 while canonical /assets/js/newborn.js serves 200
+  const removedDiscRes = await app.inject({ method: 'GET', url: '/assets/js/discovery.js' });
+  assert.equal(removedDiscRes.statusCode, 404);
+  const newbornBundleRes = await app.inject({ method: 'GET', url: '/assets/js/newborn.js' });
+  assert.equal(newbornBundleRes.statusCode, 200);
+  assert.ok(newbornBundleRes.body.includes('function newbornStudioApp('));
 
   // 4. Keywords toggleCurrentKeywordFolder does NOT toast success on HTTP 500
   const kwRes = await app.inject({ method: 'GET', url: '/keywords' });

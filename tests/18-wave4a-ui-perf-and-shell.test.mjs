@@ -207,10 +207,10 @@ test('Wave 4A.2: Extracted /assets/js/*.js routes enforce SHA-256 ETag, 304 Not 
     await app.close();
   });
 
-  // 1. Static verifier validates all 12 extracted client JS assets cleanly (9 legacy + radar, watchlist, settings)
+  // 1. Static verifier validates all 11 extracted client JS assets cleanly (legacy discovery bundle retired)
   const validatedCount = validateExtractedClientJsAssets();
   assert.equal(validatedCount, CLIENT_JS_ASSET_NAMES.length);
-  assert.equal(CLIENT_JS_ASSET_NAMES.length, 12);
+  assert.equal(CLIENT_JS_ASSET_NAMES.length, 11);
 
   // 2. Every /assets/js/<name>.js route supports strong ETag, 304 (strong + weak W/), immutable ?v=, HEAD, and 405 POST
   for (const asset of listClientJsAssets()) {
@@ -604,14 +604,16 @@ test('Wave 4A.5: Fetch hygiene, AbortController cancellation, discovery safeUrl 
   assert.ok(foldersHtmlRes.body.includes("currentRoom === 'settings'"), 'folders-studio-view.mjs must preserve Room 5 settings view');
   assert.equal(foldersHtmlRes.body.includes('isSettingsModalOpen'), false, 'dead duplicate isSettingsModalOpen modal must be removed from folders-modals.mjs');
 
-  // 3. discovery-client-app.mjs delegates safeUrl directly to window.PAEFormatters.safeUrl (zero shadow)
-  const discAsset = getClientJsAsset('discovery');
+  // 3. Retired /assets/js/discovery.js is null while canonical keywordsApp delegates safeUrl directly to window.PAEFormatters.safeUrl
+  assert.equal(getClientJsAsset('discovery'), null);
+  const kwAsset = getClientJsAsset('keywords');
   let safeUrlDelegatedArgs = [];
-  const discVm = {
+  const kwVm = {
     console,
     URLSearchParams,
     localStorage: { getItem: () => null, setItem: () => {} },
     window: {
+      location: { pathname: '/keywords', search: '' },
       PAEFormatters: {
         safeUrl: (u) => {
           safeUrlDelegatedArgs.push(u);
@@ -620,11 +622,11 @@ test('Wave 4A.5: Fetch hygiene, AbortController cancellation, discovery safeUrl 
       }
     }
   };
-  discVm.globalThis = discVm;
-  new vm.Script(discAsset.code).runInNewContext(discVm);
-  const discApp = discVm.discoveryApp();
-  assert.equal(discApp.safeUrl('https://pinterest.com/ideas/'), 'https://pinterest.com/ideas/');
-  assert.equal(discApp.safeUrl('javascript:alert(1)', '/safe-fallback'), '/safe-fallback');
+  kwVm.globalThis = kwVm;
+  new vm.Script(kwAsset.code).runInNewContext(kwVm);
+  const kwApp = kwVm.keywordStudio();
+  assert.equal(kwApp.safeUrl('https://pinterest.com/ideas/'), 'https://pinterest.com/ideas/');
+  assert.equal(kwApp.safeUrl('javascript:alert(1)'), '#');
   assert.deepEqual(safeUrlDelegatedArgs, ['https://pinterest.com/ideas/', 'javascript:alert(1)']);
 
   // 4. Dashboard refreshAll() defers heavy ?limit=5000 / ?limit=1000 intersections on Overview, avoids duplicate /api/creators/boards, and aborts stale fetches on switchTab()

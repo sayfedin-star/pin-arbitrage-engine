@@ -33,9 +33,13 @@ import {
   scoreNewbornCandidate,
   scoreRookieCreator
 } from './intelligence.mjs';
-import { upsertStagedRookiesBatch } from './harvester.mjs';
 
 export const LAUNCHPAD_CACHE_KEY = 'newborn_launchpad_cache';
+
+export function resolveLaunchpadCacheKey(workspaceId = 1) {
+  const wid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
+  return wid === 1 ? LAUNCHPAD_CACHE_KEY : `${LAUNCHPAD_CACHE_KEY}_ws_${wid}`;
+}
 
 function buildLaunchpadBucketKey({
   country,
@@ -75,8 +79,9 @@ export async function getNewbornLaunchpadFeed(sql, {
   limit = 50,
   workspaceId = 1
 } = {}) {
-  const settings = await getNewbornSettings(sql);
   const wid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
+  const cacheKey = resolveLaunchpadCacheKey(wid);
+  const settings = await getNewbornSettings(sql, { workspaceId: wid });
   const resolvedCountry = /^[A-Z]{2}$/.test(String(country || '').toUpperCase())
     ? String(country).toUpperCase()
     : (settings.discovery?.country || 'US');
@@ -91,7 +96,7 @@ export async function getNewbornLaunchpadFeed(sql, {
 
   if (sql && typeof sql === 'function') {
     const [cacheRows, seedRows] = await Promise.all([
-      sql`SELECT value, updated_at FROM app_settings WHERE key = ${LAUNCHPAD_CACHE_KEY} LIMIT 1;`,
+      sql`SELECT value, updated_at FROM app_settings WHERE key = ${cacheKey} LIMIT 1;`,
       wid !== 1
         ? sql`
             SELECT seed_query, COUNT(*)::int AS pin_count, MAX(golden_score)::double precision AS max_score
@@ -100,6 +105,11 @@ export async function getNewbornLaunchpadFeed(sql, {
               AND (
                 folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = ${wid})
                 OR first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = ${wid})
+                OR EXISTS (
+                  SELECT 1 FROM newborn_run_candidates nrc_ws
+                  JOIN newborn_runs nr_ws ON nr_ws.id = nrc_ws.run_id
+                  WHERE nrc_ws.pin_id = newborn_candidates.pin_id AND nr_ws.workspace_id = ${wid}
+                )
               )
             GROUP BY seed_query
             ORDER BY max_score DESC NULLS LAST, pin_count DESC
@@ -109,6 +119,16 @@ export async function getNewbornLaunchpadFeed(sql, {
             SELECT seed_query, COUNT(*)::int AS pin_count, MAX(golden_score)::double precision AS max_score
             FROM newborn_candidates
             WHERE seed_query IS NOT NULL AND seed_query <> '' AND stage <> 'discarded'
+              AND (folder_id IS NULL OR folder_id IN (SELECT id FROM keyword_folders WHERE workspace_id = 1))
+              AND (
+                first_run_id IS NULL
+                OR first_run_id IN (SELECT id FROM newborn_runs WHERE workspace_id = 1)
+                OR EXISTS (
+                  SELECT 1 FROM newborn_run_candidates nrc_w1
+                  JOIN newborn_runs nr_w1 ON nr_w1.id = nrc_w1.run_id
+                  WHERE nrc_w1.pin_id = newborn_candidates.pin_id AND nr_w1.workspace_id = 1
+                )
+              )
             GROUP BY seed_query
             ORDER BY max_score DESC NULLS LAST, pin_count DESC
             LIMIT 16;
@@ -200,7 +220,9 @@ export async function refreshNewbornLaunchpadFeed(sql, options = {}) {
     harvestZeroQueryFn = harvestZeroQueryPopularSurface
   } = options;
 
-  const settings = await getNewbornSettings(sql);
+  const wid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
+  const cacheKey = resolveLaunchpadCacheKey(wid);
+  const settings = await getNewbornSettings(sql, { workspaceId: wid });
   const resolvedCountry = /^[A-Z]{2}$/.test(String(country || '').toUpperCase())
     ? String(country).toUpperCase()
     : (settings.discovery?.country || 'US');
@@ -250,7 +272,7 @@ export async function refreshNewbornLaunchpadFeed(sql, options = {}) {
 
   if (sql && typeof sql === 'function') {
     let existingCache = { buckets: {}, zero_query: {} };
-    const prevRows = await sql`SELECT value FROM app_settings WHERE key = ${LAUNCHPAD_CACHE_KEY} LIMIT 1;`;
+    const prevRows = await sql`SELECT value FROM app_settings WHERE key = ${cacheKey} LIMIT 1;`;
     if (prevRows?.[0]?.value) {
       const parsed = typeof prevRows[0].value === 'string' ? JSON.parse(prevRows[0].value) : prevRows[0].value;
       if (parsed && typeof parsed === 'object') {
@@ -261,9 +283,10 @@ export async function refreshNewbornLaunchpadFeed(sql, options = {}) {
       }
     }
 
-    const bucketKeys = Object.keys(existingCache.buckets);
-    if (bucketKeys.length >= 24 && !existingCache.buckets[bucketKey]) {
-      delete existingCache.buckets[bucketKeys[0]];
+    // Bound stored Launchpad buckets to 8 entries to prevent app_settings TOAST bloat.
+    while (Object.keys(existingCache.buckets).length >= 8 && !existingCache.buckets[bucketKey]) {
+      const oldestKey = Object.keys(existingCache.buckets)[0];
+      delete existingCache.buckets[oldestKey];
     }
 
     existingCache.buckets[bucketKey] = {
@@ -281,7 +304,7 @@ export async function refreshNewbornLaunchpadFeed(sql, options = {}) {
 
     await sql`
       INSERT INTO app_settings (key, value, updated_at)
-      VALUES (${LAUNCHPAD_CACHE_KEY}, ${JSON.stringify(sanitizeForJsonb(existingCache))}::jsonb, NOW())
+      VALUES (${cacheKey}, ${JSON.stringify(sanitizeForJsonb(existingCache))}::jsonb, NOW())
       ON CONFLICT (key) DO UPDATE SET
         value = EXCLUDED.value,
         updated_at = NOW();
@@ -421,7 +444,7 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
     };
   }
 
-  const settings = await getNewbornSettings(sql);
+  const settings = await getNewbornSettings(sql, { workspaceId: wid });
   const fetchImpl = routerOptions.fetchImpl || (typeof env?.NEWBORN_FETCH_IMPL === 'function' ? env.NEWBORN_FETCH_IMPL : undefined);
   // Strictly Zero-Cookie for both PinResource & UserResource!
   const router = new NewbornCookieRouter({
@@ -473,9 +496,8 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
     }))
   );
 
-  // 3. Persist updated account & hydrated pin metadata onto newborn_candidates in a single batched UPDATE and stage rookies
+  // 3. Persist updated account & hydrated pin metadata onto newborn_candidates in a single batched UPDATE
   const results = [];
-  const scoredRookies = [];
   const updatesToPersist = [];
 
   for (const row of workingRows) {
@@ -791,14 +813,8 @@ export async function fetchNewbornCandidateAccounts(sql, pinIds, { routerOptions
     list.push(r);
   }
 
-  for (const [uname, u] of userMap.entries()) {
-    const assocPins = workingRowsByUser.get(uname) || [];
-    const rk = scoreRookieCreator(u, assocPins, settings);
-    if (rk) scoredRookies.push(rk);
-  }
-  if (scoredRookies.length > 0) {
-    await upsertStagedRookiesBatch(sql, scoredRookies, { nowMs }).catch(() => {});
-  }
+  // Per-harvest writes to newborn_rookie_accounts retired; account reach stays inline on candidates.
+  void scoreRookieCreator;
 
   await invalidateEdgeCache('newborn');
 
