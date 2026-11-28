@@ -42,6 +42,8 @@ export {
   normalizeDomain,
   safeString,
   parseCleanMetric,
+  NUMERIC_PIN_ID_REGEX,
+  extractCanonicalNumericPinId,
   findPinInTree,
   formatPin,
   extractRelayCompletedPayloads,

@@ -43,16 +43,21 @@ export async function getTopDestinationUrls(sql, competitorId, {
     if (!primaryDomain) {
       const [domRow] = await sql`
         WITH direct_pins AS (
-          SELECT ump.clean_domain, ump.save_count
-          FROM competitor_board_pins cbp
-          JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
-          WHERE cbp.competitor_id = ${numericId}
-          UNION ALL
-          SELECT ump.clean_domain, ump.save_count
-          FROM universal_master_pins ump
-          WHERE ${cleanUsername} <> ''
-            AND LOWER(TRIM(ump.creator_username)) = ${cleanUsername}
-            AND NOT EXISTS (SELECT 1 FROM competitor_board_pins cbp_ex WHERE cbp_ex.competitor_id = ${numericId})
+          SELECT DISTINCT ON (pin_id) pin_id, clean_domain, save_count
+          FROM (
+            SELECT cbp.pin_id, ump.clean_domain, ump.save_count, 0 AS src_priority
+            FROM competitor_board_pins cbp
+            JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+            WHERE cbp.competitor_id = ${numericId}
+              AND ump.pin_id ~ '^[0-9]{10,30}$'
+            UNION ALL
+            SELECT ump.pin_id, ump.clean_domain, ump.save_count, 1 AS src_priority
+            FROM universal_master_pins ump
+            WHERE ${cleanUsername} <> ''
+              AND ump.pin_id ~ '^[0-9]{10,30}$'
+              AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${cleanUsername}
+          ) dp_raw
+          ORDER BY pin_id, src_priority ASC
         )
         SELECT COALESCE(clean_domain, '') AS clean_dom
         FROM direct_pins
@@ -79,39 +84,60 @@ export async function getTopDestinationUrls(sql, competitorId, {
   // Double escaped for PostgreSQL template literals: \\1, \\., \\?
   const rows = await sql`
     WITH direct_creator_pins AS (
-      SELECT
-        cbp.pin_id,
-        ump.destination_url,
-        ump.clean_domain,
-        ump.domain,
-        ump.save_count,
-        ump.repin_count,
-        ump.created_at_pinterest,
-        ump.is_product
-      FROM competitor_board_pins cbp
-      JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
-      WHERE cbp.competitor_id = ${numericId}
-      UNION ALL
-      SELECT
-        ump.pin_id,
-        ump.destination_url,
-        ump.clean_domain,
-        ump.domain,
-        ump.save_count,
-        ump.repin_count,
-        ump.created_at_pinterest,
-        ump.is_product
-      FROM universal_master_pins ump
-      WHERE ${cleanUsername} <> ''
-        AND LOWER(TRIM(ump.creator_username)) = ${cleanUsername}
-        AND NOT EXISTS (SELECT 1 FROM competitor_board_pins cbp_chk WHERE cbp_chk.competitor_id = ${numericId})
+      SELECT DISTINCT ON (pin_id)
+        pin_id,
+        destination_url,
+        clean_domain,
+        domain,
+        save_count,
+        repin_count,
+        created_at_pinterest,
+        is_product
+      FROM (
+        SELECT
+          cbp.pin_id,
+          ump.destination_url,
+          ump.clean_domain,
+          ump.domain,
+          ump.save_count,
+          ump.repin_count,
+          ump.created_at_pinterest,
+          ump.is_product,
+          0 AS src_priority
+        FROM competitor_board_pins cbp
+        JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+        WHERE cbp.competitor_id = ${numericId}
+          AND ump.pin_id ~ '^[0-9]{10,30}$'
+        UNION ALL
+        SELECT
+          ump.pin_id,
+          ump.destination_url,
+          ump.clean_domain,
+          ump.domain,
+          ump.save_count,
+          ump.repin_count,
+          ump.created_at_pinterest,
+          ump.is_product,
+          1 AS src_priority
+        FROM universal_master_pins ump
+        WHERE ump.pin_id ~ '^[0-9]{10,30}$'
+          AND (
+            (${cleanUsername} <> '' AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${cleanUsername})
+            OR (
+              ${primaryDomain} <> ''
+              AND ump.clean_domain = ${primaryDomain}
+              AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+            )
+          )
+      ) dcp_raw
+      ORDER BY pin_id, src_priority ASC
     ),
     raw_pins AS (
       SELECT
         dcp.pin_id,
         CASE WHEN ${activeScope} = 'external' THEN 'external'::text ELSE 'official'::text END AS attribution_source,
         COALESCE(dcp.destination_url, '') AS destination_url,
-        COALESCE(dcp.clean_domain, dcp.domain, '') AS link_domain,
+        COALESCE(NULLIF(dcp.clean_domain, ''), NULLIF(dcp.domain, ''), REGEXP_REPLACE(LOWER(COALESCE(dcp.destination_url, '')), '^https?://(www\\.)?([^/]+).*$', '\\2')) AS link_domain,
         COALESCE(dcp.save_count, 0) AS save_count,
         COALESCE(dcp.repin_count, 0) AS repin_count,
         dcp.created_at_pinterest,
@@ -122,8 +148,8 @@ export async function getTopDestinationUrls(sql, competitorId, {
         AND COALESCE(dcp.destination_url, '') NOT LIKE '%pinterest.com%'
         AND (
           ${primaryDomain} = ''
-          OR (${activeScope} IN ('official', 'ecosystem') AND COALESCE(dcp.clean_domain, '') = ${primaryDomain})
-          OR (${activeScope} = 'external' AND COALESCE(dcp.clean_domain, '') <> ${primaryDomain})
+          OR (${activeScope} IN ('official', 'ecosystem') AND COALESCE(NULLIF(dcp.clean_domain, ''), REGEXP_REPLACE(LOWER(COALESCE(dcp.destination_url, '')), '^https?://(www\\.)?([^/]+).*$', '\\2')) = ${primaryDomain})
+          OR (${activeScope} = 'external' AND COALESCE(NULLIF(dcp.clean_domain, ''), REGEXP_REPLACE(LOWER(COALESCE(dcp.destination_url, '')), '^https?://(www\\.)?([^/]+).*$', '\\2')) <> ${primaryDomain})
         )
       UNION ALL
       SELECT
@@ -138,7 +164,9 @@ export async function getTopDestinationUrls(sql, competitorId, {
       FROM universal_master_pins ump
       WHERE ${primaryDomain} <> ''
         AND ${activeScope} IN ('ecosystem', 'curators')
+        AND ump.pin_id ~ '^[0-9]{10,30}$'
         AND ump.clean_domain = ${primaryDomain}
+        AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) NOT IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator', ${cleanUsername})
         AND COALESCE(ump.destination_url, '') != ''
         AND COALESCE(ump.destination_url, '') NOT LIKE '%pinterest.com%'
         AND NOT EXISTS (

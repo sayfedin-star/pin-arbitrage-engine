@@ -11,12 +11,23 @@
  */
 
 import { formatPinterestCookie } from '../../utils.mjs';
+import {
+  DEFAULT_WORKSPACE_ID,
+  parsePositiveWorkspaceId,
+  resolveActivePinterestCookie,
+  saveWorkspaceCookie
+} from '../workspaces/service.mjs';
 
 export const DEFAULT_PINTEREST_SESSION_COOKIE = '';
 
 export const MIN_SERP_QUOTA = 10;
 export const MAX_SERP_QUOTA = 2000;
 export const DEFAULT_SERP_QUOTA = 50;
+
+function getKeywordSettingsStorageKey(workspaceId = DEFAULT_WORKSPACE_ID) {
+  const wid = parsePositiveWorkspaceId(workspaceId) || DEFAULT_WORKSPACE_ID;
+  return wid === DEFAULT_WORKSPACE_ID ? 'keyword_crawl_settings' : `keyword_crawl_settings_ws_${wid}`;
+}
 
 /**
  * Clamps a SERP pin target count into [10, 2000], returning fallback if non-finite/non-positive.
@@ -68,69 +79,26 @@ export function resolveEffectiveSerpQuota({
 }
 
 /**
- * Resolves the effective Pinterest session cookie across DB app_settings, process.env, and fallback.
+ * Resolves the effective Pinterest session cookie strictly via the unified Workspace Settings SSOT.
  */
-export async function getEffectivePinterestCookie(sql, runtimeCookie = '') {
-  let raw = '';
-  if (sql && typeof sql === 'function') {
-    try {
-      const rows = await sql`
-        SELECT key, value
-        FROM app_settings
-        WHERE key IN ('pinterest_cookie', 'keyword_crawl_settings')
-        ORDER BY CASE WHEN key = 'pinterest_cookie' THEN 0 ELSE 1 END ASC;
-      `;
-      for (const r of (rows || [])) {
-        const val = r?.value;
-        if (!val) continue;
-        if (typeof val === 'string' && val.trim().length > 10) {
-          raw = val.trim();
-          break;
-        }
-        if (typeof val === 'object') {
-          const candidate = val.cookie || val.raw_cookie || val.pinterest_cookie || val.formatted_cookie || '';
-          if (typeof candidate === 'string' && candidate.trim().length > 10) {
-            raw = candidate.trim();
-            break;
-          }
-        }
-      }
-    } catch (_) {}
-  }
-
-  if (!raw && runtimeCookie && typeof runtimeCookie === 'string' && runtimeCookie.trim().length > 10) {
-    raw = runtimeCookie.trim();
-  }
-  if (!raw && typeof process !== 'undefined' && process.env?.PINTEREST_COOKIE && process.env.PINTEREST_COOKIE.trim().length > 10) {
-    raw = process.env.PINTEREST_COOKIE.trim();
-  }
-  if (!raw) {
-    raw = DEFAULT_PINTEREST_SESSION_COOKIE;
-  }
-
-  return formatPinterestCookie(raw);
+export async function getEffectivePinterestCookie(sql, runtimeCookie = '', { workspaceId = DEFAULT_WORKSPACE_ID, env = null } = {}) {
+  const resolved = await resolveActivePinterestCookie(sql, {
+    workspaceId,
+    env,
+    runtimeCookie
+  });
+  return resolved.formattedCookie || '';
 }
 
 /**
- * Persists a Pinterest session cookie to PostgreSQL app_settings without mutating global process.env.
+ * Persists a Pinterest session cookie into the unified Workspace Settings vault without mutating process.env.
  */
-export async function savePinterestCookie(sql, rawCookie = '') {
+export async function savePinterestCookie(sql, rawCookie = '', { workspaceId = DEFAULT_WORKSPACE_ID } = {}) {
   const cleanRaw = String(rawCookie || '').trim();
   const formatted = formatPinterestCookie(cleanRaw);
   if (sql && typeof sql === 'function') {
-    const payload = {
-      cookie: cleanRaw,
-      formatted_cookie: formatted,
-      has_cookie: Boolean(formatted && formatted.length > 10),
-      updated_at: new Date().toISOString()
-    };
-    await sql`
-      INSERT INTO app_settings (key, value, updated_at)
-      VALUES ('pinterest_cookie', ${JSON.stringify(payload)}::jsonb, NOW())
-      ON CONFLICT (key) DO UPDATE SET
-        value = EXCLUDED.value,
-        updated_at = NOW();
-    `;
+    const wid = parsePositiveWorkspaceId(workspaceId) || DEFAULT_WORKSPACE_ID;
+    await saveWorkspaceCookie(sql, wid, cleanRaw);
   }
   const hasCookie = Boolean(formatted && formatted.length > 10);
   return {
@@ -142,10 +110,14 @@ export async function savePinterestCookie(sql, rawCookie = '') {
 }
 
 /**
- * Retrieves global keyword app settings with fallback defaults.
+ * Retrieves workspace-scoped keyword crawl intelligence settings with unified cookie status.
+ * [INVARIANT: ZERO-SECRET-LEAK] Never returns raw Pinterest cookies in settings objects.
  */
-export async function getAppSettings(sql) {
+export async function getAppSettings(sql, { workspaceId = DEFAULT_WORKSPACE_ID, env = null } = {}) {
+  const wid = parsePositiveWorkspaceId(workspaceId) || DEFAULT_WORKSPACE_ID;
+  const storageKey = getKeywordSettingsStorageKey(wid);
   const defaultSettings = {
+    workspace_id: wid,
     enable_serp_harvest: true,
     default_crawl_pages: 2,
     default_max_pins: 50,
@@ -157,6 +129,7 @@ export async function getAppSettings(sql) {
     exclude_boards_and_suggestions: true,
     exclude_ignored_pins: true,
     pinterest_cookie: DEFAULT_PINTEREST_SESSION_COOKIE,
+    has_pinterest_cookie: false,
     breakout_rules: {
       max_pin_age_days: 14,
       min_daily_save_velocity: 3.0,
@@ -164,46 +137,61 @@ export async function getAppSettings(sql) {
       target_rank_zone: [20, 400]
     }
   };
-  try {
-    const rows = await sql`SELECT key, value, updated_at FROM app_settings WHERE key IN ('keyword_crawl_settings', 'pinterest_cookie');`;
-    let kwSettings = {};
-    let cookieOverride = '';
-    for (const r of (rows || [])) {
-      if (r.key === 'keyword_crawl_settings' && r.value && typeof r.value === 'object') {
-        kwSettings = r.value;
-      } else if (r.key === 'pinterest_cookie' && r.value) {
-        cookieOverride = typeof r.value === 'string'
-          ? r.value
-          : (r.value.cookie || r.value.formatted_cookie || '');
+
+  let kwSettings = {};
+  if (sql && typeof sql === 'function') {
+    try {
+      const rows = wid === DEFAULT_WORKSPACE_ID
+        ? await sql`SELECT key, value, updated_at FROM app_settings WHERE key = ${storageKey};`
+        : await sql`
+            SELECT key, value, updated_at
+            FROM app_settings
+            WHERE key IN (${storageKey}, 'keyword_crawl_settings')
+            ORDER BY CASE WHEN key = ${storageKey} THEN 0 ELSE 1 END ASC;
+          `;
+      for (const r of (rows || [])) {
+        if (r?.value && typeof r.value === 'object') {
+          kwSettings = r.value;
+          break;
+        }
       }
+    } catch (err) {
+      console.warn('[Settings] Failed reading app_settings from DB:', err.message);
     }
-    const resolvedCookie = cookieOverride || kwSettings.pinterest_cookie || (typeof process !== 'undefined' ? process.env?.PINTEREST_COOKIE : '') || DEFAULT_PINTEREST_SESSION_COOKIE;
-    return {
-      ...defaultSettings,
-      ...kwSettings,
-      pinterest_cookie: resolvedCookie,
-      has_pinterest_cookie: Boolean(resolvedCookie && String(resolvedCookie).trim().length > 10),
-      breakout_rules: {
-        ...defaultSettings.breakout_rules,
-        ...(kwSettings.breakout_rules || {})
-      }
-    };
-  } catch (err) {
-    console.warn('[Settings] Failed reading app_settings from DB:', err.message);
   }
-  return defaultSettings;
+
+  const cookieState = await resolveActivePinterestCookie(sql, { workspaceId: wid, env })
+    .catch(() => ({ hasCookie: false }));
+
+  const {
+    pinterest_cookie: _legacyCookie,
+    has_pinterest_cookie: _legacyHasCookie,
+    ...cleanKwSettings
+  } = kwSettings || {};
+
+  return {
+    ...defaultSettings,
+    ...cleanKwSettings,
+    workspace_id: wid,
+    pinterest_cookie: '',
+    has_pinterest_cookie: Boolean(cookieState?.hasCookie),
+    breakout_rules: {
+      ...defaultSettings.breakout_rules,
+      ...(cleanKwSettings.breakout_rules || {})
+    }
+  };
 }
 
 /**
- * Update Global Keyword & Crawl Intelligence Settings
- * Optionally propagates updated limits atomically to all tracked_keywords and trims active rank overflow.
+ * Update Keyword & Crawl Intelligence Settings (workspace-scoped).
+ * Optionally propagates updated limits atomically (including downward shrinks) to workspace tracked_keywords
+ * and demotes active ranks exceeding the updated target_pin_count to the Displaced Vault.
  */
-export async function updateAppSettings(sql, newSettings = {}) {
-  const current = await getAppSettings(sql);
-  const incomingCookie = typeof newSettings.pinterest_cookie === 'string' ? newSettings.pinterest_cookie.trim() : '';
-  if (incomingCookie) {
-    await savePinterestCookie(sql, incomingCookie);
-  }
+export async function updateAppSettings(sql, newSettings = {}, { workspaceId = DEFAULT_WORKSPACE_ID, env = null } = {}) {
+  const wid = parsePositiveWorkspaceId(workspaceId) || DEFAULT_WORKSPACE_ID;
+  const storageKey = getKeywordSettingsStorageKey(wid);
+  const current = await getAppSettings(sql, { workspaceId: wid, env });
+
   const {
     pinterest_cookie: _curCookie,
     has_pinterest_cookie: _curHasCookie,
@@ -211,8 +199,13 @@ export async function updateAppSettings(sql, newSettings = {}) {
     apply_global_to_keywords: _curApplyGlobal,
     ...safeCurrent
   } = current;
+
   const rawIncoming = (newSettings && typeof newSettings === 'object' ? newSettings : {});
-  const applyToAll = Boolean(rawIncoming.apply_to_all === true || rawIncoming.apply_to_all === 'true' || rawIncoming.apply_global_to_keywords === true);
+  const applyToAll = Boolean(
+    rawIncoming.apply_to_all === true ||
+    rawIncoming.apply_to_all === 'true' ||
+    rawIncoming.apply_global_to_keywords === true
+  );
   const {
     pinterest_cookie: _newCookie,
     has_pinterest_cookie: _newHasCookie,
@@ -224,29 +217,34 @@ export async function updateAppSettings(sql, newSettings = {}) {
   const merged = {
     ...safeCurrent,
     ...safeIncoming,
+    workspace_id: wid,
     breakout_rules: {
       ...(safeCurrent.breakout_rules || {}),
       ...(safeIncoming.breakout_rules || {})
     }
   };
 
+  // Always keep max_serp_pins, default_max_pins, and default_crawl_pages in lockstep (supporting downward shrinks cleanly)
   if (safeIncoming.max_serp_pins !== undefined || safeIncoming.default_max_pins !== undefined) {
     const syncedQuota = clampSerpQuota(safeIncoming.max_serp_pins ?? safeIncoming.default_max_pins, DEFAULT_SERP_QUOTA);
     merged.max_serp_pins = syncedQuota;
     merged.default_max_pins = syncedQuota;
-    if (safeIncoming.default_crawl_pages === undefined) {
-      merged.default_crawl_pages = computePagesForQuota(syncedQuota);
-    }
+    merged.default_crawl_pages = computePagesForQuota(syncedQuota);
   } else if (safeIncoming.default_crawl_pages !== undefined) {
-    const pages = Math.max(1, Math.min(100, Number(safeIncoming.default_crawl_pages) || 2));
+    const pages = Math.max(1, Math.min(100, Math.round(Number(safeIncoming.default_crawl_pages) || 2)));
     merged.default_crawl_pages = pages;
+  }
+
+  if (safeIncoming.max_catalog_inspect !== undefined) {
+    const rawCap = Math.round(Number(safeIncoming.max_catalog_inspect));
+    merged.max_catalog_inspect = Number.isFinite(rawCap) && rawCap >= 0 ? Math.min(5000, rawCap) : 0;
   }
 
   const runInTx = async (fn) => (typeof sql?.begin === 'function' ? sql.begin(fn) : fn(sql));
   await runInTx(async (tx) => {
     await tx`
       INSERT INTO app_settings (key, value, updated_at)
-      VALUES ('keyword_crawl_settings', ${JSON.stringify(merged)}::jsonb, NOW())
+      VALUES (${storageKey}, ${JSON.stringify(merged)}::jsonb, NOW())
       ON CONFLICT (key) DO UPDATE SET
         value = EXCLUDED.value,
         updated_at = NOW();
@@ -260,35 +258,72 @@ export async function updateAppSettings(sql, newSettings = {}) {
       const pagesLimit = computePagesForQuota(targetPinCount);
       const inspMode = merged.default_inspection_mode ? String(merged.default_inspection_mode).trim() : null;
 
-      await tx`
-        UPDATE tracked_keywords
-        SET
-          target_pin_count = ${targetPinCount},
-          crawl_pages_limit = ${pagesLimit},
-          inspection_mode = COALESCE(${inspMode}, inspection_mode),
-          updated_at = NOW();
-      `;
+      if (wid === DEFAULT_WORKSPACE_ID) {
+        await tx`
+          UPDATE tracked_keywords
+          SET
+            target_pin_count = ${targetPinCount},
+            crawl_pages_limit = ${pagesLimit},
+            inspection_mode = COALESCE(${inspMode}, inspection_mode),
+            updated_at = NOW();
+        `;
 
-      await tx`
-        UPDATE keyword_serp_positions
-        SET
-          is_displaced = TRUE,
-          last_known_rank = COALESCE(rank_position, last_known_rank),
-          rank_position = NULL,
-          displaced_date = COALESCE(displaced_date, (NOW() AT TIME ZONE 'UTC')::date),
-          updated_at = NOW()
-        WHERE is_displaced = FALSE
-          AND rank_position IS NOT NULL
-          AND rank_position > ${targetPinCount};
-      `;
+        await tx`
+          UPDATE keyword_serp_positions
+          SET
+            is_displaced = TRUE,
+            last_known_rank = COALESCE(rank_position, last_known_rank),
+            rank_position = NULL,
+            displaced_date = COALESCE(displaced_date, (NOW() AT TIME ZONE 'UTC')::date),
+            updated_at = NOW()
+          WHERE is_displaced = FALSE
+            AND rank_position IS NOT NULL
+            AND rank_position > ${targetPinCount};
+        `;
+      } else {
+        await tx`
+          UPDATE tracked_keywords tk
+          SET
+            target_pin_count = ${targetPinCount},
+            crawl_pages_limit = ${pagesLimit},
+            inspection_mode = COALESCE(${inspMode}, tk.inspection_mode),
+            updated_at = NOW()
+          WHERE EXISTS (
+            SELECT 1
+            FROM keyword_folder_items kfi
+            JOIN keyword_folders kf ON kf.id = kfi.folder_id
+            WHERE kfi.keyword_id = tk.id
+              AND kf.workspace_id = ${wid}
+          );
+        `;
+
+        await tx`
+          UPDATE keyword_serp_positions ksp
+          SET
+            is_displaced = TRUE,
+            last_known_rank = COALESCE(ksp.rank_position, ksp.last_known_rank),
+            rank_position = NULL,
+            displaced_date = COALESCE(ksp.displaced_date, (NOW() AT TIME ZONE 'UTC')::date),
+            updated_at = NOW()
+          WHERE ksp.is_displaced = FALSE
+            AND ksp.rank_position IS NOT NULL
+            AND ksp.rank_position > ${targetPinCount}
+            AND EXISTS (
+              SELECT 1
+              FROM keyword_folder_items kfi
+              JOIN keyword_folders kf ON kf.id = kfi.folder_id
+              WHERE kfi.keyword_id = ksp.keyword_id
+                AND kf.workspace_id = ${wid}
+            );
+        `;
+      }
     }
   });
 
-  const effectiveCookie = incomingCookie || _curCookie || '';
   return {
     ...merged,
-    pinterest_cookie: effectiveCookie,
-    has_pinterest_cookie: Boolean(effectiveCookie && String(effectiveCookie).trim().length > 10)
+    pinterest_cookie: '',
+    has_pinterest_cookie: Boolean(_curHasCookie)
   };
 }
 
@@ -304,9 +339,10 @@ export async function updateKeywordSettings(sql, keywordId, settings = {}) {
   const pinCount = hasExplicitPins
     ? clampSerpQuota(settings.target_pin_count, DEFAULT_SERP_QUOTA)
     : (hasExplicitPages ? clampSerpQuota(Number(settings.crawl_pages_limit) * 25, DEFAULT_SERP_QUOTA) : null);
-  const pages = hasExplicitPages
-    ? Math.max(1, Math.min(100, Number(settings.crawl_pages_limit) || 1))
-    : (pinCount !== null ? computePagesForQuota(pinCount) : null);
+  // Keep pages cleanly aligned with explicit pinCount so shrinking quota shrinks crawl_pages_limit downward
+  const pages = pinCount !== null
+    ? computePagesForQuota(pinCount)
+    : (hasExplicitPages ? Math.max(1, Math.min(100, Math.round(Number(settings.crawl_pages_limit) || 1))) : null);
   const mode = settings.inspection_mode !== undefined ? String(settings.inspection_mode).trim() : null;
 
   const runInTx = async (fn) => (typeof sql?.begin === 'function' ? sql.begin(fn) : fn(sql));

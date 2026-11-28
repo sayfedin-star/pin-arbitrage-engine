@@ -1170,6 +1170,7 @@ export function getDashboardCreatorsDossierMethods() {
             this.activeCreatorPins = cachedCreator.pins || [];
             this.activeCreatorWinningPinsTotal = cachedCreator.winningPinsTotal || (cachedCreator.pins ? cachedCreator.pins.length : 0);
             this.activeCreatorTopics = cachedCreator.topics || [];
+            this.creatorTopUrlsTotal = Number(cachedCreator.detail?.top_urls_count ?? cachedCreator.detail?.domain_ecosystem?.ecosystem_unique_urls ?? 0);
             this.isCreatorLoading = false;
           } else {
             this.activeCreator = { ...creator };
@@ -1182,6 +1183,7 @@ export function getDashboardCreatorsDossierMethods() {
             this.activeCreatorWinningPinsTotal = 0;
             this.activeCreatorRankedTotal = 0;
             this.activeCreatorHighVelocityTotal = 0;
+            this.creatorTopUrlsTotal = 0;
             this.activeCreatorAllPinsBoards = [];
             this.activeCreatorTopics = [];
             this.activeCreatorBoards = [];
@@ -1226,6 +1228,7 @@ export function getDashboardCreatorsDossierMethods() {
               this.activeCreatorDetail = freshDetail;
               this.activeCreatorSnapshots = freshDetail.snapshots || [];
               this.activeCreatorBoards = freshDetail.boards || [];
+              this.creatorTopUrlsTotal = Number(freshDetail.top_urls_count ?? freshDetail.domain_ecosystem?.ecosystem_unique_urls ?? this.creatorTopUrlsTotal ?? 0);
               if (Array.isArray(freshDetail.boards) && this._clientCache?.boards) {
                 const boardCacheKey = String(freshDetail.profile?.id || compId) + ':' + handle;
                 this._clientCache.boards.set(boardCacheKey, freshDetail.boards);

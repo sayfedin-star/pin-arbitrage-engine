@@ -1328,6 +1328,13 @@ export function getDashboardClientAppScript() {
           return val.toLocaleString();
         },
 
+        formatCeilingMetric(num) {
+          const val = Number(num);
+          if (!Number.isFinite(val)) return '0';
+          if (val === 10000001) return '10M+';
+          return this.formatNumber(val);
+        },
+
         switchTab(tab) {
           this._abortSlots('competitors', 'intersections', 'explorer', 'keywords', 'seed_dossier', 'creator_detail', 'creator_pins', 'creator_urls', 'creator_related', 'creator_boards');
           if (this.activePinId) {

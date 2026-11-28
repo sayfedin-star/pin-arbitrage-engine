@@ -30,8 +30,7 @@ import {
 import fs from 'fs';
 import crypto from 'node:crypto';
 import { crawlKeywordSERP } from '../src/modules/keywords/service.mjs';
-import { getEffectivePinterestCookie } from '../src/modules/keywords/settings.mjs';
-import { DEFAULT_WORKSPACE_ID, resolveWorkspaceRawCookie } from '../src/modules/workspaces/service.mjs';
+import { DEFAULT_WORKSPACE_ID, resolveActivePinterestCookie } from '../src/modules/workspaces/service.mjs';
 import {
   sleep,
   setDefaultDispatcher,
@@ -1615,21 +1614,14 @@ export async function resolveSerpCookieForKeyword(
     return cache.get(targetWorkspaceId);
   }
 
-  const wsResolved = (targetSql && typeof targetSql === 'function')
-    ? await resolveWorkspaceRawCookie(targetSql, targetWorkspaceId).catch(() => ({ rawCookie: '' }))
-    : { rawCookie: '' };
-  const wsCookie = typeof wsResolved === 'string'
-    ? wsResolved.trim()
-    : String(wsResolved?.rawCookie || '').trim();
-
-  let finalCookie = wsCookie;
-  if (!finalCookie && !isWs2PlusOnly) {
-    finalCookie = defaultCookie || (
-      (targetSql && typeof targetSql === 'function')
-        ? await getEffectivePinterestCookie(targetSql, defaultCookie).catch(() => defaultCookie || '')
-        : ''
-    ) || '';
-  }
+  const resolved = (targetSql && typeof targetSql === 'function')
+    ? await resolveActivePinterestCookie(targetSql, {
+        workspaceId: targetWorkspaceId,
+        env: typeof process !== 'undefined' ? process.env : null,
+        runtimeCookie: isWs2PlusOnly ? '' : (defaultCookie || '')
+      }).catch(() => ({ rawCookie: '' }))
+    : { rawCookie: isWs2PlusOnly ? '' : (defaultCookie || '') };
+  const finalCookie = String(resolved?.rawCookie || '').trim();
 
   const result = {
     cookie: finalCookie || '',

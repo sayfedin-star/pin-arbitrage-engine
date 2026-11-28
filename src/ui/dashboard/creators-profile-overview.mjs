@@ -120,14 +120,14 @@ export function renderCreatorsProfileOverview() {
                 <!-- Sub-header Meta Bar: Min/Max & Latest -->
                 <div class="flex items-center justify-between text-xs border-b border-slate-200 dark:border-[#27272A] pb-2">
                   <div class="flex items-center gap-2 font-mono tabular-nums text-[11px] text-slate-500">
-                    <span>Min: <strong class="text-slate-900 dark:text-white font-bold" x-text="formatNumber(creatorChartData.min)"></strong></span>
+                    <span>Min: <strong class="text-slate-900 dark:text-white font-bold" x-text="formatCeilingMetric(creatorChartData.min)"></strong></span>
                     <span>•</span>
-                    <span>Max: <strong class="text-slate-900 dark:text-white font-bold" x-text="formatNumber(creatorChartData.max)"></strong></span>
+                    <span>Max: <strong class="text-slate-900 dark:text-white font-bold" x-text="formatCeilingMetric(creatorChartData.max)"></strong></span>
                   </div>
                   <div class="flex items-center gap-1.5">
                     <span class="inline-flex items-center gap-1 rounded-xl bg-slate-100 dark:bg-slate-900 px-2.5 py-1 text-xs font-mono tabular-nums font-bold text-slate-900 dark:text-white border border-slate-200 dark:border-[#27272A]">
                       <span class="text-slate-400 font-sans text-[11px]">Latest:</span>
-                      <span x-text="formatNumber(creatorChartData.latest)"></span>
+                      <span x-text="formatCeilingMetric(creatorChartData.latest)"></span>
                     </span>
                   </div>
                 </div>
@@ -216,7 +216,7 @@ export function renderCreatorsProfileOverview() {
                     <span class="rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tabular-nums" :class="(activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.reach?.percent || 0) + '%'"></span>
                   </div>
                   <div>
-                    <div class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white font-mono tabular-nums" x-text="formatNumber(activeCreator.monthly_reach || (activeCreatorSnapshots && activeCreatorSnapshots.length > 0 ? (activeCreatorSnapshots[activeCreatorSnapshots.length - 1].monthly_reach || activeCreatorSnapshots[0].monthly_reach) : 0) || 0)"></div>
+                    <div class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white font-mono tabular-nums" x-text="formatCeilingMetric(activeCreator.monthly_reach || (activeCreatorSnapshots && activeCreatorSnapshots.length > 0 ? (activeCreatorSnapshots[activeCreatorSnapshots.length - 1].monthly_reach || activeCreatorSnapshots[0].monthly_reach) : 0) || 0)"></div>
                     <div class="mt-1 text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 font-medium">
                       <span class="h-1.5 w-1.5 rounded-full" :class="(activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? 'bg-emerald-500' : 'bg-slate-400'"></span>
                       <span x-text="(activeCreatorDetail?.deltas?.reach?.change || 0) !== 0 ? ((activeCreatorDetail?.deltas?.reach?.change || 0) > 0 ? '+' : '') + formatNumber(activeCreatorDetail?.deltas?.reach?.change) + ' vs prev' : 'Stable baseline'"></span>
@@ -231,7 +231,7 @@ export function renderCreatorsProfileOverview() {
                     <span class="rounded-full px-2 py-0.5 text-[10px] font-bold font-mono tabular-nums" :class="(activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'" x-text="((activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? '+' : '') + (activeCreatorDetail?.deltas?.views?.percent || 0) + '%'"></span>
                   </div>
                   <div>
-                    <div class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white font-mono tabular-nums" x-text="formatNumber(activeCreator.profile_views || (activeCreatorSnapshots && activeCreatorSnapshots.length > 0 ? (activeCreatorSnapshots[activeCreatorSnapshots.length - 1].profile_views || activeCreatorSnapshots[0].profile_views) : 0) || 0)"></div>
+                    <div class="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white font-mono tabular-nums" x-text="formatCeilingMetric(activeCreator.profile_views || (activeCreatorSnapshots && activeCreatorSnapshots.length > 0 ? (activeCreatorSnapshots[activeCreatorSnapshots.length - 1].profile_views || activeCreatorSnapshots[0].profile_views) : 0) || 0)"></div>
                     <div class="mt-1 text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 font-medium">
                       <span class="h-1.5 w-1.5 rounded-full" :class="(activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? 'bg-sky-500' : 'bg-slate-400'"></span>
                       <span x-text="(activeCreatorDetail?.deltas?.views?.change || 0) !== 0 ? ((activeCreatorDetail?.deltas?.views?.change || 0) > 0 ? '+' : '') + formatNumber(activeCreatorDetail?.deltas?.views?.change) + ' vs prev' : 'Stable baseline'"></span>
@@ -376,7 +376,7 @@ export function renderCreatorsProfileOverview() {
                         <td class="px-5 font-sans text-slate-700 dark:text-slate-300 font-medium" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'" x-text="formatSnapshotDate(s.recorded_date || s.created_at)"></td>
                         <td x-show="creatorSnapColVisible.reach" class="px-4 text-right" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'">
                           <div class="inline-flex items-center justify-end gap-1.5">
-                            <span class="font-extrabold text-slate-900 dark:text-white" x-text="formatNumber(s.monthly_reach)"></span>
+                            <span class="font-extrabold text-slate-900 dark:text-white" x-text="formatCeilingMetric(s.monthly_reach)"></span>
                             <template x-if="s.delta_reach !== undefined">
                               <span class="font-bold text-[10.5px]" :class="(s.delta_reach || 0) > 0 ? 'text-emerald-500' : ((s.delta_reach || 0) < 0 ? 'text-rose-500' : 'text-slate-400')" x-text="(s.delta_reach || 0) > 0 ? '(+' + formatNumber(s.delta_reach) + ')' : ((s.delta_reach || 0) < 0 ? '(' + formatNumber(s.delta_reach) + ')' : '(0)')"></span>
                             </template>
@@ -384,7 +384,7 @@ export function renderCreatorsProfileOverview() {
                         </td>
                         <td x-show="creatorSnapColVisible.views" class="px-4 text-right" :class="creatorSnapDensity === 'comfortable' ? 'py-4' : 'py-2.5'">
                           <div class="inline-flex items-center justify-end gap-1.5">
-                            <span class="font-extrabold text-slate-900 dark:text-white" x-text="formatNumber(s.profile_views)"></span>
+                            <span class="font-extrabold text-slate-900 dark:text-white" x-text="formatCeilingMetric(s.profile_views)"></span>
                             <template x-if="s.delta_views !== undefined">
                               <span class="font-bold text-[10.5px]" :class="(s.delta_views || 0) > 0 ? 'text-emerald-500' : ((s.delta_views || 0) < 0 ? 'text-rose-500' : 'text-slate-400')" x-text="(s.delta_views || 0) > 0 ? '(+' + formatNumber(s.delta_views) + ')' : ((s.delta_views || 0) < 0 ? '(' + formatNumber(s.delta_views) + ')' : '(0)')"></span>
                             </template>

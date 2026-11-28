@@ -1547,24 +1547,33 @@ async function run() {
         console.warn(`[!] Profile sync warning for @${cleanUser}:`, redactSecrets(pErr?.message || String(pErr)));
       }
 
-      // Full catalog sync: BoardFeedResource primary across all boards + /_created/ merge (bounded maxBoards + maxDurationMs)
-      try {
-        console.log(`[*] Running syncFullCreatorCatalog for @${cleanUser} (maxPages=${syncConfig.maxPages}, maxBoards=${syncConfig.maxBoards}, maxDurationMs=${syncConfig.maxDurationMs})...`);
-        const catalogRes = await syncFullCreatorCatalog(sql, acc.id, cleanUser, {
-          maxPages: syncConfig.maxPages,
-          maxPagesPerBoard: syncConfig.maxPagesPerBoard,
-          maxBoards: syncConfig.maxBoards,
-          maxDurationMs: syncConfig.maxDurationMs,
-          cookie: syncConfig.cookie,
-          syncBoardsFirst: true,
-          personalBoardsOnly
-        });
-        console.log(`[✓] @${cleanUser} catalog sync: boards=${catalogRes.boards_crawled}/${catalogRes.boards_found}, board_pins=${catalogRes.board_pins_ingested}, created_pins=${catalogRes.created_pins_ingested}, errors=${catalogRes.errors?.length || 0}`);
-        if (Array.isArray(catalogRes.errors) && catalogRes.errors.length > 0) {
-          console.warn(`[!] @${cleanUser} catalog sync reported ${catalogRes.errors.length} warning(s):`, catalogRes.errors.slice(0, 5).map((e) => redactSecrets(typeof e === 'string' ? e : (e?.message || JSON.stringify(e)))));
+      // Only run full catalog crawl during routine creator_sweep if explicitly opted in via Watchlist `metrics_full_catalog`
+      // (or ALLOW_FULL_CATALOG_SWEEP=true) AND an authenticated Zone-A cookie is present (prevents unrequested guest e1_ ingestion).
+      const explicitWatchlistFull = watchlistModeMap.get(lowerUser) === 'metrics_full_catalog';
+      const allowFullSweep = String(process.env.ALLOW_FULL_CATALOG_SWEEP || '').trim().toLowerCase() === 'true';
+      const hasAuthCookie = Boolean(syncConfig.cookie && String(syncConfig.cookie).trim().length > 10);
+
+      if ((explicitWatchlistFull || allowFullSweep) && hasAuthCookie) {
+        try {
+          console.log(`[*] Running syncFullCreatorCatalog for @${cleanUser} (maxPages=${syncConfig.maxPages}, maxBoards=${syncConfig.maxBoards}, maxDurationMs=${syncConfig.maxDurationMs})...`);
+          const catalogRes = await syncFullCreatorCatalog(sql, acc.id, cleanUser, {
+            maxPages: syncConfig.maxPages,
+            maxPagesPerBoard: syncConfig.maxPagesPerBoard,
+            maxBoards: syncConfig.maxBoards,
+            maxDurationMs: syncConfig.maxDurationMs,
+            cookie: syncConfig.cookie,
+            syncBoardsFirst: true,
+            personalBoardsOnly
+          });
+          console.log(`[✓] @${cleanUser} catalog sync: boards=${catalogRes.boards_crawled}/${catalogRes.boards_found}, board_pins=${catalogRes.board_pins_ingested}, created_pins=${catalogRes.created_pins_ingested}, errors=${catalogRes.errors?.length || 0}`);
+          if (Array.isArray(catalogRes.errors) && catalogRes.errors.length > 0) {
+            console.warn(`[!] @${cleanUser} catalog sync reported ${catalogRes.errors.length} warning(s):`, catalogRes.errors.slice(0, 5).map((e) => redactSecrets(typeof e === 'string' ? e : (e?.message || JSON.stringify(e)))));
+          }
+        } catch (catErr) {
+          console.warn(`[!] Full catalog sync error for @${cleanUser}:`, redactSecrets(catErr?.message || String(catErr)));
         }
-      } catch (catErr) {
-        console.warn(`[!] Full catalog sync error for @${cleanUser}:`, redactSecrets(catErr?.message || String(catErr)));
+      } else {
+        console.log(`[*] Skipping background full catalog sync for @${cleanUser} (explicitWatchlistFull=${explicitWatchlistFull}, allowFullSweep=${allowFullSweep}, hasAuthCookie=${hasAuthCookie}) — profile pulse updated only.`);
       }
 
       await sql`

@@ -443,7 +443,7 @@ test('trends-service.mjs has zero fabricated linear volume formula and GET trend
   assert.doesNotMatch(routesSrc, /canMutateTrendsDb/);
   assert.doesNotMatch(routesSrc, /fetchPinterestTrendsPopularPins\(sql,\s*term,\s*country,\s*force\)/);
   assert.match(routesSrc, /fetchPinterestTrendsPopularPins\(null,\s*term,\s*country,\s*force\)/);
-  assert.match(routesSrc, /resolveWorkspaceRawCookie/);
+  assert.match(routesSrc, /resolveActivePinterestCookie/);
 });
 
 // ============================================================================
@@ -699,12 +699,11 @@ test('P2-1 & P2-5: DELETE /api/folders/items supports proxy-safe query fallback,
   assert.equal(kwSettingsEvents[0], 'db_update');
   assert.ok(kwSettingsEvents.includes('invalidate:folders'));
 
-  // 4. Visual-search route enforces WORKSPACE-COOKIE-ISOLATION (no direct env.PINTEREST_COOKIE leak)
+  // 4. Visual-search route enforces WORKSPACE-COOKIE-ISOLATION via unified resolveActivePinterestCookie
   const routesSrc = fs.readFileSync(path.join(ROOT, 'src/routes/keywords.mjs'), 'utf8');
   const visualBlockMatch = routesSrc.match(/pathname === '\/api\/keywords\/visual-search'[\s\S]*?return jsonResponse\(result/);
   assert.ok(visualBlockMatch, 'Expected visual-search route block');
-  assert.match(visualBlockMatch[0], /resolveWorkspaceRawCookie\(sql,\s*workspaceId\)/);
-  assert.match(visualBlockMatch[0], /Number\(workspaceId\)\s*===\s*DEFAULT_WORKSPACE_ID/);
+  assert.match(visualBlockMatch[0], /resolveActivePinterestCookie\(sql,\s*\{\s*workspaceId,\s*env\s*\}\)/);
 });
 
 test('P1-2..5, P2-1..5 & P3-1..5: Runtime VM verification of keywordStudio client fixes and SSR HTML guards', async () => {

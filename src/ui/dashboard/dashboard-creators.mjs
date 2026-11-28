@@ -159,7 +159,7 @@ ${renderCreatorsLedgerView({ safeFolderId })}
                     <h3 class="text-sm font-extrabold text-slate-900 dark:text-white">Account Qualification Rules</h3>
                     <span class="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">Active Profile</span>
                   </div>
-                  <p class="text-xs text-slate-500 dark:text-slate-400">Configure independent 3-tier winning pin thresholds and product filtering specifically for @<span x-text="(activeCreator.username || '').replace(/^@+/, '')"></span>.</p>
+                  <p class="text-xs text-slate-500 dark:text-slate-400">Configure independent 3-tier winning pin thresholds and sweep depth specifically for @<span x-text="(activeCreator.username || '').replace(/^@+/, '')"></span>.</p>
                 </div>
               </div>
               <button class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-2 rounded-lg cursor-pointer">
@@ -232,15 +232,8 @@ ${renderCreatorsLedgerView({ safeFolderId })}
                 </div>
               </div>
 
-              <!-- Options & Buttons Bar -->
-              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
-                <div class="flex items-center gap-4">
-                  <label class="inline-flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    <input type="checkbox" x-model="creatorRules.articles_only" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4" />
-                    <span class="inline-flex items-center gap-1.5"><i data-lucide="target" class="w-3.5 h-3.5 text-indigo-500 shrink-0"></i><span>Articles Only (Exclude E-commerce Products: <code class="text-[10px] font-mono tabular-nums bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">!is_product</code>)</span></span>
-                  </label>
-                </div>
-
+              <!-- Actions Bar -->
+              <div class="flex flex-col sm:flex-row sm:items-center justify-end gap-3 pt-2">
                 <div class="flex items-center gap-2.5">
                   <button @click="saveCreatorRulesAction()" :disabled="isSavingCreatorRules" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50">
                     <i data-lucide="save" class="w-3.5 h-3.5"></i>
@@ -278,7 +271,7 @@ ${renderCreatorsLedgerView({ safeFolderId })}
               <button @click="switchCreatorTab('top_urls')" class="flex items-center gap-2 px-4 py-2 text-xs rounded-xl transition cursor-pointer whitespace-nowrap" :class="activeCreatorTab === 'top_urls' ? 'bg-rose-500 text-white font-bold shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-semibold'">
                 <i data-lucide="link" class="w-4 h-4"></i>
                 <span>Link Explorer</span>
-                <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums" :class="activeCreatorTab === 'top_urls' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'" x-text="creatorTopUrlsTotal || 0"></span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-mono tabular-nums" :class="activeCreatorTab === 'top_urls' ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'" x-text="creatorTopUrlsTotal || activeCreatorDetail?.top_urls_count || activeCreatorDetail?.domain_ecosystem?.ecosystem_unique_urls || 0"></span>
               </button>
               <button @click="switchCreatorTab('related_pins')" class="flex items-center gap-2 px-4 py-2 text-xs rounded-xl transition cursor-pointer whitespace-nowrap" :class="activeCreatorTab === 'related_pins' ? 'bg-rose-500 text-white font-bold shadow-2xs' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-semibold'">
                 <i data-lucide="network" class="w-4 h-4"></i>

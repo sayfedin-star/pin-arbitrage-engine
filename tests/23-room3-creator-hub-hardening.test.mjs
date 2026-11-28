@@ -190,7 +190,10 @@ test('P0-2 & P1-1: getCompetitorDetail uses real SUM(share_count), UMP fallback,
   assert.equal(detail.pinning_velocity.pins_per_winner, 2.5);
 
   const aggSql = executedSql.find((q) => q.includes('AS total_shares'));
-  assert.ok(aggSql && aggSql.includes('LOWER(TRIM(ump.creator_username))') && aggSql.includes('NOT EXISTS (SELECT 1 FROM competitor_board_pins'), 'getCompetitorDetail aggregate must include UMP creator_username fallback');
+  assert.ok(
+    aggSql && aggSql.includes("LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@'))") && !aggSql.includes('NOT EXISTS (SELECT 1 FROM competitor_board_pins'),
+    'getCompetitorDetail aggregate must unify UMP + CBP via DISTINCT ON without legacy split-brain NOT EXISTS'
+  );
 });
 
 test('P0-2 & P2: listFolderCreatorsWithDiscovery computes real cadence, keeps combined_pins + ex-mega sub-line, and excludes keyword_ignored_pins', async () => {
@@ -689,9 +692,9 @@ test('P1-2, P1-3 & P1-4: listCompetitorAccountPins scope=all + keyword_ignored_p
 
   const mainPinQuery = capturedQueries.find((q) => q.includes('AS full_count'));
   const totalsQuery = capturedQueries.find((q) => q.includes('AS catalog_total'));
-  assert.ok(mainPinQuery.includes("'all'") && mainPinQuery.includes('keyword_ignored_pins') && mainPinQuery.includes('LOWER(TRIM(ump.creator_username))'), 'Main pin query must handle scope=all, UMP fallback, and keyword_ignored_pins');
+  assert.ok(mainPinQuery.includes("'all'") && mainPinQuery.includes('keyword_ignored_pins') && mainPinQuery.includes("LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@'))"), 'Main pin query must handle scope=all, unified UMP SSOT, and keyword_ignored_pins');
   assert.ok(mainPinQuery.includes("INTERVAL '14 days'") && !mainPinQuery.includes('ep.repin_count >= 100'), 'COOLING must enforce 14d age guard and eco_pool qualification must match direct scope');
-  assert.ok(totalsQuery.includes('keyword_ignored_pins') && totalsQuery.includes('LOWER(TRIM(ump.creator_username))'), 'Unfiltered totals query must exclude keyword_ignored_pins and include UMP fallback');
+  assert.ok(totalsQuery.includes('keyword_ignored_pins') && totalsQuery.includes("LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@'))"), 'Unfiltered totals query must exclude keyword_ignored_pins and include unified UMP SSOT');
 
   assert.equal(computePinStage(1.0, 0, 5), 'NEW');
   assert.equal(computePinStage(1.0, 0, null), 'COOLING', 'NULL-date pin must not falsely classify as NEW');

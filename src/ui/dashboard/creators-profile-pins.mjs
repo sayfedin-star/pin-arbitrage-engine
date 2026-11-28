@@ -38,55 +38,34 @@ export function renderCreatorsProfilePins() {
                 <!-- All Catalog -->
                 <button 
                   type="button" 
-                  @click="creatorAllPinQualifiedOnly = false; creatorAllPinRankedOnly = false; creatorAllPinHighVelocity = false; creatorAllPinArticlesOnly = false; creatorAllPinStage = ''; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                  @click="creatorAllPinQualifiedOnly = false; creatorAllPinRankedOnly = false; creatorAllPinStage = ''; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs whitespace-nowrap shrink-0"
-                  :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly && !creatorAllPinStage) ? 'bg-indigo-600 text-white border-indigo-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A] hover:text-slate-900 dark:hover:text-white'"
+                  :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinStage) ? 'bg-indigo-600 text-white border-indigo-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A] hover:text-slate-900 dark:hover:text-white'"
                 >
                   <span class="inline-flex items-center gap-1"><i data-lucide="clipboard-list" class="w-3.5 h-3.5 shrink-0"></i><span>All Catalog</span></span>
-                  <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono tabular-nums" :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly && !creatorAllPinStage) ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'" x-text="formatNumber(activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0)"></span>
+                  <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono tabular-nums" :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinStage) ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'" x-text="formatNumber(activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0)"></span>
                 </button>
 
                 <!-- Qualified Winners -->
                 <button 
                   type="button" 
-                  @click="creatorAllPinQualifiedOnly = true; creatorAllPinRankedOnly = false; creatorAllPinHighVelocity = false; creatorAllPinArticlesOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                  @click="creatorAllPinQualifiedOnly = true; creatorAllPinRankedOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs whitespace-nowrap shrink-0"
-                  :class="(creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly) ? 'bg-amber-500 text-white border-amber-600 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A] hover:text-slate-900 dark:hover:text-white'"
+                  :class="(creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly) ? 'bg-amber-500 text-white border-amber-600 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A] hover:text-slate-900 dark:hover:text-white'"
                 >
                   <span class="inline-flex items-center gap-1"><i data-lucide="trophy" class="w-3.5 h-3.5 shrink-0"></i><span>Qualified Winners</span></span>
-                  <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono tabular-nums" :class="(creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinHighVelocity && !creatorAllPinArticlesOnly) ? 'bg-white/20 text-white' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'" x-text="formatNumber(activeCreatorWinningPinsTotal || 0)"></span>
+                  <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono tabular-nums" :class="(creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly) ? 'bg-white/20 text-white' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'" x-text="formatNumber(activeCreatorWinningPinsTotal || 0)"></span>
                 </button>
 
                 <!-- SERP Ranked -->
                 <button 
                   type="button" 
-                  @click="creatorAllPinRankedOnly = true; creatorAllPinQualifiedOnly = false; creatorAllPinHighVelocity = false; creatorAllPinArticlesOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                  @click="creatorAllPinRankedOnly = true; creatorAllPinQualifiedOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs whitespace-nowrap shrink-0"
                   :class="(creatorAllPinRankedOnly) ? 'bg-sky-600 text-white border-sky-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A] hover:text-slate-900 dark:hover:text-white'"
                 >
                   <span class="inline-flex items-center gap-1"><i data-lucide="target" class="w-3.5 h-3.5 shrink-0"></i><span>SERP Ranked</span></span>
                   <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono tabular-nums" :class="(creatorAllPinRankedOnly) ? 'bg-white/20 text-white' : 'bg-sky-500/10 text-sky-600 dark:text-sky-400'" x-text="formatNumber(activeCreatorRankedTotal || 0)"></span>
-                </button>
-
-                <!-- High Velocity (>=10/d) -->
-                <button 
-                  type="button" 
-                  @click="creatorAllPinHighVelocity = true; creatorAllPinQualifiedOnly = false; creatorAllPinRankedOnly = false; creatorAllPinArticlesOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
-                  class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs whitespace-nowrap shrink-0"
-                  :class="(creatorAllPinHighVelocity) ? 'bg-rose-600 text-white border-rose-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A] hover:text-slate-900 dark:hover:text-white'"
-                >
-                  <span class="inline-flex items-center gap-1"><i data-lucide="flame" class="w-3.5 h-3.5 shrink-0"></i><span>High Velocity (≥10/d)</span></span>
-                  <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono tabular-nums" :class="(creatorAllPinHighVelocity) ? 'bg-white/20 text-white' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'" x-text="formatNumber(activeCreatorHighVelocityTotal || 0)"></span>
-                </button>
-
-                <!-- Articles Only -->
-                <button 
-                  type="button" 
-                  @click="creatorAllPinArticlesOnly = !creatorAllPinArticlesOnly; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
-                  class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs whitespace-nowrap shrink-0"
-                  :class="(creatorAllPinArticlesOnly) ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A] hover:text-slate-900 dark:hover:text-white'"
-                >
-                  <span class="inline-flex items-center gap-1"><i data-lucide="newspaper" class="w-3.5 h-3.5 shrink-0"></i><span>Articles Only</span></span>
                 </button>
 
                 <!-- Domain Ecosystem Attribution Scope Pills -->
@@ -207,8 +186,8 @@ export function renderCreatorsProfilePins() {
                   <!-- Clear / Reset filters button -->
                   <button
                     type="button"
-                    x-show="creatorAllPinSearch || creatorAllPinBoard || creatorAllPinMinSaves > 0 || creatorAllPinQualifiedOnly || creatorAllPinArticlesOnly || creatorAllPinRankedOnly || creatorAllPinHighVelocity || creatorAllPinStage"
-                    @click="creatorAllPinSearch = ''; creatorAllPinBoard = ''; creatorAllPinMinSaves = 0; creatorAllPinQualifiedOnly = false; creatorAllPinArticlesOnly = false; creatorAllPinRankedOnly = false; creatorAllPinHighVelocity = false; creatorAllPinStage = ''; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
+                    x-show="creatorAllPinSearch || creatorAllPinBoard || creatorAllPinMinSaves > 0 || creatorAllPinQualifiedOnly || creatorAllPinRankedOnly || creatorAllPinStage"
+                    @click="creatorAllPinSearch = ''; creatorAllPinBoard = ''; creatorAllPinMinSaves = 0; creatorAllPinQualifiedOnly = false; creatorAllPinRankedOnly = false; creatorAllPinStage = ''; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
                     class="px-2.5 py-1.5 rounded-xl text-xs font-semibold text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 border border-rose-200/60 dark:border-rose-900/40 transition cursor-pointer flex items-center gap-1"
                     title="Reset all active filters"
                   >

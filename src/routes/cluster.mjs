@@ -596,28 +596,23 @@ export async function handleClusterRoutes({
     });
   }
 
-  // 12. GET /api/settings/cookie (Workspace-scoped; never returns raw cookies)
+  // 12. GET /api/settings/cookie (Workspace-scoped SSOT; never returns raw cookies)
   if (method === 'GET' && pathname === '/api/settings/cookie') {
     const numericWid = Number(workspaceId) || DEFAULT_WORKSPACE_ID;
-    const { getWorkspaceCookieStatus } = await import('../modules/workspaces/service.mjs');
-    const wsStatus = await getWorkspaceCookieStatus(sql, numericWid).catch(() => ({ has_cookie: false }));
-    let hasCookie = Boolean(wsStatus?.has_cookie);
-    if (!hasCookie && numericWid === DEFAULT_WORKSPACE_ID) {
-      const { getEffectivePinterestCookie, DEFAULT_PINTEREST_SESSION_COOKIE } = await import('../modules/keywords/settings.mjs');
-      const envCookie = env?.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env?.PINTEREST_COOKIE : '') || '';
-      const effective = await getEffectivePinterestCookie(sql, envCookie).catch(() => envCookie || DEFAULT_PINTEREST_SESSION_COOKIE);
-      hasCookie = Boolean(effective && effective.trim().length > 10);
-    }
+    const { resolveActivePinterestCookie } = await import('../modules/workspaces/service.mjs');
+    const resolved = await resolveActivePinterestCookie(sql, { workspaceId: numericWid, env })
+      .catch(() => ({ hasCookie: false, source: 'none' }));
+    const hasCookie = Boolean(resolved?.hasCookie);
     return jsonResponse({
       workspace_id: numericWid,
       has_cookie: hasCookie,
       is_configured: hasCookie,
       preview: hasCookie ? '[CONFIGURED]' : '',
-      source: sql ? 'workspace_settings_or_env' : 'node_native_env'
+      source: hasCookie ? (resolved.source || 'workspace_settings') : 'none'
     }, 200, -1);
   }
 
-  // 13. POST /api/settings/cookie (Workspace-scoped; never mutates global env or WS1 from WS2+)
+  // 13. POST /api/settings/cookie (Workspace-scoped SSOT; persists exclusively to workspace_settings)
   if (method === 'POST' && pathname === '/api/settings/cookie') {
     const numericWid = Number(workspaceId) || DEFAULT_WORKSPACE_ID;
     const { saveWorkspaceCookie } = await import('../modules/workspaces/service.mjs');
@@ -631,12 +626,6 @@ export async function handleClusterRoutes({
     }
     const rawCookie = typeof body?.cookie === 'string' ? body.cookie.trim() : '';
     const wsStatus = await saveWorkspaceCookie(sql, numericWid, rawCookie);
-    if (numericWid === DEFAULT_WORKSPACE_ID) {
-      const { savePinterestCookie } = await import('../modules/keywords/settings.mjs');
-      await savePinterestCookie(sql, rawCookie).catch((err) => {
-        console.warn('[Cookie Save Warning]', redactSecrets ? redactSecrets(err?.message || String(err)) : err.message);
-      });
-    }
     if (typeof invalidateEdgeCache === 'function') {
       await Promise.all([
         'settings',
@@ -652,7 +641,7 @@ export async function handleClusterRoutes({
       has_cookie: Boolean(wsStatus?.has_cookie),
       is_configured: Boolean(wsStatus?.is_configured),
       preview: wsStatus?.has_cookie ? '[CONFIGURED]' : '',
-      source: 'database',
+      source: 'workspace_settings',
       note: `Cookie persisted to workspace ${numericWid} settings.`
     }, 200, -1);
   }

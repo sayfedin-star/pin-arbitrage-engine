@@ -58,7 +58,7 @@ import { fetchCreatorLatestPinsPidgets, fetchBoardSectionsResource } from '../co
 import { dispatchGitHubWorkflow, resolveGitHubAuth } from '../http/github-workflow.mjs';
 import { verifyApiAuthentication } from '../http/security-and-response.mjs';
 import { deletePinSnapshotByTarget } from '../modules/pins/snapshot-service.mjs';
-import { DEFAULT_WORKSPACE_ID, resolveWorkspaceRawCookie, assertFolderInWorkspace } from '../modules/workspaces/service.mjs';
+import { DEFAULT_WORKSPACE_ID, resolveActivePinterestCookie, assertFolderInWorkspace } from '../modules/workspaces/service.mjs';
 import { invalidateFolderCache, normalizeFolderMetadata } from '../modules/keywords/folders-crossover.mjs';
 import { invalidateGlobalPulseCache } from '../modules/pulse/service.mjs';
 
@@ -74,15 +74,9 @@ function hasForbiddenClientCookie(body) {
 
 async function resolveWorkspaceCookieForCreators(sql, workspaceId, env) {
   const numericWid = Number(workspaceId) || DEFAULT_WORKSPACE_ID;
-  const resolved = await resolveWorkspaceRawCookie(sql, numericWid).catch(() => ({ rawCookie: '' }));
-  const wsCookie = typeof resolved === 'string'
-    ? resolved.trim()
-    : String(resolved?.rawCookie || '').trim();
-  if (wsCookie) return wsCookie;
-  if (numericWid === DEFAULT_WORKSPACE_ID) {
-    return env?.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env?.PINTEREST_COOKIE : '') || '';
-  }
-  return '';
+  const resolved = await resolveActivePinterestCookie(sql, { workspaceId: numericWid, env })
+    .catch(() => ({ rawCookie: '' }));
+  return resolved?.rawCookie || '';
 }
 
 /**

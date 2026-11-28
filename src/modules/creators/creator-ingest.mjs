@@ -8,6 +8,7 @@
 
 import crypto from 'node:crypto';
 import { formatPinterestCookie } from '../../utils.mjs';
+import { extractCanonicalNumericPinId } from '../../core/pinterest/pin-formatter.mjs';
 import { redactSecrets } from '../../http/security-and-response.mjs';
 import { fetchUserActivityPinsResource, fetchPinFromPinResource, fetchPinsBatchFromPidgets, sleep, randomJitterMs } from '../../core/pinterest/index.mjs';
 import { syncPinAcrossAllFourPillars, ingestPinsBatch as repoIngestPinsBatch } from '../pins/repository.mjs';
@@ -61,7 +62,8 @@ export async function upsertCompetitorPins(sql, competitorId, pins, options = {}
 
   const cleanedPins = [];
   for (const p of pins) {
-    const pinId = String(p.pin_id || p.id || p.pinId || '').trim();
+    // [INVARIANT: STRICT-NUMERIC-SNOWFLAKE-PIN-ID] Reject obfuscated e1_* or non-numeric pin IDs
+    const pinId = extractCanonicalNumericPinId(p);
     if (!pinId) continue;
 
     const rawSaves = p.save_count != null ? Number(p.save_count) : (p.saves != null ? Number(p.saves) : null);
@@ -246,19 +248,46 @@ export async function reEvaluateCompetitorPins(sql, competitorId) {
   const articlesOnly = resolved.articles_only;
   const allowVelocityFallback = Boolean(minSaves <= 100 && minVelocity <= 3.5);
 
-  // Fetch all pins meeting the 3-tier rules from competitor_board_pins JOIN universal_master_pins
+  const cleanNormUser = normalizePinterestUsername(username || '');
+
+  // Fetch all numeric official pins from unified competitor_board_pins + universal_master_pins SSOT
   const [res] = await sql`
     WITH comp_pins AS (
-      SELECT 
-        cbp.pin_id,
-        ump.save_count,
-        ump.repin_count,
-        ump.daily_save_velocity,
-        ump.created_at_pinterest,
-        ump.is_product
-      FROM competitor_board_pins cbp
-      JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
-      WHERE cbp.competitor_id = ${numericId}
+      SELECT DISTINCT ON (pin_id)
+        pin_id,
+        save_count,
+        repin_count,
+        daily_save_velocity,
+        created_at_pinterest,
+        is_product
+      FROM (
+        SELECT
+          cbp.pin_id,
+          ump.save_count,
+          ump.repin_count,
+          ump.daily_save_velocity,
+          ump.created_at_pinterest,
+          ump.is_product,
+          0 AS src_priority
+        FROM competitor_board_pins cbp
+        JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+        WHERE cbp.competitor_id = ${numericId}
+          AND ump.pin_id ~ '^[0-9]{10,30}$'
+        UNION ALL
+        SELECT
+          ump.pin_id,
+          ump.save_count,
+          ump.repin_count,
+          ump.daily_save_velocity,
+          ump.created_at_pinterest,
+          ump.is_product,
+          1 AS src_priority
+        FROM universal_master_pins ump
+        WHERE ${cleanNormUser} <> ''
+          AND ump.pin_id ~ '^[0-9]{10,30}$'
+          AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${cleanNormUser}
+      ) cp_raw
+      ORDER BY pin_id, src_priority ASC
     ),
     evaluated AS (
       SELECT 

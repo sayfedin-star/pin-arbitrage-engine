@@ -22,6 +22,8 @@ export {
 } from './pin-metrics.mjs';
 
 export {
+  NUMERIC_PIN_ID_REGEX,
+  extractCanonicalNumericPinId,
   findPinInTree,
   formatPin
 } from './pin-formatter.mjs';

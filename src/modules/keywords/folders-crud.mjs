@@ -13,7 +13,7 @@ import {
 import { normalizeFolderMetadata, invalidateFolderCache } from './folders-crossover.mjs';
 import { ignoreAndRemoveSerpPin } from './displaced-and-tombstones.mjs';
 import { safeWaitUntil } from '../../http/security-and-response.mjs';
-import { DEFAULT_WORKSPACE_ID, parsePositiveWorkspaceId, resolveWorkspaceRawCookie } from '../workspaces/service.mjs';
+import { DEFAULT_WORKSPACE_ID, parsePositiveWorkspaceId, resolveActivePinterestCookie } from '../workspaces/service.mjs';
 
 /**
  * Canonical predicate for alive folder creators (Room 3 & folder rollups).
@@ -1992,15 +1992,9 @@ export async function bulkPulseTrackFolderCreators(sql, folderId, options = {}, 
   if (!folder) throw new Error(`Folder ${fid} not found`);
 
   const effectiveWid = Number(workspaceId || folder.workspace_id || DEFAULT_WORKSPACE_ID);
-  const resolvedCookieObj = await resolveWorkspaceRawCookie(sql, effectiveWid).catch(() => ({ rawCookie: '' }));
-  const rawWsCookie = typeof resolvedCookieObj === 'string'
-    ? resolvedCookieObj.trim()
-    : String(resolvedCookieObj?.rawCookie || '').trim();
-  const wsCookie = rawWsCookie || (
-    effectiveWid === DEFAULT_WORKSPACE_ID
-      ? (env?.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env?.PINTEREST_COOKIE : '') || '')
-      : ''
-  );
+  const resolvedCookieObj = await resolveActivePinterestCookie(sql, { workspaceId: effectiveWid, env })
+    .catch(() => ({ rawCookie: '' }));
+  const wsCookie = String(resolvedCookieObj?.rawCookie || '').trim();
 
   const customLabel = (typeof options.custom_label === 'string' && options.custom_label.trim())
     ? options.custom_label.trim()

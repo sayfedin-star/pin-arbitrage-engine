@@ -455,7 +455,7 @@ test('Phase 1.5 BLOCKER-5 regression: /api/workspaces/cookie and resolveNewbornR
   const ws1Secret = '_pinterest_sess=WS1_GLOBAL_COOKIE_ALPHA_1111111111; _auth=1';
   const ws2Secret = '_pinterest_sess=WS2_PRIVATE_COOKIE_BETA_2222222222; _auth=1';
 
-  // 1. Save cookie in Workspace 1 -> updates WS1 + global newborn_pinterest_cookie
+  // 1. Save cookie in Workspace 1 -> writes strictly to workspace_settings (ZERO split-brain dual-write to app_settings)
   const postWs1 = await handleWorkspacesRoutes({
     pathname: '/api/workspaces/cookie',
     method: 'POST',
@@ -468,9 +468,12 @@ test('Phase 1.5 BLOCKER-5 regression: /api/workspaces/cookie and resolveNewbornR
   });
   assert.equal(postWs1.status, 200);
   assert.equal(wsCookies.get(1), ws1Secret);
-  assert.ok(appSettings.has('newborn_pinterest_cookie'), 'Workspace 1 should mirror to global newborn_pinterest_cookie');
+  assert.equal(appSettings.has('newborn_pinterest_cookie'), false, 'Workspace 1 must store cookie strictly in workspace_settings without app_settings dual-write');
 
-  // 2. GET in Workspace 2 MUST NOT leak Workspace 1's global cookie
+  const resolvedWs1 = await resolveNewbornRawCookie(mockSql, {}, { workspaceId: 1 });
+  assert.equal(resolvedWs1.rawCookie, ws1Secret, 'resolveNewbornRawCookie(ws=1) must resolve from unified workspace_settings SSOT');
+
+  // 2. GET in Workspace 2 MUST NOT leak Workspace 1's cookie
   const getWs2Empty = await handleWorkspacesRoutes({
     pathname: '/api/workspaces/cookie',
     method: 'GET',
@@ -484,9 +487,9 @@ test('Phase 1.5 BLOCKER-5 regression: /api/workspaces/cookie and resolveNewbornR
   assert.equal(getWs2Empty.payload.has_cookie, false, 'Empty Workspace 2 MUST report has_cookie: false');
 
   const resolvedWs2Empty = await resolveNewbornRawCookie(mockSql, {}, { workspaceId: 2 });
-  assert.equal(resolvedWs2Empty.rawCookie, '', 'resolveNewbornRawCookie(ws=2) MUST NOT inherit WS1 global cookie');
+  assert.equal(resolvedWs2Empty.rawCookie, '', 'resolveNewbornRawCookie(ws=2) MUST NOT inherit WS1 cookie');
 
-  // 3. POST in Workspace 2 MUST NOT overwrite Workspace 1's global cookie
+  // 3. POST in Workspace 2 MUST NOT overwrite Workspace 1's cookie
   const postWs2 = await handleWorkspacesRoutes({
     pathname: '/api/workspaces/cookie',
     method: 'POST',
@@ -500,12 +503,12 @@ test('Phase 1.5 BLOCKER-5 regression: /api/workspaces/cookie and resolveNewbornR
   assert.equal(postWs2.status, 200);
   assert.equal(wsCookies.get(2), ws2Secret);
   assert.equal(wsCookies.get(1), ws1Secret);
-  assert.equal(JSON.stringify(appSettings.get('newborn_pinterest_cookie')).includes('WS1_GLOBAL_COOKIE_ALPHA'), true);
+  assert.equal(appSettings.has('newborn_pinterest_cookie'), false);
 
   const resolvedWs2 = await resolveNewbornRawCookie(mockSql, {}, { workspaceId: 2 });
   assert.equal(resolvedWs2.rawCookie, ws2Secret);
 
-  // 4. DELETE in Workspace 2 MUST NOT wipe Workspace 1's global cookie
+  // 4. DELETE in Workspace 2 MUST NOT wipe Workspace 1's cookie
   const delWs2 = await handleWorkspacesRoutes({
     pathname: '/api/workspaces/cookie',
     method: 'DELETE',
@@ -519,7 +522,8 @@ test('Phase 1.5 BLOCKER-5 regression: /api/workspaces/cookie and resolveNewbornR
   assert.equal(delWs2.status, 200);
   assert.equal(wsCookies.has(2), false);
   assert.equal(wsCookies.get(1), ws1Secret, 'Deleting WS2 cookie MUST NOT wipe WS1 cookie');
-  assert.ok(appSettings.has('newborn_pinterest_cookie'), 'Deleting WS2 cookie MUST NOT wipe global newborn_pinterest_cookie');
+  const resolvedWs1AfterWs2Del = await resolveNewbornRawCookie(mockSql, {}, { workspaceId: 1 });
+  assert.equal(resolvedWs1AfterWs2Del.rawCookie, ws1Secret, 'WS1 cookie must remain intact in workspace_settings after WS2 delete');
 });
 
 test('Phase 1.5 BLOCKER-4 regression: /api/workspaces/settings enforces Migration 012 nested JSONB keys and strips dead flat keys', async () => {

@@ -15,6 +15,40 @@ import {
   parseCleanMetric
 } from './pin-metrics.mjs';
 
+export const NUMERIC_PIN_ID_REGEX = /^\d{10,30}$/;
+
+/**
+ * Extracts a canonical numeric Pinterest Snowflake Pin ID (`/^\d{10,30}$/`) from a raw pin payload.
+ * Rejects obfuscated guest tokens (e.g., `e1_Afq...`) unless a valid numeric canonical/origin ID exists.
+ */
+export function extractCanonicalNumericPinId(raw) {
+  if (!raw) return null;
+  if (typeof raw === 'string' || typeof raw === 'number') {
+    const s = String(raw).trim();
+    return NUMERIC_PIN_ID_REGEX.test(s) ? s : null;
+  }
+  if (typeof raw !== 'object') return null;
+  const candidates = [
+    raw.pin_id,
+    raw.id,
+    raw.origin_pin_id,
+    raw.canonical_pin_id,
+    raw.root_pin_id,
+    raw.orig_pin_id,
+    raw.aggregated_pin_data?.id,
+    raw.aggregatedPinData?.id,
+    raw.node_id
+  ];
+  for (const val of candidates) {
+    if (val === undefined || val === null) continue;
+    const s = String(val).trim();
+    if (NUMERIC_PIN_ID_REGEX.test(s)) {
+      return s;
+    }
+  }
+  return null;
+}
+
 function isPinCandidate(o) {
   if (!o || typeof o !== 'object') return false;
   return Boolean(
@@ -333,8 +367,10 @@ export function formatPin(pin) {
     0
   );
 
-  const pinId = String(pin.id || pin.pin_id || pin.node_id || '').trim();
-  if (!pinId || pinId === 'undefined' || pinId === 'null' || pinId.startsWith('-') || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{9,127}$/.test(pinId)) {
+  // [INVARIANT: STRICT-NUMERIC-SNOWFLAKE-PIN-ID]
+  // Reject obfuscated e1_* or non-numeric IDs unless a canonical numeric Snowflake ID can be extracted.
+  const pinId = extractCanonicalNumericPinId(pin);
+  if (!pinId) {
     return null;
   }
 

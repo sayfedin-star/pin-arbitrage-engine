@@ -42,8 +42,7 @@ import {
 import {
   DEFAULT_WORKSPACE_ID,
   assertFolderInWorkspace,
-  resolveWorkspaceRawCookie,
-  getWorkspaceCookieStatus
+  resolveActivePinterestCookie
 } from '../modules/workspaces/service.mjs';
 import { dispatchGitHubWorkflow, resolveGitHubAuth } from '../http/github-workflow.mjs';
 import { invalidateGlobalPulseCache } from '../modules/pulse/service.mjs';
@@ -256,19 +255,18 @@ export async function handleKeywordsRoutes({
     if (!keywordId) return jsonResponse({ error: 'keyword_id or slug is required' }, 400);
     const force = Boolean(body.force);
     // [INVARIANT: WORKSPACE-COOKIE-ISOLATION]
-    // Resolve Zone A cookie strictly for the active workspace; fallback to global env cookie only for default workspace #1.
-    const wsCookieObj = await resolveWorkspaceRawCookie(sql, workspaceId).catch(() => ({ rawCookie: '' }));
-    const wsCookie = typeof wsCookieObj === 'string' ? wsCookieObj : (wsCookieObj?.rawCookie || '');
-    const envFallbackCookie = Number(workspaceId) === DEFAULT_WORKSPACE_ID
-      ? (env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null))
-      : null;
-    const cookie = wsCookie.trim() ? wsCookie.trim() : envFallbackCookie;
-    const disableGlobalCookieFallback = Number(workspaceId) !== DEFAULT_WORKSPACE_ID;
+    // Resolve Zone A cookie via canonical SSOT resolver (strictly workspace-isolated for WS 2+).
+    const numericWid = Number(workspaceId) || DEFAULT_WORKSPACE_ID;
+    const activeCookie = await resolveActivePinterestCookie(sql, { workspaceId: numericWid, env })
+      .catch(() => ({ rawCookie: '' }));
+    const cookie = activeCookie?.rawCookie || null;
+    const disableGlobalCookieFallback = numericWid !== DEFAULT_WORKSPACE_ID;
     const hasExplicitPages = body.crawl_pages !== undefined || body.max_pages !== undefined;
     const crawlPages = hasExplicitPages ? Math.max(1, Math.min(40, Number(body.crawl_pages || body.max_pages) || 2)) : undefined;
     const maxPins = body.max_pins ?? body.max_serp_pins;
     const res = await crawlKeywordSERP(sql, keywordId, {
       cookie,
+      workspaceId: numericWid,
       disableGlobalCookieFallback,
       force,
       ...(crawlPages !== undefined ? { crawl_pages: crawlPages } : {}),
@@ -339,26 +337,19 @@ export async function handleKeywordsRoutes({
     });
   }
 
-  // 5. GET /api/settings (Workspace-isolated cookie masking for WS2+)
+  // 5. GET /api/settings (Workspace-scoped crawl settings + unified Zone-A cookie status; never returns raw cookies)
   if (method === 'GET' && pathname === '/api/settings') {
     const numericWid = Number(workspaceId) || DEFAULT_WORKSPACE_ID;
-    const settings = await getAppSettings(sql);
-    let hasCookie = false;
-    if (numericWid === DEFAULT_WORKSPACE_ID) {
-      hasCookie = Boolean(settings?.has_pinterest_cookie || (settings?.pinterest_cookie && String(settings.pinterest_cookie).trim().length > 10));
-    } else {
-      const wsCookieStatus = await getWorkspaceCookieStatus(sql, numericWid).catch(() => ({ has_cookie: false }));
-      hasCookie = Boolean(wsCookieStatus?.has_cookie);
-    }
+    const settings = await getAppSettings(sql, { workspaceId: numericWid, env });
     const safeSettings = {
       ...settings,
       pinterest_cookie: '',
-      has_pinterest_cookie: hasCookie
+      has_pinterest_cookie: Boolean(settings?.has_pinterest_cookie)
     };
     return jsonResponse({ success: true, settings: safeSettings }, 200, -1);
   }
 
-  // 6. POST /api/settings (Reject global cookie or bulk apply_to_all mutations from WS2+)
+  // 6. POST /api/settings (Workspace-scoped crawl settings; cookies are managed exclusively in Workspace Settings)
   if (method === 'POST' && pathname === '/api/settings') {
     const numericWid = Number(workspaceId) || DEFAULT_WORKSPACE_ID;
     const body = await request.json().catch(() => ({}));
@@ -369,21 +360,11 @@ export async function handleKeywordsRoutes({
         return jsonResponse({
           success: false,
           error: 'WORKSPACE_SCOPE_FORBIDDEN',
-          message: 'Global crawler settings and WS1 cookie updates are restricted to the default workspace. Use /api/workspaces/settings or /api/workspaces/cookie.'
+          message: 'Global crawler settings and cookie updates are restricted to Workspace Settings (/api/workspaces/cookie).'
         }, 403, -1);
       }
-      const settings = await getAppSettings(sql);
-      const wsCookieStatus = await getWorkspaceCookieStatus(sql, numericWid).catch(() => ({ has_cookie: false }));
-      return jsonResponse({
-        success: true,
-        settings: {
-          ...settings,
-          pinterest_cookie: '',
-          has_pinterest_cookie: Boolean(wsCookieStatus?.has_cookie)
-        }
-      }, 200, -1);
     }
-    const updated = await updateAppSettings(sql, body);
+    const updated = await updateAppSettings(sql, body, { workspaceId: numericWid, env });
     await Promise.all([
       invalidateEdgeCache('keywords'),
       invalidateEdgeCache('keywords:hub'),
@@ -393,11 +374,10 @@ export async function handleKeywordsRoutes({
       invalidateEdgeCache('settings')
     ].map(p => Promise.resolve(p).catch(() => {})));
     invalidateFolderCache(null, workspaceId);
-    const hasCookie = Boolean(updated?.has_pinterest_cookie || (updated?.pinterest_cookie && String(updated.pinterest_cookie).trim().length > 10));
     const safeSettings = {
       ...updated,
       pinterest_cookie: '',
-      has_pinterest_cookie: hasCookie
+      has_pinterest_cookie: Boolean(updated?.has_pinterest_cookie)
     };
     return jsonResponse({ success: true, settings: safeSettings }, 200, -1);
   }
@@ -666,13 +646,10 @@ export async function handleKeywordsRoutes({
     const pinId = searchParams.get('pin_id');
     if (!pinId) return jsonResponse({ error: 'pin_id is required' }, 400);
     // [INVARIANT: WORKSPACE-COOKIE-ISOLATION]
-    // Resolve Zone A cookie strictly for the active workspace; fallback to global env cookie only for default workspace #1.
-    const wsCookieObj = await resolveWorkspaceRawCookie(sql, workspaceId).catch(() => ({ rawCookie: '' }));
-    const wsCookie = typeof wsCookieObj === 'string' ? wsCookieObj : (wsCookieObj?.rawCookie || '');
-    const envFallbackCookie = Number(workspaceId) === DEFAULT_WORKSPACE_ID
-      ? (env.PINTEREST_COOKIE || (typeof process !== 'undefined' ? process.env.PINTEREST_COOKIE : null))
-      : null;
-    const cookie = wsCookie.trim() ? wsCookie.trim() : (envFallbackCookie || '');
+    // Resolve Zone A cookie via canonical SSOT resolver (strictly workspace-isolated for WS 2+).
+    const activeCookie = await resolveActivePinterestCookie(sql, { workspaceId, env })
+      .catch(() => ({ rawCookie: '' }));
+    const cookie = activeCookie?.rawCookie || '';
     const result = await fetchVisualSearchLens(sql, pinId, cookie, env);
     return jsonResponse(result, result.success ? 200 : 500);
   }

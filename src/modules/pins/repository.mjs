@@ -17,6 +17,7 @@ import { buildRichPinMetadataPayload, normalizeCleanDomain, isSyntheticGarbageTi
 import { qualifyPin } from '../creators/competitors-crud.mjs';
 import { getPinDossier, fetchUniversalPinDossier, fetchPinTrajectory } from './dossier-reader.mjs';
 import { normalizeCanonicalCreationMethod, decodeHtmlEntities } from '../newborn/surface-normalizers.mjs';
+import { extractCanonicalNumericPinId } from '../../core/pinterest/pin-formatter.mjs';
 
 export { normalizeCleanDomain, getPinDossier, fetchUniversalPinDossier, fetchPinTrajectory };
 
@@ -128,7 +129,8 @@ export async function ingestPinsBatch(sql, pins = [], accountUsernameOrOptions =
   const competitorBoardDedupMap = new Map();
 
   for (const p of pins) {
-    const pid = String(p?.pin_id || p?.id || p?.pinId || '').trim();
+    // [INVARIANT: STRICT-NUMERIC-SNOWFLAKE-PIN-ID] Reject obfuscated e1_* or non-numeric pin IDs at the DB gateway
+    const pid = extractCanonicalNumericPinId(p);
     if (!pid) continue;
 
     let passesMasterQualification = true;

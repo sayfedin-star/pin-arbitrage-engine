@@ -11,7 +11,7 @@ import {
   sanitizeCeilingDelta,
   sanitizeStoredCeilingDelta
 } from '../../core/pinterest/index.mjs';
-import { getEffectivePinterestCookie } from '../keywords/settings.mjs';
+import { DEFAULT_WORKSPACE_ID, resolveActivePinterestCookie } from '../workspaces/service.mjs';
 import { pruneOrphanCandidateGraphNodes } from '../related-pins/graph-writer.mjs';
 
 export const GLOBAL_QUALIFICATION_RULES_KEY = 'pin_qualification_rules';
@@ -473,7 +473,14 @@ export async function syncCompetitorProfile(sql, username, cookie = '', options 
     existingProfile?.metadata?.profile_pulse_only === true
   );
 
-  const resolvedCookie = cookie || (options.disableGlobalCookieFallback ? '' : await getEffectivePinterestCookie(sql, cookie));
+  let resolvedCookie = typeof cookie === 'string' ? cookie.trim() : '';
+  if (!resolvedCookie && !options.disableGlobalCookieFallback) {
+    const active = await resolveActivePinterestCookie(sql, {
+      workspaceId: options.workspaceId || DEFAULT_WORKSPACE_ID,
+      env: options.env || null
+    }).catch(() => ({ rawCookie: '' }));
+    resolvedCookie = active?.rawCookie || '';
+  }
   const formattedCookie = formatPinterestCookie(resolvedCookie);
   const res = await fetchUserResource(cleanUsername, formattedCookie);
   if (!res.ok) {

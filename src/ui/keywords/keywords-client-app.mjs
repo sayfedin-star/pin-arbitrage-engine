@@ -173,8 +173,6 @@ export function getKeywordsClientAppScript() {
         settingsExcludeIgnoredPins: true,
         settingsMaxPinAgeDays: 30,
         settingsMinVelocity: 1.5,
-        settingsPinterestCookie: '',
-        isSavingPinterestCookie: false,
         settingsApplyGlobal: true,
         settingsLoading: false,
         appSettings: {
@@ -2107,9 +2105,6 @@ export function getKeywordsClientAppScript() {
                 this.settingsExcludeIgnoredPins = data.settings.exclude_ignored_pins !== undefined ? Boolean(data.settings.exclude_ignored_pins) : true;
                 this.settingsMaxPinAgeDays = Number(data.settings.breakout_max_pin_age_days || data.settings.breakout_rules?.max_pin_age_days || 30);
                 this.settingsMinVelocity = Number(data.settings.breakout_min_velocity || data.settings.breakout_rules?.min_daily_save_velocity || 1.5);
-                if (data.settings.pinterest_cookie) {
-                  this.settingsPinterestCookie = String(data.settings.pinterest_cookie);
-                }
               }
             }
           } catch (e) {
@@ -2144,42 +2139,16 @@ export function getKeywordsClientAppScript() {
           this.settingsExcludeIgnoredPins = this.appSettings.exclude_ignored_pins !== undefined ? Boolean(this.appSettings.exclude_ignored_pins) : true;
           this.settingsMaxPinAgeDays = Number(this.appSettings.breakout_max_pin_age_days || this.appSettings.breakout_rules?.max_pin_age_days || 30);
           this.settingsMinVelocity = Number(this.appSettings.breakout_min_velocity || this.appSettings.breakout_rules?.min_daily_save_velocity || 1.5);
-          this.settingsPinterestCookie = String(this.appSettings.pinterest_cookie || this.settingsPinterestCookie || '');
           this.isSettingsModalOpen = true;
           this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
-        },
-
-        async savePinterestCookieSetting() {
-          if (!this.settingsPinterestCookie || !this.settingsPinterestCookie.trim()) {
-            this.showToast('Please paste a valid Pinterest cookie or _pinterest_sess token first.', 'warning');
-            return;
-          }
-          this.isSavingPinterestCookie = true;
-          try {
-            const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/settings/cookie'), {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ cookie: this.settingsPinterestCookie.trim() })
-            });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok || !data.success) {
-              throw new Error(data.error || data.message || 'Failed to save Pinterest cookie');
-            }
-            this.appSettings.has_pinterest_cookie = Boolean(data.has_cookie ?? true);
-            this.appSettings.pinterest_cookie = '';
-            this.showToast('Pinterest session cookie saved & activated across all crawlers!', 'success');
-          } catch (err) {
-            this.showToast('Error saving cookie: ' + err.message, 'error');
-          } finally {
-            this.isSavingPinterestCookie = false;
-          }
         },
 
         async saveSettings() {
           this.settingsLoading = true;
           try {
             const targetQuota = Math.max(10, Math.min(2000, Number(this.settingsMaxSerpPins || this.settingsMaxPins || 50)));
-            const targetPages = Math.max(1, Math.min(100, Number(this.settingsCrawlPages || Math.ceil(targetQuota / 25))));
+            const targetPages = Math.max(1, Math.min(100, Math.ceil(targetQuota / 25)));
+            this.settingsCrawlPages = targetPages;
             if (this.settingsApplyGlobal || !this.settingsTargetKeyword) {
               const payload = {
                 default_crawl_pages: targetPages,
@@ -2198,8 +2167,7 @@ export function getKeywordsClientAppScript() {
                   max_pin_age_days: this.settingsMaxPinAgeDays,
                   min_daily_save_velocity: this.settingsMinVelocity
                 },
-                apply_to_all: Boolean(this.settingsApplyGlobal),
-                pinterest_cookie: (this.settingsPinterestCookie || '').trim() || undefined
+                apply_to_all: Boolean(this.settingsApplyGlobal)
               };
               const res = await (window.safeApiFetch || fetch)(this.getApiUrl('/api/settings'), {
                 method: 'POST',

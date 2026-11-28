@@ -12,6 +12,12 @@
  */
 
 import { sanitizeForJsonb } from '../../utils.mjs';
+import {
+  DEFAULT_WORKSPACE_ID,
+  resolveActivePinterestCookie,
+  saveWorkspaceCookie,
+  clearWorkspaceCookie
+} from '../workspaces/service.mjs';
 
 export const NEWBORN_SETTINGS_KEY = 'newborn_engine_settings';
 export const NEWBORN_COOKIE_KEY = 'newborn_pinterest_cookie';
@@ -1290,88 +1296,20 @@ export async function resolveEffectiveNewbornSettings(sql, { profileId = null, o
   };
 }
 
-function extractRawCookieFromSettingVal(val) {
-  if (!val) return '';
-  if (typeof val === 'string') return val.trim();
-  if (typeof val === 'object') {
-    const cand = val.cookie || val.raw_cookie || val.pinterest_cookie || val.formatted_cookie || '';
-    return typeof cand === 'string' ? cand.trim() : '';
-  }
-  return '';
-}
-
 /**
  * Internal resolver for the Newborn raw Pinterest session token.
+ * Delegates strictly to the unified Workspace Settings SSOT (`workspace_settings.pinterest_cookie_enc`).
  * NEVER expose the returned value over HTTP responses or logs!
  */
 export async function resolveNewbornRawCookie(sql, env = {}, { workspaceId = null } = {}) {
-  const numericWid = Number(workspaceId);
-  const hasExplicitWorkspace = Number.isInteger(numericWid) && numericWid > 0;
-
-  if (hasExplicitWorkspace && sql && typeof sql === 'function') {
-    try {
-      const [wsRow] = await sql`
-        SELECT pinterest_cookie_enc
-        FROM workspace_settings
-        WHERE workspace_id = ${numericWid}
-        LIMIT 1;
-      `;
-      const wsRaw = typeof wsRow?.pinterest_cookie_enc === 'string' ? wsRow.pinterest_cookie_enc.trim() : '';
-      if (wsRaw.length > 10) {
-        return { rawCookie: wsRaw, source: `workspace:${numericWid}:pinterest_cookie_enc` };
-      }
-    } catch (_) {}
-
-    // Non-default workspaces MUST NOT silently inherit Workspace 1 / global cookies
-    if (numericWid !== 1) {
-      return { rawCookie: '', source: 'none' };
-    }
-  }
-
-  if (sql && typeof sql === 'function') {
-    try {
-      const rows = await sql`
-        SELECT key, value
-        FROM app_settings
-        WHERE key IN (${NEWBORN_COOKIE_KEY}, 'pinterest_cookie', 'keyword_crawl_settings')
-        ORDER BY
-          CASE
-            WHEN key = ${NEWBORN_COOKIE_KEY} THEN 0
-            WHEN key = 'pinterest_cookie' THEN 1
-            ELSE 2
-          END ASC;
-      `;
-      for (const r of (rows || [])) {
-        const extracted = extractRawCookieFromSettingVal(r?.value);
-        if (extracted.length > 10) {
-          return { rawCookie: extracted, source: `db:${r.key}` };
-        }
-      }
-    } catch (_) {}
-  }
-
-  const envNewborn = typeof env?.NEWBORN_PINTEREST_COOKIE === 'string' ? env.NEWBORN_PINTEREST_COOKIE.trim() : '';
-  if (envNewborn.length > 10) {
-    return { rawCookie: envNewborn, source: 'env:NEWBORN_PINTEREST_COOKIE' };
-  }
-
-  const envShared = typeof env?.PINTEREST_COOKIE === 'string' ? env.PINTEREST_COOKIE.trim() : '';
-  if (envShared.length > 10) {
-    return { rawCookie: envShared, source: 'env:PINTEREST_COOKIE' };
-  }
-
-  if (typeof process !== 'undefined' && process.env) {
-    const procNewborn = typeof process.env.NEWBORN_PINTEREST_COOKIE === 'string' ? process.env.NEWBORN_PINTEREST_COOKIE.trim() : '';
-    if (procNewborn.length > 10) {
-      return { rawCookie: procNewborn, source: 'process_env:NEWBORN_PINTEREST_COOKIE' };
-    }
-    const procShared = typeof process.env.PINTEREST_COOKIE === 'string' ? process.env.PINTEREST_COOKIE.trim() : '';
-    if (procShared.length > 10) {
-      return { rawCookie: procShared, source: 'process_env:PINTEREST_COOKIE' };
-    }
-  }
-
-  return { rawCookie: '', source: 'none' };
+  const targetWid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0
+    ? Number(workspaceId)
+    : DEFAULT_WORKSPACE_ID;
+  const resolved = await resolveActivePinterestCookie(sql, { workspaceId: targetWid, env });
+  return {
+    rawCookie: resolved.rawCookie || '',
+    source: resolved.source || 'none'
+  };
 }
 
 /**
@@ -1395,55 +1333,31 @@ export async function getNewbornCookieStatus(sql, env = {}, { workspaceId = null
 }
 
 /**
- * Persists Newborn Pinterest session cookie into app_settings without mutating process.env.
+ * Persists Pinterest session cookie into the unified Workspace Settings vault (`workspace_settings.pinterest_cookie_enc`).
  */
-export async function saveNewbornCookie(sql, rawCookie = '', { alsoUpdateShared = false } = {}) {
-  if (!sql || typeof sql !== 'function') {
-    throw new Error('Database client (sql) is required to save Newborn cookie.');
-  }
-  const cleanRaw = String(rawCookie || '').trim();
-  const hasCookie = cleanRaw.length > 10;
-  const payload = {
-    cookie: cleanRaw,
-    has_cookie: hasCookie,
-    updated_at: new Date().toISOString()
-  };
-
-  await sql`
-    INSERT INTO app_settings (key, value, updated_at)
-    VALUES (${NEWBORN_COOKIE_KEY}, ${JSON.stringify(payload)}::jsonb, NOW())
-    ON CONFLICT (key) DO UPDATE SET
-      value = EXCLUDED.value,
-      updated_at = NOW();
-  `;
-
-  if (alsoUpdateShared) {
-    await sql`
-      INSERT INTO app_settings (key, value, updated_at)
-      VALUES ('pinterest_cookie', ${JSON.stringify(payload)}::jsonb, NOW())
-      ON CONFLICT (key) DO UPDATE SET
-        value = EXCLUDED.value,
-        updated_at = NOW();
-    `;
-  }
-
+export async function saveNewbornCookie(sql, rawCookie = '', { workspaceId = DEFAULT_WORKSPACE_ID } = {}) {
+  const targetWid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0
+    ? Number(workspaceId)
+    : DEFAULT_WORKSPACE_ID;
+  const saved = await saveWorkspaceCookie(sql, targetWid, rawCookie);
+  const hasCookie = Boolean(saved?.has_cookie);
   return {
     has_cookie: hasCookie,
     is_configured: hasCookie,
     preview: hasCookie ? '[CONFIGURED]' : '',
     zone_routing_mode: hasCookie ? 'two_zone_auth_plus_zero_cookie' : 'guest_zero_cookie_fallback',
-    source: hasCookie ? `db:${NEWBORN_COOKIE_KEY}` : 'none'
+    source: hasCookie ? `workspace:${targetWid}:pinterest_cookie_enc` : 'none'
   };
 }
 
 /**
- * Clears the dedicated Newborn Pinterest session cookie from app_settings.
+ * Clears the Pinterest session cookie from the unified Workspace Settings vault.
  */
-export async function clearNewbornCookie(sql) {
-  if (!sql || typeof sql !== 'function') {
-    throw new Error('Database client (sql) is required to clear Newborn cookie.');
-  }
-  await sql`DELETE FROM app_settings WHERE key = ${NEWBORN_COOKIE_KEY};`;
+export async function clearNewbornCookie(sql, { workspaceId = DEFAULT_WORKSPACE_ID } = {}) {
+  const targetWid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0
+    ? Number(workspaceId)
+    : DEFAULT_WORKSPACE_ID;
+  await clearWorkspaceCookie(sql, targetWid);
   return {
     has_cookie: false,
     is_configured: false,

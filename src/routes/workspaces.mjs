@@ -17,13 +17,9 @@ import {
   updateWorkspaceSettings,
   getWorkspaceCookieStatus,
   saveWorkspaceCookie,
-  clearWorkspaceCookie
+  clearWorkspaceCookie,
+  resolveActivePinterestCookie
 } from '../modules/workspaces/service.mjs';
-import {
-  getNewbornCookieStatus,
-  saveNewbornCookie,
-  clearNewbornCookie
-} from '../modules/newborn/settings.mjs';
 
 export function isWorkspacesRoute(pathname) {
   return pathname === '/api/workspaces' || pathname.startsWith('/api/workspaces/');
@@ -116,9 +112,9 @@ export async function handleWorkspacesRoutes({
     return methodNotAllowedResponse('GET, PUT, PATCH, POST, OPTIONS');
   }
 
-  // 3B. GET / POST / DELETE /api/workspaces/cookie — Write-only Zone-A Pinterest Session Cookie
+  // 3B. GET / POST / DELETE /api/workspaces/cookie — Write-only Zone-A Pinterest Session Cookie (Single Source of Truth)
   // [INVARIANT: ZERO-SECRET-LEAK] Never returns raw cookie strings in any response.
-  // [INVARIANT: WORKSPACE-COOKIE-ISOLATION] Global newborn_pinterest_cookie sync/fallback applies ONLY to DEFAULT_WORKSPACE_ID (1).
+  // [INVARIANT: WORKSPACE-COOKIE-ISOLATION] Strictly backed by workspace_settings.pinterest_cookie_enc; WS 2+ never inherits WS 1 or env.
   if (pathname === '/api/workspaces/cookie') {
     const isDefaultWorkspace = Number(workspaceId) === DEFAULT_WORKSPACE_ID;
     if (reply && typeof reply.header === 'function') {
@@ -126,12 +122,11 @@ export async function handleWorkspacesRoutes({
     }
     if (method === 'GET') {
       const wsStatus = await getWorkspaceCookieStatus(sql, workspaceId);
-      const nbStatus = isDefaultWorkspace
-        ? await getNewbornCookieStatus(sql, {}, { workspaceId }).catch(() => ({ has_cookie: false }))
-        : { has_cookie: false };
-      const hasCookie = isDefaultWorkspace
-        ? Boolean(wsStatus?.has_cookie || nbStatus?.has_cookie)
-        : Boolean(wsStatus?.has_cookie);
+      let hasCookie = Boolean(wsStatus?.has_cookie);
+      if (!hasCookie && isDefaultWorkspace) {
+        const resolved = await resolveActivePinterestCookie(sql, { workspaceId }).catch(() => ({ hasCookie: false }));
+        hasCookie = Boolean(resolved?.hasCookie);
+      }
       return jsonResponse({
         success: true,
         workspace_id: workspaceId,
@@ -146,14 +141,15 @@ export async function handleWorkspacesRoutes({
         const body = await request.json().catch(() => ({}));
         const rawCookie = String(body?.cookie ?? body?.raw_cookie ?? body?.pinterest_cookie ?? '').trim();
         const wsStatus = await saveWorkspaceCookie(sql, workspaceId, rawCookie);
-        if (isDefaultWorkspace) {
-          await saveNewbornCookie(sql, rawCookie, { alsoUpdateShared: true }).catch(() => null);
-        }
         if (typeof invalidateEdgeCache === 'function') {
-          await invalidateEdgeCache(`ws:${workspaceId}:`);
-          if (isDefaultWorkspace) {
-            await invalidateEdgeCache('newborn');
-          }
+          await Promise.all([
+            `ws:${workspaceId}:`,
+            'settings',
+            'workspaces',
+            'keywords',
+            'creators',
+            ...(isDefaultWorkspace ? ['newborn'] : [])
+          ].map((scope) => Promise.resolve(invalidateEdgeCache(scope)).catch(() => {})));
         }
         return jsonResponse({
           success: true,
@@ -169,14 +165,15 @@ export async function handleWorkspacesRoutes({
     }
     if (method === 'DELETE') {
       await clearWorkspaceCookie(sql, workspaceId);
-      if (isDefaultWorkspace) {
-        await clearNewbornCookie(sql).catch(() => null);
-      }
       if (typeof invalidateEdgeCache === 'function') {
-        await invalidateEdgeCache(`ws:${workspaceId}:`);
-        if (isDefaultWorkspace) {
-          await invalidateEdgeCache('newborn');
-        }
+        await Promise.all([
+          `ws:${workspaceId}:`,
+          'settings',
+          'workspaces',
+          'keywords',
+          'creators',
+          ...(isDefaultWorkspace ? ['newborn'] : [])
+        ].map((scope) => Promise.resolve(invalidateEdgeCache(scope)).catch(() => {})));
       }
       return jsonResponse({
         success: true,

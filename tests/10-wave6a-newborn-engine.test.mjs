@@ -95,6 +95,7 @@ import {
 function createStatefulNewbornSqlMock() {
   const state = {
     appSettings: new Map(),
+    workspaceCookies: new Map(),
     profiles: new Map([
       [1, {
         id: 1,
@@ -141,6 +142,34 @@ function createStatefulNewbornSqlMock() {
   const sql = async (strings, ...values) => {
     const query = Array.isArray(strings) ? strings.join(' ') : String(strings);
     const q = query.replace(/\s+/g, ' ').trim();
+
+    // workspace_settings (unified Zone A cookie SSOT)
+    if (/INSERT INTO workspace_settings/i.test(q) && /pinterest_cookie_enc/i.test(q)) {
+      const wid = Number(values[0] || 1);
+      const rawCookie = values[1] ? String(values[1]) : null;
+      const now = new Date().toISOString();
+      if (rawCookie) {
+        state.workspaceCookies.set(wid, { pinterest_cookie_enc: rawCookie, updated_at: now });
+      } else {
+        state.workspaceCookies.delete(wid);
+      }
+      return [];
+    }
+    if (/UPDATE workspace_settings\s+SET\s+pinterest_cookie_enc\s*=\s*NULL/i.test(q)) {
+      const wid = Number(values[0] || 1);
+      state.workspaceCookies.delete(wid);
+      return [];
+    }
+    if (/FROM workspace_settings/i.test(q) && /pinterest_cookie_enc/i.test(q)) {
+      const wid = Number(values[0] || 1);
+      const entry = state.workspaceCookies.get(wid);
+      if (/AS has_cookie/i.test(q)) {
+        return entry
+          ? [{ has_cookie: Boolean(entry.pinterest_cookie_enc), updated_at: entry.updated_at }]
+          : [];
+      }
+      return entry ? [{ pinterest_cookie_enc: entry.pinterest_cookie_enc, updated_at: entry.updated_at }] : [];
+    }
 
     // app_settings (with faithful PostgreSQL ON CONFLICT jsonb_set support)
     if (/INSERT INTO app_settings/i.test(q)) {

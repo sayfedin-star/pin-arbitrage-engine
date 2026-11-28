@@ -155,16 +155,21 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     try {
       const [domRow] = await sql`
         WITH direct_pins AS (
-          SELECT ump.clean_domain, ump.save_count
-          FROM competitor_board_pins cbp
-          JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
-          WHERE cbp.competitor_id = ${compId}
-          UNION ALL
-          SELECT ump.clean_domain, ump.save_count
-          FROM universal_master_pins ump
-          WHERE ${cleanUsername} <> ''
-            AND LOWER(TRIM(ump.creator_username)) = ${cleanUsername}
-            AND NOT EXISTS (SELECT 1 FROM competitor_board_pins cbp_chk WHERE cbp_chk.competitor_id = ${compId})
+          SELECT DISTINCT ON (pin_id) pin_id, clean_domain, save_count
+          FROM (
+            SELECT cbp.pin_id, ump.clean_domain, ump.save_count, 0 AS src_priority
+            FROM competitor_board_pins cbp
+            JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+            WHERE cbp.competitor_id = ${compId}
+              AND ump.pin_id ~ '^[0-9]{10,30}$'
+            UNION ALL
+            SELECT ump.pin_id, ump.clean_domain, ump.save_count, 1 AS src_priority
+            FROM universal_master_pins ump
+            WHERE ${cleanUsername} <> ''
+              AND ump.pin_id ~ '^[0-9]{10,30}$'
+              AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${cleanUsername}
+          ) dp_raw
+          ORDER BY pin_id, src_priority ASC
         )
         SELECT COALESCE(clean_domain, '') AS clean_dom
         FROM direct_pins
@@ -191,34 +196,62 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     try {
       const [agg] = await sql`
         WITH direct_pins AS (
-          SELECT
-            cbp.pin_id,
-            ump.save_count,
-            ump.repin_count,
-            ump.share_count,
-            ump.daily_save_velocity,
-            ump.destination_url,
-            ump.created_at_pinterest,
-            ump.first_discovered_at,
-            ump.clean_domain
-          FROM competitor_board_pins cbp
-          JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
-          WHERE cbp.competitor_id = ${compId}
-          UNION ALL
-          SELECT
-            ump.pin_id,
-            ump.save_count,
-            ump.repin_count,
-            ump.share_count,
-            ump.daily_save_velocity,
-            ump.destination_url,
-            ump.created_at_pinterest,
-            ump.first_discovered_at,
-            ump.clean_domain
-          FROM universal_master_pins ump
-          WHERE ${cleanUsername} <> ''
-            AND LOWER(TRIM(ump.creator_username)) = ${cleanUsername}
-            AND NOT EXISTS (SELECT 1 FROM competitor_board_pins cbp_chk WHERE cbp_chk.competitor_id = ${compId})
+          SELECT DISTINCT ON (pin_id)
+            pin_id,
+            save_count,
+            repin_count,
+            share_count,
+            daily_save_velocity,
+            delta_saves_24h,
+            delta_repins_24h,
+            destination_url,
+            created_at_pinterest,
+            first_discovered_at,
+            clean_domain
+          FROM (
+            SELECT
+              cbp.pin_id,
+              ump.save_count,
+              ump.repin_count,
+              ump.share_count,
+              ump.daily_save_velocity,
+              ump.delta_saves_24h,
+              ump.delta_repins_24h,
+              ump.destination_url,
+              ump.created_at_pinterest,
+              ump.first_discovered_at,
+              ump.clean_domain,
+              0 AS src_priority
+            FROM competitor_board_pins cbp
+            JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+            WHERE cbp.competitor_id = ${compId}
+              AND ump.pin_id ~ '^[0-9]{10,30}$'
+            UNION ALL
+            SELECT
+              ump.pin_id,
+              ump.save_count,
+              ump.repin_count,
+              ump.share_count,
+              ump.daily_save_velocity,
+              ump.delta_saves_24h,
+              ump.delta_repins_24h,
+              ump.destination_url,
+              ump.created_at_pinterest,
+              ump.first_discovered_at,
+              ump.clean_domain,
+              1 AS src_priority
+            FROM universal_master_pins ump
+            WHERE ump.pin_id ~ '^[0-9]{10,30}$'
+              AND (
+                (${cleanUsername} <> '' AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${cleanUsername})
+                OR (
+                  ${resolvedPrimaryDomain} <> ''
+                  AND ump.clean_domain = ${resolvedPrimaryDomain}
+                  AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+                )
+              )
+          ) dp_raw
+          ORDER BY pin_id, src_priority ASC
         ),
         classified_cp AS (
           SELECT
@@ -226,6 +259,9 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
             dp.save_count,
             dp.repin_count,
             dp.share_count,
+            dp.daily_save_velocity,
+            dp.delta_saves_24h,
+            dp.delta_repins_24h,
             dp.destination_url,
             dp.created_at_pinterest,
             dp.first_discovered_at,
@@ -246,12 +282,16 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
           COALESCE(SUM(save_count) FILTER (WHERE is_official_domain = FALSE), 0)::bigint AS external_saves,
           COALESCE(SUM(repin_count), 0)::bigint AS total_repins,
           COALESCE(SUM(share_count), 0)::bigint AS total_shares,
+          COALESCE(SUM(COALESCE(delta_saves_24h, daily_save_velocity, 0)), 0)::numeric AS live_delta_saves_24h,
+          COUNT(*) FILTER (WHERE delta_saves_24h IS NOT NULL OR COALESCE(daily_save_velocity, 0) > 0)::int AS pins_with_delta_saves,
+          COALESCE(SUM(COALESCE(delta_repins_24h, 0)), 0)::numeric AS live_delta_repins_24h,
+          COUNT(*) FILTER (WHERE delta_repins_24h IS NOT NULL)::int AS pins_with_delta_repins,
           MIN(COALESCE(created_at_pinterest, first_discovered_at)) AS earliest_pin_at,
           MAX(COALESCE(created_at_pinterest, first_discovered_at)) AS latest_pin_at,
           COUNT(*) FILTER (WHERE created_at_pinterest >= NOW() - INTERVAL '30 days')::int AS pins_last_30d,
           COUNT(*) FILTER (WHERE created_at_pinterest IS NOT NULL)::int AS dated_pins_count,
           COUNT(*) FILTER (WHERE is_winning = TRUE)::int AS winning_pins_count,
-          COUNT(DISTINCT NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(destination_url, ''))), '^https?://(www\\.)?[^/]+', ''), '[?#].*$', ''), '/+$', ''), '')) FILTER (WHERE COALESCE(destination_url, '') NOT LIKE '%pinterest.%')::int AS official_urls_count,
+          COUNT(DISTINCT NULLIF(NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(destination_url, ''))), '^https?://(www\\.)?[^/]+', ''), '[?#].*$', ''), '/+$', ''), ''), '/')) FILTER (WHERE COALESCE(destination_url, '') NOT LIKE '%pinterest.%')::int AS official_urls_count,
           GREATEST(1.0, EXTRACT(EPOCH FROM (MAX(created_at_pinterest) - MIN(created_at_pinterest))) / 86400.0) AS span_days
         FROM classified_cp;
       `;
@@ -285,22 +325,32 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
     try {
       const [ecoRow] = await sql`
         WITH direct_pins AS (
-          SELECT cbp.pin_id, ump.save_count, ump.destination_url, ump.clean_domain
-          FROM competitor_board_pins cbp
-          JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
-          WHERE cbp.competitor_id = ${compId}
-          UNION ALL
-          SELECT ump.pin_id, ump.save_count, ump.destination_url, ump.clean_domain
-          FROM universal_master_pins ump
-          WHERE ${cleanUsername} <> ''
-            AND LOWER(TRIM(ump.creator_username)) = ${cleanUsername}
-            AND NOT EXISTS (SELECT 1 FROM competitor_board_pins cbp_chk WHERE cbp_chk.competitor_id = ${compId})
+          SELECT DISTINCT ON (pin_id) pin_id, save_count, destination_url, clean_domain
+          FROM (
+            SELECT cbp.pin_id, ump.save_count, ump.destination_url, ump.clean_domain, 0 AS src_priority
+            FROM competitor_board_pins cbp
+            JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+            WHERE cbp.competitor_id = ${compId}
+              AND ump.pin_id ~ '^[0-9]{10,30}$'
+            UNION ALL
+            SELECT ump.pin_id, ump.save_count, ump.destination_url, ump.clean_domain, 1 AS src_priority
+            FROM universal_master_pins ump
+            WHERE ump.pin_id ~ '^[0-9]{10,30}$'
+              AND (
+                (${cleanUsername} <> '' AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${cleanUsername})
+                OR (
+                  ump.clean_domain = ${resolvedPrimaryDomain}
+                  AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+                )
+              )
+          ) dp_raw
+          ORDER BY pin_id, src_priority ASC
         ),
         official_set AS (
           SELECT
             dp.pin_id,
             COALESCE(dp.save_count, 0)::bigint AS saves,
-            NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(dp.destination_url, ''))), '^https?://(www\\.)?[^/]+', ''), '[?#].*$', ''), '/+$', ''), '') AS slug
+            NULLIF(NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(dp.destination_url, ''))), '^https?://(www\\.)?[^/]+', ''), '[?#].*$', ''), '/+$', ''), ''), '/') AS slug
           FROM direct_pins dp
           WHERE (
               COALESCE(dp.clean_domain, '') IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${resolvedPrimaryDomain})
@@ -312,9 +362,11 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
           SELECT
             ump.pin_id,
             COALESCE(ump.save_count, 0)::bigint AS saves,
-            NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(ump.destination_url, ''))), '^https?://(www\\.)?[^/]+', ''), '[?#].*$', ''), '/+$', ''), '') AS slug
+            NULLIF(NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(TRIM(COALESCE(ump.destination_url, ''))), '^https?://(www\\.)?[^/]+', ''), '[?#].*$', ''), '/+$', ''), ''), '/') AS slug
           FROM universal_master_pins ump
-          WHERE ump.clean_domain = ${resolvedPrimaryDomain}
+          WHERE ump.pin_id ~ '^[0-9]{10,30}$'
+            AND ump.clean_domain = ${resolvedPrimaryDomain}
+            AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) NOT IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator', ${cleanUsername})
             AND NOT EXISTS (
               SELECT 1 FROM direct_pins dp_ex
               WHERE dp_ex.pin_id = ump.pin_id
@@ -330,7 +382,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
           COALESCE(SUM(saves) FILTER (WHERE src = 'curator'), 0)::bigint AS curator_saves,
           COUNT(*)::int AS ecosystem_total_pins,
           COALESCE(SUM(saves), 0)::bigint AS ecosystem_total_saves,
-          COUNT(DISTINCT slug) FILTER (WHERE slug IS NOT NULL AND slug <> '')::int AS ecosystem_unique_urls
+          COUNT(DISTINCT slug) FILTER (WHERE slug IS NOT NULL AND slug <> '' AND slug <> '/')::int AS ecosystem_unique_urls
         FROM combined;
       `;
       if (ecoRow) {
@@ -584,17 +636,30 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
   let deltaSaves24h = null;
   let deltaRepins24h = null;
 
-  if (snapshots.length >= 2) {
+  if (Number(aggStats.pins_with_delta_saves || 0) > 0) {
+    const liveDelta = Number(aggStats.live_delta_saves_24h || 0);
+    if (Number.isFinite(liveDelta)) {
+      deltaSaves24h = Math.round(liveDelta);
+    }
+  }
+  if (Number(aggStats.pins_with_delta_repins || 0) > 0) {
+    const liveRepinDelta = Number(aggStats.live_delta_repins_24h || 0);
+    if (Number.isFinite(liveRepinDelta)) {
+      deltaRepins24h = Math.round(liveRepinDelta);
+    }
+  }
+
+  if ((deltaSaves24h === null || deltaRepins24h === null) && snapshots.length >= 2) {
     const curr = snapshots[snapshots.length - 1];
     const prev = snapshots[snapshots.length - 2];
     const currSaves = Number(curr.metadata?.total_saves || 0);
     const prevSaves = Number(prev.metadata?.total_saves || 0);
-    if (curr.metadata && prev.metadata && (currSaves > 0 || prevSaves > 0)) {
+    if (deltaSaves24h === null && curr.metadata && prev.metadata && (currSaves > 0 || prevSaves > 0)) {
       deltaSaves24h = currSaves - prevSaves;
     }
     const currRepins = Number(curr.metadata?.total_repins || 0);
     const prevRepins = Number(prev.metadata?.total_repins || 0);
-    if (curr.metadata && prev.metadata && (currRepins > 0 || prevRepins > 0)) {
+    if (deltaRepins24h === null && curr.metadata && prev.metadata && (currRepins > 0 || prevRepins > 0)) {
       deltaRepins24h = currRepins - prevRepins;
     }
   }
@@ -636,6 +701,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
       last_pin_date: latestPinDateStr
     },
     domain_ecosystem: domainEcosystem,
+    top_urls_count: Number(domainEcosystem.ecosystem_unique_urls || domainEcosystem.official_urls || 0),
     account_age: {
       days: accountAgeDays,
       created_at: accountCreatedDateStr
@@ -759,16 +825,21 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     try {
       const [domRow] = await sql`
         WITH direct_pins AS (
-          SELECT ump.clean_domain, ump.save_count
-          FROM competitor_board_pins cbp
-          JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
-          WHERE cbp.competitor_id = ${numericId}
-          UNION ALL
-          SELECT ump.clean_domain, ump.save_count
-          FROM universal_master_pins ump
-          WHERE ${normCreatorUser} <> ''
-            AND LOWER(TRIM(ump.creator_username)) = ${normCreatorUser}
-            AND NOT EXISTS (SELECT 1 FROM competitor_board_pins cbp_chk WHERE cbp_chk.competitor_id = ${numericId})
+          SELECT DISTINCT ON (pin_id) pin_id, clean_domain, save_count
+          FROM (
+            SELECT cbp.pin_id, ump.clean_domain, ump.save_count, 0 AS src_priority
+            FROM competitor_board_pins cbp
+            JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+            WHERE cbp.competitor_id = ${numericId}
+              AND ump.pin_id ~ '^[0-9]{10,30}$'
+            UNION ALL
+            SELECT ump.pin_id, ump.clean_domain, ump.save_count, 1 AS src_priority
+            FROM universal_master_pins ump
+            WHERE ${normCreatorUser} <> ''
+              AND ump.pin_id ~ '^[0-9]{10,30}$'
+              AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${normCreatorUser}
+          ) dp_raw
+          ORDER BY pin_id, src_priority ASC
         )
         SELECT COALESCE(clean_domain, '') AS clean_dom
         FROM direct_pins
@@ -809,16 +880,27 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
 
   const boardsPromise = sql`
     WITH direct_pins AS (
-      SELECT ump.board_name, ump.clean_domain
-      FROM competitor_board_pins cbp
-      JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
-      WHERE cbp.competitor_id = ${numericId}
-      UNION ALL
-      SELECT ump.board_name, ump.clean_domain
-      FROM universal_master_pins ump
-      WHERE ${normCreatorUser} <> ''
-        AND LOWER(TRIM(ump.creator_username)) = ${normCreatorUser}
-        AND NOT EXISTS (SELECT 1 FROM competitor_board_pins cbp_chk WHERE cbp_chk.competitor_id = ${numericId})
+      SELECT DISTINCT ON (pin_id) pin_id, board_name, clean_domain
+      FROM (
+        SELECT cbp.pin_id, ump.board_name, ump.clean_domain, 0 AS src_priority
+        FROM competitor_board_pins cbp
+        JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+        WHERE cbp.competitor_id = ${numericId}
+          AND ump.pin_id ~ '^[0-9]{10,30}$'
+        UNION ALL
+        SELECT ump.pin_id, ump.board_name, ump.clean_domain, 1 AS src_priority
+        FROM universal_master_pins ump
+        WHERE ump.pin_id ~ '^[0-9]{10,30}$'
+          AND (
+            (${normCreatorUser} <> '' AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${normCreatorUser})
+            OR (
+              ${primaryDomain} <> ''
+              AND ump.clean_domain = ${primaryDomain}
+              AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+            )
+          )
+      ) dp_raw
+      ORDER BY pin_id, src_priority ASC
     )
     SELECT DISTINCT COALESCE(NULLIF(TRIM(dp.board_name), ''), 'General') AS board_name, COUNT(*)::int as count
     FROM direct_pins dp
@@ -841,69 +923,82 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     ? (ranked_only
       ? sql`
     WITH direct_pins AS (
-      SELECT
-        cbp.competitor_id,
-        cbp.board_id,
-        cbp.pin_id,
-        cb.name AS cb_board_name,
-        ump.title,
-        ump.description,
-        ump.clean_domain,
-        ump.domain,
-        ump.destination_url,
-        ump.board_name,
-        ump.board_slug,
-        ump.image_url,
-        ump.save_count,
-        ump.repin_count,
-        ump.comment_count,
-        ump.share_count,
-        ump.daily_save_velocity,
-        ump.delta_saves_24h,
-        ump.delta_repins_24h,
-        ump.dominant_color,
-        ump.visual_annotations,
-        ump.alt_text,
-        ump.created_at_pinterest,
-        ump.first_discovered_at,
-        ump.updated_at,
-        ump.is_product
-      FROM competitor_board_pins cbp
-      JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
-      LEFT JOIN competitor_boards cb ON cb.competitor_id = cbp.competitor_id AND cb.board_id = cbp.board_id
-      WHERE cbp.competitor_id = ${numericId}
-      UNION ALL
-      SELECT
-        ${numericId}::int AS competitor_id,
-        NULL::text AS board_id,
-        ump.pin_id,
-        NULL::text AS cb_board_name,
-        ump.title,
-        ump.description,
-        ump.clean_domain,
-        ump.domain,
-        ump.destination_url,
-        ump.board_name,
-        ump.board_slug,
-        ump.image_url,
-        ump.save_count,
-        ump.repin_count,
-        ump.comment_count,
-        ump.share_count,
-        ump.daily_save_velocity,
-        ump.delta_saves_24h,
-        ump.delta_repins_24h,
-        ump.dominant_color,
-        ump.visual_annotations,
-        ump.alt_text,
-        ump.created_at_pinterest,
-        ump.first_discovered_at,
-        ump.updated_at,
-        ump.is_product
-      FROM universal_master_pins ump
-      WHERE ${normCreatorUser} <> ''
-        AND LOWER(TRIM(ump.creator_username)) = ${normCreatorUser}
-        AND NOT EXISTS (SELECT 1 FROM competitor_board_pins cbp_chk WHERE cbp_chk.competitor_id = ${numericId})
+      SELECT DISTINCT ON (pin_id) *
+      FROM (
+        SELECT
+          cbp.competitor_id,
+          cbp.board_id,
+          cbp.pin_id,
+          cb.name AS cb_board_name,
+          ump.title,
+          ump.description,
+          ump.clean_domain,
+          ump.domain,
+          ump.destination_url,
+          ump.board_name,
+          ump.board_slug,
+          ump.image_url,
+          ump.save_count,
+          ump.repin_count,
+          ump.comment_count,
+          ump.share_count,
+          ump.daily_save_velocity,
+          ump.delta_saves_24h,
+          ump.delta_repins_24h,
+          ump.dominant_color,
+          ump.visual_annotations,
+          ump.alt_text,
+          ump.created_at_pinterest,
+          ump.first_discovered_at,
+          ump.updated_at,
+          ump.is_product,
+          0 AS src_priority
+        FROM competitor_board_pins cbp
+        JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+        LEFT JOIN competitor_boards cb ON cb.competitor_id = cbp.competitor_id AND cb.board_id = cbp.board_id
+        WHERE cbp.competitor_id = ${numericId}
+          AND ump.pin_id ~ '^[0-9]{10,30}$'
+        UNION ALL
+        SELECT
+          ${numericId}::int AS competitor_id,
+          NULL::text AS board_id,
+          ump.pin_id,
+          NULL::text AS cb_board_name,
+          ump.title,
+          ump.description,
+          ump.clean_domain,
+          ump.domain,
+          ump.destination_url,
+          ump.board_name,
+          ump.board_slug,
+          ump.image_url,
+          ump.save_count,
+          ump.repin_count,
+          ump.comment_count,
+          ump.share_count,
+          ump.daily_save_velocity,
+          ump.delta_saves_24h,
+          ump.delta_repins_24h,
+          ump.dominant_color,
+          ump.visual_annotations,
+          ump.alt_text,
+          ump.created_at_pinterest,
+          ump.first_discovered_at,
+          ump.updated_at,
+          ump.is_product,
+          1 AS src_priority
+        FROM universal_master_pins ump
+        WHERE ump.pin_id ~ '^[0-9]{10,30}$'
+          AND (
+            (${normCreatorUser} <> '' AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${normCreatorUser})
+            OR (
+              ${primaryDomain} <> ''
+              AND ump.clean_domain = ${primaryDomain}
+              AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+            )
+          )
+      ) dp_raw
+      ORDER BY pin_id, src_priority ASC
     )
     SELECT 
       dp.competitor_id,
@@ -1000,67 +1095,80 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   `
       : sql`
     WITH direct_pins AS (
-      SELECT
-        cbp.competitor_id,
-        cbp.board_id,
-        cbp.pin_id,
-        cb.name AS cb_board_name,
-        ump.title,
-        ump.description,
-        COALESCE(ump.clean_domain, ump.domain, '') AS clean_domain,
-        ump.destination_url,
-        ump.board_name,
-        ump.board_slug,
-        ump.image_url,
-        ump.save_count,
-        ump.repin_count,
-        ump.comment_count,
-        ump.share_count,
-        ump.daily_save_velocity,
-        ump.delta_saves_24h,
-        ump.delta_repins_24h,
-        ump.dominant_color,
-        ump.visual_annotations,
-        ump.alt_text,
-        ump.created_at_pinterest,
-        ump.first_discovered_at,
-        ump.updated_at,
-        ump.is_product
-      FROM competitor_board_pins cbp
-      JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
-      LEFT JOIN competitor_boards cb ON cb.competitor_id = cbp.competitor_id AND cb.board_id = cbp.board_id
-      WHERE cbp.competitor_id = ${numericId}
-      UNION ALL
-      SELECT
-        ${numericId}::int AS competitor_id,
-        NULL::text AS board_id,
-        ump.pin_id,
-        NULL::text AS cb_board_name,
-        ump.title,
-        ump.description,
-        COALESCE(ump.clean_domain, ump.domain, '') AS clean_domain,
-        ump.destination_url,
-        ump.board_name,
-        ump.board_slug,
-        ump.image_url,
-        ump.save_count,
-        ump.repin_count,
-        ump.comment_count,
-        ump.share_count,
-        ump.daily_save_velocity,
-        ump.delta_saves_24h,
-        ump.delta_repins_24h,
-        ump.dominant_color,
-        ump.visual_annotations,
-        ump.alt_text,
-        ump.created_at_pinterest,
-        ump.first_discovered_at,
-        ump.updated_at,
-        ump.is_product
-      FROM universal_master_pins ump
-      WHERE ${normCreatorUser} <> ''
-        AND LOWER(TRIM(ump.creator_username)) = ${normCreatorUser}
-        AND NOT EXISTS (SELECT 1 FROM competitor_board_pins cbp_chk WHERE cbp_chk.competitor_id = ${numericId})
+      SELECT DISTINCT ON (pin_id) *
+      FROM (
+        SELECT
+          cbp.competitor_id,
+          cbp.board_id,
+          cbp.pin_id,
+          cb.name AS cb_board_name,
+          ump.title,
+          ump.description,
+          COALESCE(ump.clean_domain, ump.domain, '') AS clean_domain,
+          ump.destination_url,
+          ump.board_name,
+          ump.board_slug,
+          ump.image_url,
+          ump.save_count,
+          ump.repin_count,
+          ump.comment_count,
+          ump.share_count,
+          ump.daily_save_velocity,
+          ump.delta_saves_24h,
+          ump.delta_repins_24h,
+          ump.dominant_color,
+          ump.visual_annotations,
+          ump.alt_text,
+          ump.created_at_pinterest,
+          ump.first_discovered_at,
+          ump.updated_at,
+          ump.is_product,
+          0 AS src_priority
+        FROM competitor_board_pins cbp
+        JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+        LEFT JOIN competitor_boards cb ON cb.competitor_id = cbp.competitor_id AND cb.board_id = cbp.board_id
+        WHERE cbp.competitor_id = ${numericId}
+          AND ump.pin_id ~ '^[0-9]{10,30}$'
+        UNION ALL
+        SELECT
+          ${numericId}::int AS competitor_id,
+          NULL::text AS board_id,
+          ump.pin_id,
+          NULL::text AS cb_board_name,
+          ump.title,
+          ump.description,
+          COALESCE(ump.clean_domain, ump.domain, '') AS clean_domain,
+          ump.destination_url,
+          ump.board_name,
+          ump.board_slug,
+          ump.image_url,
+          ump.save_count,
+          ump.repin_count,
+          ump.comment_count,
+          ump.share_count,
+          ump.daily_save_velocity,
+          ump.delta_saves_24h,
+          ump.delta_repins_24h,
+          ump.dominant_color,
+          ump.visual_annotations,
+          ump.alt_text,
+          ump.created_at_pinterest,
+          ump.first_discovered_at,
+          ump.updated_at,
+          ump.is_product,
+          1 AS src_priority
+        FROM universal_master_pins ump
+        WHERE ump.pin_id ~ '^[0-9]{10,30}$'
+          AND (
+            (${normCreatorUser} <> '' AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${normCreatorUser})
+            OR (
+              ${primaryDomain} <> ''
+              AND ump.clean_domain = ${primaryDomain}
+              AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+            )
+          )
+      ) dp_raw
+      ORDER BY pin_id, src_priority ASC
     ),
     filtered_pins AS (
       SELECT 
@@ -1169,69 +1277,82 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   `)
     : sql`
     WITH direct_pins AS (
-      SELECT
-        cbp.competitor_id,
-        cbp.board_id,
-        cbp.pin_id,
-        cb.name AS cb_board_name,
-        ump.title,
-        ump.description,
-        ump.clean_domain,
-        ump.domain,
-        ump.destination_url,
-        ump.board_name,
-        ump.board_slug,
-        ump.image_url,
-        ump.save_count,
-        ump.repin_count,
-        ump.comment_count,
-        ump.share_count,
-        ump.daily_save_velocity,
-        ump.delta_saves_24h,
-        ump.delta_repins_24h,
-        ump.dominant_color,
-        ump.visual_annotations,
-        ump.alt_text,
-        ump.created_at_pinterest,
-        ump.first_discovered_at,
-        ump.updated_at,
-        ump.is_product
-      FROM competitor_board_pins cbp
-      JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
-      LEFT JOIN competitor_boards cb ON cb.competitor_id = cbp.competitor_id AND cb.board_id = cbp.board_id
-      WHERE cbp.competitor_id = ${numericId}
-      UNION ALL
-      SELECT
-        ${numericId}::int AS competitor_id,
-        NULL::text AS board_id,
-        ump.pin_id,
-        NULL::text AS cb_board_name,
-        ump.title,
-        ump.description,
-        ump.clean_domain,
-        ump.domain,
-        ump.destination_url,
-        ump.board_name,
-        ump.board_slug,
-        ump.image_url,
-        ump.save_count,
-        ump.repin_count,
-        ump.comment_count,
-        ump.share_count,
-        ump.daily_save_velocity,
-        ump.delta_saves_24h,
-        ump.delta_repins_24h,
-        ump.dominant_color,
-        ump.visual_annotations,
-        ump.alt_text,
-        ump.created_at_pinterest,
-        ump.first_discovered_at,
-        ump.updated_at,
-        ump.is_product
-      FROM universal_master_pins ump
-      WHERE ${normCreatorUser} <> ''
-        AND LOWER(TRIM(ump.creator_username)) = ${normCreatorUser}
-        AND NOT EXISTS (SELECT 1 FROM competitor_board_pins cbp_chk WHERE cbp_chk.competitor_id = ${numericId})
+      SELECT DISTINCT ON (pin_id) *
+      FROM (
+        SELECT
+          cbp.competitor_id,
+          cbp.board_id,
+          cbp.pin_id,
+          cb.name AS cb_board_name,
+          ump.title,
+          ump.description,
+          ump.clean_domain,
+          ump.domain,
+          ump.destination_url,
+          ump.board_name,
+          ump.board_slug,
+          ump.image_url,
+          ump.save_count,
+          ump.repin_count,
+          ump.comment_count,
+          ump.share_count,
+          ump.daily_save_velocity,
+          ump.delta_saves_24h,
+          ump.delta_repins_24h,
+          ump.dominant_color,
+          ump.visual_annotations,
+          ump.alt_text,
+          ump.created_at_pinterest,
+          ump.first_discovered_at,
+          ump.updated_at,
+          ump.is_product,
+          0 AS src_priority
+        FROM competitor_board_pins cbp
+        JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+        LEFT JOIN competitor_boards cb ON cb.competitor_id = cbp.competitor_id AND cb.board_id = cbp.board_id
+        WHERE cbp.competitor_id = ${numericId}
+          AND ump.pin_id ~ '^[0-9]{10,30}$'
+        UNION ALL
+        SELECT
+          ${numericId}::int AS competitor_id,
+          NULL::text AS board_id,
+          ump.pin_id,
+          NULL::text AS cb_board_name,
+          ump.title,
+          ump.description,
+          ump.clean_domain,
+          ump.domain,
+          ump.destination_url,
+          ump.board_name,
+          ump.board_slug,
+          ump.image_url,
+          ump.save_count,
+          ump.repin_count,
+          ump.comment_count,
+          ump.share_count,
+          ump.daily_save_velocity,
+          ump.delta_saves_24h,
+          ump.delta_repins_24h,
+          ump.dominant_color,
+          ump.visual_annotations,
+          ump.alt_text,
+          ump.created_at_pinterest,
+          ump.first_discovered_at,
+          ump.updated_at,
+          ump.is_product,
+          1 AS src_priority
+        FROM universal_master_pins ump
+        WHERE ump.pin_id ~ '^[0-9]{10,30}$'
+          AND (
+            (${normCreatorUser} <> '' AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${normCreatorUser})
+            OR (
+              ${primaryDomain} <> ''
+              AND ump.clean_domain = ${primaryDomain}
+              AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+            )
+          )
+      ) dp_raw
+      ORDER BY pin_id, src_priority ASC
     ),
     eco_pool AS (
       SELECT
@@ -1316,7 +1437,9 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       FROM universal_master_pins ump
       WHERE ${activeScope} IN ('ecosystem', 'curators', 'all')
         AND ${primaryDomain} <> ''
+        AND ump.pin_id ~ '^[0-9]{10,30}$'
         AND ump.clean_domain = ${primaryDomain}
+        AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) NOT IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator', ${normCreatorUser})
         AND NOT EXISTS (
           SELECT 1 FROM direct_pins dp_ex
           WHERE dp_ex.pin_id = ump.pin_id
@@ -1374,42 +1497,55 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   const getCountFallback = async () => {
     const [row] = await sql`
       WITH direct_pins AS (
-        SELECT
-          cbp.pin_id,
-          ump.title,
-          ump.description,
-          ump.clean_domain,
-          ump.destination_url,
-          ump.board_slug,
-          ump.save_count,
-          ump.repin_count,
-          ump.daily_save_velocity,
-          ump.created_at_pinterest,
-          ump.first_discovered_at,
-          ump.is_product,
-          ${cleanUsername || ''}::text AS curator_username
-        FROM competitor_board_pins cbp
-        JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
-        WHERE cbp.competitor_id = ${numericId}
-        UNION ALL
-        SELECT
-          ump.pin_id,
-          ump.title,
-          ump.description,
-          ump.clean_domain,
-          ump.destination_url,
-          ump.board_slug,
-          ump.save_count,
-          ump.repin_count,
-          ump.daily_save_velocity,
-          ump.created_at_pinterest,
-          ump.first_discovered_at,
-          ump.is_product,
-          COALESCE(ump.creator_username, ${cleanUsername || ''}) AS curator_username
-        FROM universal_master_pins ump
-        WHERE ${normCreatorUser} <> ''
-          AND LOWER(TRIM(ump.creator_username)) = ${normCreatorUser}
-          AND NOT EXISTS (SELECT 1 FROM competitor_board_pins cbp_chk WHERE cbp_chk.competitor_id = ${numericId})
+        SELECT DISTINCT ON (pin_id) *
+        FROM (
+          SELECT
+            cbp.pin_id,
+            ump.title,
+            ump.description,
+            ump.clean_domain,
+            ump.destination_url,
+            ump.board_slug,
+            ump.save_count,
+            ump.repin_count,
+            ump.daily_save_velocity,
+            ump.created_at_pinterest,
+            ump.first_discovered_at,
+            ump.is_product,
+            ${cleanUsername || ''}::text AS curator_username,
+            0 AS src_priority
+          FROM competitor_board_pins cbp
+          JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+          WHERE cbp.competitor_id = ${numericId}
+            AND ump.pin_id ~ '^[0-9]{10,30}$'
+          UNION ALL
+          SELECT
+            ump.pin_id,
+            ump.title,
+            ump.description,
+            ump.clean_domain,
+            ump.destination_url,
+            ump.board_slug,
+            ump.save_count,
+            ump.repin_count,
+            ump.daily_save_velocity,
+            ump.created_at_pinterest,
+            ump.first_discovered_at,
+            ump.is_product,
+            COALESCE(NULLIF(ump.creator_username, ''), ${cleanUsername || ''}) AS curator_username,
+            1 AS src_priority
+          FROM universal_master_pins ump
+          WHERE ump.pin_id ~ '^[0-9]{10,30}$'
+            AND (
+              (${normCreatorUser} <> '' AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${normCreatorUser})
+              OR (
+                ${primaryDomain} <> ''
+                AND ump.clean_domain = ${primaryDomain}
+                AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+              )
+            )
+        ) dp_raw
+        ORDER BY pin_id, src_priority ASC
       ),
       scoped_pool AS (
         SELECT
@@ -1466,7 +1602,9 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         FROM universal_master_pins ump
         WHERE ${activeScope} IN ('ecosystem', 'curators', 'all')
           AND ${primaryDomain} <> ''
+          AND ump.pin_id ~ '^[0-9]{10,30}$'
           AND ump.clean_domain = ${primaryDomain}
+          AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) NOT IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator', ${normCreatorUser})
           AND NOT EXISTS (SELECT 1 FROM direct_pins dp_ex WHERE dp_ex.pin_id = ump.pin_id)
       )
       SELECT COUNT(*)::int as total
@@ -1507,24 +1645,37 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   // Global Unfiltered Totals Query: Decoupled from active filter predicates
   const unfilteredTotalsPromise = sql`
     WITH direct_pins AS (
-      SELECT
-        cbp.pin_id,
-        ump.clean_domain,
-        ump.save_count,
-        ump.daily_save_velocity AS ump_vel
-      FROM competitor_board_pins cbp
-      JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
-      WHERE cbp.competitor_id = ${numericId}
-      UNION ALL
-      SELECT
-        ump.pin_id,
-        ump.clean_domain,
-        ump.save_count,
-        ump.daily_save_velocity AS ump_vel
-      FROM universal_master_pins ump
-      WHERE ${normCreatorUser} <> ''
-        AND LOWER(TRIM(ump.creator_username)) = ${normCreatorUser}
-        AND NOT EXISTS (SELECT 1 FROM competitor_board_pins cbp_chk WHERE cbp_chk.competitor_id = ${numericId})
+      SELECT DISTINCT ON (pin_id) pin_id, clean_domain, save_count, ump_vel
+      FROM (
+        SELECT
+          cbp.pin_id,
+          ump.clean_domain,
+          ump.save_count,
+          ump.daily_save_velocity AS ump_vel,
+          0 AS src_priority
+        FROM competitor_board_pins cbp
+        JOIN universal_master_pins ump ON ump.pin_id = cbp.pin_id
+        WHERE cbp.competitor_id = ${numericId}
+          AND ump.pin_id ~ '^[0-9]{10,30}$'
+        UNION ALL
+        SELECT
+          ump.pin_id,
+          ump.clean_domain,
+          ump.save_count,
+          ump.daily_save_velocity AS ump_vel,
+          1 AS src_priority
+        FROM universal_master_pins ump
+        WHERE ump.pin_id ~ '^[0-9]{10,30}$'
+          AND (
+            (${normCreatorUser} <> '' AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${normCreatorUser})
+            OR (
+              ${primaryDomain} <> ''
+              AND ump.clean_domain = ${primaryDomain}
+              AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+            )
+          )
+      ) dp_raw
+      ORDER BY pin_id, src_priority ASC
     ),
     classified_cp AS (
       SELECT
@@ -1562,19 +1713,31 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   const curatorTotalsPromise = primaryDomain
     ? sql`
         WITH direct_pins AS (
-          SELECT cbp_ex.pin_id
-          FROM competitor_board_pins cbp_ex
-          WHERE cbp_ex.competitor_id = ${numericId}
-          UNION ALL
-          SELECT ump_dp.pin_id
-          FROM universal_master_pins ump_dp
-          WHERE ${normCreatorUser} <> ''
-            AND LOWER(TRIM(ump_dp.creator_username)) = ${normCreatorUser}
-            AND NOT EXISTS (SELECT 1 FROM competitor_board_pins cbp_chk WHERE cbp_chk.competitor_id = ${numericId})
+          SELECT DISTINCT pin_id
+          FROM (
+            SELECT cbp_ex.pin_id
+            FROM competitor_board_pins cbp_ex
+            JOIN universal_master_pins ump_chk ON ump_chk.pin_id = cbp_ex.pin_id
+            WHERE cbp_ex.competitor_id = ${numericId}
+              AND ump_chk.pin_id ~ '^[0-9]{10,30}$'
+            UNION ALL
+            SELECT ump_dp.pin_id
+            FROM universal_master_pins ump_dp
+            WHERE ump_dp.pin_id ~ '^[0-9]{10,30}$'
+              AND (
+                (${normCreatorUser} <> '' AND LOWER(LTRIM(BTRIM(COALESCE(ump_dp.creator_username, '')), '@')) = ${normCreatorUser})
+                OR (
+                  ump_dp.clean_domain = ${primaryDomain}
+                  AND LOWER(LTRIM(BTRIM(COALESCE(ump_dp.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+                )
+              )
+          ) dp_raw
         )
         SELECT COUNT(*)::int AS curator_pins_total
         FROM universal_master_pins ump
-        WHERE ump.clean_domain = ${primaryDomain}
+        WHERE ump.pin_id ~ '^[0-9]{10,30}$'
+          AND ump.clean_domain = ${primaryDomain}
+          AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) NOT IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator', ${normCreatorUser})
           AND NOT EXISTS (
             SELECT 1 FROM direct_pins dp_ex
             WHERE dp_ex.pin_id = ump.pin_id

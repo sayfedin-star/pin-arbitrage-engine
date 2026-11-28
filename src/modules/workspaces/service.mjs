@@ -10,6 +10,7 @@
  * - Offline / no-DB mode gracefully resolves to Default Workspace (id = 1).
  */
 
+import { formatPinterestCookie } from '../../utils.mjs';
 import { decodeHtmlEntities } from '../newborn/surface-normalizers.mjs';
 import {
   normalizeCandidateForMasterIngest,
@@ -817,6 +818,83 @@ export async function resolveWorkspaceRawCookie(sql, workspaceId = DEFAULT_WORKS
     }
   } catch (_) {}
   return { rawCookie: '', source: 'none' };
+}
+
+/**
+ * Canonical Single Source of Truth (SSOT) Pinterest Session Cookie resolver across all crawlers, routes, and services.
+ * Resolution priority:
+ * 1. `workspace_settings.pinterest_cookie_enc` for the requested `workspaceId`.
+ * 2. Strict Workspace Isolation: For non-default workspaces (`workspaceId !== 1`), NEVER fall back to Workspace 1 or global env cookies.
+ * 3. Default Workspace (1) fallback ONLY if DB has no stored cookie: `runtimeCookie` -> `env.PINTEREST_COOKIE` -> `process.env.PINTEREST_COOKIE`.
+ *
+ * [INVARIANT: ZERO-SECRET-LEAK] NEVER return `rawCookie` or `formattedCookie` in any HTTP response or log.
+ * [INVARIANT: WORKSPACE-COOKIE-ISOLATION] WS 2+ never inherits WS 1 or global env cookies.
+ */
+export async function resolveActivePinterestCookie(sql, { workspaceId = DEFAULT_WORKSPACE_ID, env = null, runtimeCookie = '' } = {}) {
+  const wid = parsePositiveWorkspaceId(workspaceId) || DEFAULT_WORKSPACE_ID;
+
+  // 1. Primary SSOT: workspace_settings.pinterest_cookie_enc
+  const wsResolved = await resolveWorkspaceRawCookie(sql, wid);
+  if (wsResolved.rawCookie && wsResolved.rawCookie.length > 10) {
+    return {
+      workspaceId: wid,
+      rawCookie: wsResolved.rawCookie,
+      formattedCookie: formatPinterestCookie(wsResolved.rawCookie),
+      hasCookie: true,
+      source: wsResolved.source
+    };
+  }
+
+  // 2. Strict Workspace Isolation: WS 2+ never inherits WS 1 or global env cookies
+  if (wid !== DEFAULT_WORKSPACE_ID) {
+    return {
+      workspaceId: wid,
+      rawCookie: '',
+      formattedCookie: '',
+      hasCookie: false,
+      source: 'none'
+    };
+  }
+
+  // 3. Explicit runtime override (WS 1 only when DB vault is empty)
+  const cleanRuntime = typeof runtimeCookie === 'string' ? runtimeCookie.trim() : '';
+  if (cleanRuntime.length > 10) {
+    return {
+      workspaceId: wid,
+      rawCookie: cleanRuntime,
+      formattedCookie: formatPinterestCookie(cleanRuntime),
+      hasCookie: true,
+      source: 'runtime'
+    };
+  }
+
+  // 4. Environment fallback (WS 1 only when DB vault is empty)
+  const envCandidates = [
+    { val: env?.PINTEREST_COOKIE, src: 'env:PINTEREST_COOKIE' },
+    { val: env?.NEWBORN_PINTEREST_COOKIE, src: 'env:NEWBORN_PINTEREST_COOKIE' },
+    { val: typeof process !== 'undefined' ? process.env?.PINTEREST_COOKIE : '', src: 'process_env:PINTEREST_COOKIE' },
+    { val: typeof process !== 'undefined' ? process.env?.NEWBORN_PINTEREST_COOKIE : '', src: 'process_env:NEWBORN_PINTEREST_COOKIE' }
+  ];
+  for (const cand of envCandidates) {
+    const clean = typeof cand.val === 'string' ? cand.val.trim() : '';
+    if (clean.length > 10) {
+      return {
+        workspaceId: wid,
+        rawCookie: clean,
+        formattedCookie: formatPinterestCookie(clean),
+        hasCookie: true,
+        source: cand.src
+      };
+    }
+  }
+
+  return {
+    workspaceId: wid,
+    rawCookie: '',
+    formattedCookie: '',
+    hasCookie: false,
+    source: 'none'
+  };
 }
 
 /**

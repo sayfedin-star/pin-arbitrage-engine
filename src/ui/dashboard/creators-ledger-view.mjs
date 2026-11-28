@@ -281,10 +281,7 @@ export function renderCreatorsLedgerView({ safeFolderId = '' } = {}) {
                     </td>
                     <td class="py-3 px-3 text-right">
                       <div class="inline-flex items-center justify-end gap-1">
-                        <span class="font-bold text-slate-900 dark:text-white" x-text="formatNumber(c.monthly_reach)"></span>
-                        <template x-if="Number(c.monthly_reach) === 10000001">
-                          <span class="text-[9px] font-bold px-1 py-0.2 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30" title="Pinterest 10M+ public API ceiling">10M+</span>
-                        </template>
+                        <span class="font-bold text-slate-900 dark:text-white" x-text="formatCeilingMetric(c.monthly_reach)" :title="Number(c.monthly_reach) === 10000001 ? 'Pinterest 10M+ public API ceiling' : ''"></span>
                       </div>
                       <!-- 24h & 7d Deltas -->
                       <div class="flex items-center justify-end gap-1 text-[10px] font-mono tabular-nums">
@@ -298,10 +295,7 @@ export function renderCreatorsLedgerView({ safeFolderId = '' } = {}) {
                     </td>
                     <td class="py-3 px-3 text-right">
                       <div class="inline-flex items-center justify-end gap-1">
-                        <span class="text-slate-700 dark:text-slate-300 font-bold" x-text="formatNumber(c.profile_views)"></span>
-                        <template x-if="Number(c.profile_views) === 10000001">
-                          <span class="text-[9px] font-bold px-1 py-0.2 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30" title="Pinterest 10M+ public API ceiling">10M+</span>
-                        </template>
+                        <span class="text-slate-700 dark:text-slate-300 font-bold" x-text="formatCeilingMetric(c.profile_views)" :title="Number(c.profile_views) === 10000001 ? 'Pinterest 10M+ public API ceiling' : ''"></span>
                       </div>
                       <div class="flex items-center justify-end gap-1 text-[10px] font-mono tabular-nums">
                         <template x-if="c.delta_views_24h != null && c.delta_views_24h !== 0">
