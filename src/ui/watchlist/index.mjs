@@ -243,7 +243,7 @@ ${renderAppSidebar({
               <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-[#27272A] pb-3.5">
                 <div>
                   <h2 class="text-base font-bold text-slate-900 dark:text-[#FAFAFA]" x-text="'Catalog Explorer: @' + selectedCreatorKey"></h2>
-                  <p class="text-xs text-slate-500 dark:text-[#A1A1AA] font-mono tabular-nums mt-0.5" x-text="'Showing ' + filteredCatalogPins.length + ' of ' + catalogPins.length + ' loaded pins (Total indexed: ' + catalogTotal + ')'"></p>
+                  <p class="text-xs text-slate-500 dark:text-[#A1A1AA] font-mono tabular-nums mt-0.5" x-text="catalogSummaryText"></p>
                 </div>
                 <button
                   type="button"
@@ -313,6 +313,7 @@ ${renderAppSidebar({
                         <th class="px-3 py-2.5">Domain</th>
                         <th class="px-3 py-2.5 text-right">Saves</th>
                         <th class="px-3 py-2.5 text-right">Re-pins</th>
+                        <th class="px-3 py-2.5 text-right">24h Velocity</th>
                         <th class="px-3 py-2.5 text-right">Age</th>
                       </tr>
                     </thead>
@@ -326,6 +327,25 @@ ${renderAppSidebar({
                           <td class="px-3 py-2.5 font-mono text-slate-600 dark:text-[#A1A1AA] truncate max-w-[160px]" x-text="pin.link_domain || 'Uploaded by user'"></td>
                           <td class="px-3 py-2.5 text-right font-mono tabular-nums font-semibold" x-text="fmtNum(pin.saves ?? pin.save_count ?? 0)"></td>
                           <td class="px-3 py-2.5 text-right font-mono tabular-nums" x-text="fmtNum(pin.repins ?? pin.repin_count ?? 0)"></td>
+                          <td class="px-3 py-2.5 text-right whitespace-nowrap">
+                            <template x-if="catalogPinVelocity(pin) !== 0">
+                              <div class="inline-flex flex-col items-end">
+                                <span
+                                  class="inline-flex items-center px-1.5 py-0.5 rounded-md font-mono tabular-nums text-[11px] font-bold"
+                                  :class="catalogPinVelocity(pin) > 0
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-700/40'
+                                    : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200/80 dark:border-rose-700/40'"
+                                  x-text="formatVelocityPill(catalogPinVelocity(pin))"></span>
+                                <template x-if="Number(pin.delta_repins_24h || 0) !== 0">
+                                  <span class="text-[10px] font-mono tabular-nums text-slate-400 dark:text-[#71717A] mt-0.5"
+                                        x-text="(Number(pin.delta_repins_24h) > 0 ? '+' : '') + fmtNum(pin.delta_repins_24h) + ' repins 24h'"></span>
+                                </template>
+                              </div>
+                            </template>
+                            <template x-if="catalogPinVelocity(pin) === 0">
+                              <span class="font-mono text-slate-400 dark:text-[#52525B]">—</span>
+                            </template>
+                          </td>
                           <td class="px-3 py-2.5 text-right font-mono tabular-nums text-slate-500 dark:text-[#A1A1AA]" x-text="(pin.age_days ?? 0) + 'd'"></td>
                         </tr>
                       </template>
@@ -412,6 +432,8 @@ ${renderAppSidebar({
                   <th class="px-4 py-3">Domain</th>
                   <th class="px-4 py-3 text-right">Saves</th>
                   <th class="px-4 py-3 text-right">Re-pins</th>
+                  <th class="px-4 py-3 text-right">24h Velocity</th>
+                  <th class="px-4 py-3">Campaign</th>
                   <th class="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
@@ -420,9 +442,16 @@ ${renderAppSidebar({
                   <tr class="hover:bg-slate-50/80 dark:hover:bg-[#18181B]/60 transition">
                     <td class="px-4 py-3 max-w-md">
                       <div class="flex items-center gap-3">
-                        <template x-if="safeImg(item.pin_image_url)">
-                          <img :src="safeImg(item.pin_image_url)" alt="" loading="lazy" referrerpolicy="no-referrer" class="w-10 h-12 rounded-lg object-cover border border-slate-200 dark:border-[#27272A] shrink-0" />
-                        </template>
+                        <a :href="'/pin/' + encodeURIComponent(item.entity_key)" class="shrink-0 block hover:opacity-90 transition" :aria-label="'Inspect Pin ' + item.entity_key">
+                          <template x-if="safeImg(item.pin_image_url)">
+                            <img :src="safeImg(item.pin_image_url)" alt="" loading="lazy" referrerpolicy="no-referrer" class="w-10 h-12 rounded-lg object-cover border border-slate-200 dark:border-[#27272A]" />
+                          </template>
+                          <template x-if="!safeImg(item.pin_image_url)">
+                            <div class="w-10 h-12 rounded-lg bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] flex items-center justify-center text-slate-400">
+                              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                            </div>
+                          </template>
+                        </a>
                         <div class="min-w-0">
                           <a :href="'/pin/' + encodeURIComponent(item.entity_key)" class="font-semibold text-slate-900 dark:text-[#FAFAFA] hover:text-rose-600 dark:hover:text-rose-400 line-clamp-2" x-text="decodeTitle(item.pin_title) || ('Pin #' + item.entity_key)"></a>
                           <div class="text-[11px] font-mono text-slate-400 dark:text-[#71717A]" x-text="item.entity_key"></div>
@@ -433,22 +462,51 @@ ${renderAppSidebar({
                     <td class="px-4 py-3 text-right font-mono tabular-nums font-semibold" x-text="fmtNum(item.pin_save_count ?? 0)"></td>
                     <td class="px-4 py-3 text-right font-mono tabular-nums" x-text="fmtNum(item.pin_repin_count ?? 0)"></td>
                     <td class="px-4 py-3 text-right whitespace-nowrap">
-                      <div class="inline-flex items-center gap-1.5">
-                        <a
-                          :href="'/pin/' + encodeURIComponent(item.entity_key)"
-                          class="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-[#27272A] text-[11px] font-semibold text-slate-700 dark:text-slate-200 hover:border-rose-400 hover:text-rose-600 transition">
-                          Open Pin
-                        </a>
+                      <template x-if="savedPinVelocity(item) !== 0">
+                        <div class="inline-flex flex-col items-end">
+                          <span
+                            class="inline-flex items-center px-2 py-0.5 rounded-md font-mono tabular-nums text-[11px] font-bold"
+                            :class="savedPinVelocity(item) > 0
+                              ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-700/40'
+                              : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200/80 dark:border-rose-700/40'"
+                            x-text="formatVelocityPill(savedPinVelocity(item))"></span>
+                          <template x-if="savedPinRepinDelta(item) !== 0">
+                            <span class="text-[10px] font-mono tabular-nums text-slate-400 dark:text-[#71717A] mt-0.5"
+                                  x-text="(savedPinRepinDelta(item) > 0 ? '+' : '') + fmtNum(savedPinRepinDelta(item)) + ' repins 24h'"></span>
+                          </template>
+                        </div>
+                      </template>
+                      <template x-if="savedPinVelocity(item) === 0">
+                        <span class="font-mono text-slate-400 dark:text-[#52525B]">—</span>
+                      </template>
+                    </td>
+                    <td class="px-4 py-3">
+                      <div class="flex flex-wrap items-center gap-1.5">
+                        <template x-for="c in (item.campaigns || [])" :key="c.folder_id">
+                          <a :href="'/folders/' + c.folder_id"
+                             class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-200 border border-indigo-200/80 dark:border-indigo-500/40 hover:bg-indigo-100 dark:hover:bg-indigo-950/70 transition">
+                            <span class="w-1.5 h-1.5 rounded-full shrink-0" :style="'background-color:' + (c.folder_color || '#6366f1')"></span>
+                            <span class="truncate max-w-[120px]" x-text="c.folder_name || ('Campaign #' + c.folder_id)"></span>
+                          </a>
+                        </template>
                         <button
                           type="button"
-                          @click="removeWatchlistItem(item)"
-                          :disabled="Boolean(removingIds[item.id])"
-                          class="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
-                          title="Remove pin from Watchlist"
-                          aria-label="Remove pin from Watchlist">
-                          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
-                        </button>
+                          @click="openPinCampaignModal(item)"
+                          class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-dashed border-slate-300 dark:border-[#3F3F46] text-[11px] font-semibold text-slate-600 dark:text-[#A1A1AA] hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-300 transition cursor-pointer"
+                          :title="(item.campaigns && item.campaigns.length > 0) ? 'Manage campaign folders' : 'Assign this pin to a campaign folder'"
+                          x-text="(item.campaigns && item.campaigns.length > 0) ? '+' : '+ Add to Campaign'"></button>
                       </div>
+                    </td>
+                    <td class="px-4 py-3 text-right whitespace-nowrap">
+                      <button
+                        type="button"
+                        @click="removeWatchlistItem(item)"
+                        :disabled="Boolean(removingIds[item.id])"
+                        class="p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
+                        title="Remove pin from Watchlist"
+                        aria-label="Remove pin from Watchlist">
+                        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+                      </button>
                     </td>
                   </tr>
                 </template>
@@ -524,6 +582,64 @@ ${renderAppSidebar({
               <button type="submit" :disabled="isSubmittingDomain" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold cursor-pointer disabled:opacity-50" x-text="isSubmittingDomain ? 'Adding...' : 'Add Domain'"></button>
             </div>
           </form>
+        </div>
+      </div>
+    </template>
+
+    <!-- Modal: Assign Saved Pin to Campaign -->
+    <template x-if="showPinCampaignModal">
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs" @click.self="closePinCampaignModal()">
+        <div class="w-full max-w-md bg-white dark:bg-[#121215] border border-slate-200 dark:border-[#27272A] rounded-2xl p-5 shadow-2xl space-y-4">
+          <div class="flex items-center justify-between gap-2">
+            <div class="min-w-0">
+              <h3 class="text-base font-bold text-slate-900 dark:text-[#FAFAFA]">Assign Pin to Campaign</h3>
+              <p class="text-[11px] text-slate-500 dark:text-[#A1A1AA] truncate" x-text="pinCampaignTarget ? (decodeTitle(pinCampaignTarget.pin_title) || ('Pin #' + pinCampaignTarget.entity_key)) : ''"></p>
+            </div>
+            <button type="button" @click="closePinCampaignModal()" class="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer" aria-label="Close campaign picker">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+          </div>
+          <template x-if="pinCampaignFoldersLoading">
+            <div class="py-6 text-center text-xs text-slate-500 dark:text-[#A1A1AA]">Loading workspace campaigns...</div>
+          </template>
+          <template x-if="!pinCampaignFoldersLoading && workspaceFolders.length === 0">
+            <div class="py-6 text-center text-xs text-slate-500 dark:text-[#A1A1AA] border border-dashed border-slate-200 dark:border-[#27272A] rounded-xl">
+              No campaigns in this workspace yet. Create one in <a href="/campaigns" class="text-indigo-600 dark:text-indigo-400 font-semibold hover:underline">Campaigns</a>.
+            </div>
+          </template>
+          <template x-if="!pinCampaignFoldersLoading && workspaceFolders.length > 0">
+            <div class="space-y-1.5 max-h-64 overflow-y-auto">
+              <template x-for="f in workspaceFolders" :key="f.id">
+                <div class="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border transition"
+                     :class="isSavedPinInFolder(pinCampaignTarget, f.id)
+                       ? 'border-indigo-300 dark:border-indigo-500/50 bg-indigo-50/70 dark:bg-indigo-950/30'
+                       : 'border-slate-200 dark:border-[#27272A] bg-slate-50 dark:bg-[#18181B]'">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="w-2 h-2 rounded-full shrink-0" :style="'background-color:' + (f.color || '#6366f1')"></span>
+                    <a :href="'/folders/' + f.id" class="text-xs font-semibold text-slate-900 dark:text-[#FAFAFA] hover:text-indigo-600 truncate" x-text="f.name || ('Campaign #' + f.id)"></a>
+                  </div>
+                  <div class="shrink-0">
+                    <template x-if="isSavedPinInFolder(pinCampaignTarget, f.id)">
+                      <button type="button"
+                              @click="removeSavedPinFromFolder(pinCampaignTarget, f)"
+                              :disabled="pinCampaignBusy"
+                              class="px-2 py-1 rounded-lg text-[11px] font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 transition cursor-pointer disabled:opacity-40">
+                        Remove
+                      </button>
+                    </template>
+                    <template x-if="!isSavedPinInFolder(pinCampaignTarget, f.id)">
+                      <button type="button"
+                              @click="assignSavedPinToFolder(pinCampaignTarget, f)"
+                              :disabled="pinCampaignBusy"
+                              class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition cursor-pointer disabled:opacity-40">
+                        + Add
+                      </button>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
         </div>
       </div>
     </template>

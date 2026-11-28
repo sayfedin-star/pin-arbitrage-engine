@@ -353,10 +353,13 @@ test('Screenshots 5 & 6: GET /api/pins/:id returns workspace-scoped watchlist st
   assert.equal(ws2Res.body.is_watchlisted, false);
   assert.equal(ws2Res.body.watchlist_item_id, null);
 
-  // Verify Watchlist HTML renders inline SVG remove buttons & Open Pin link (no blank Actions column)
+  // Verify Watchlist HTML renders inline SVG remove buttons, 24h Velocity, Campaign column, and clickable pin links (no redundant Open Pin button)
   const watchlistHtml = getWatchlistPageHtml('pin');
   assert.ok(!watchlistHtml.includes('data-lucide="trash-2"'), 'Dynamic Watchlist table rows must use inline SVGs instead of data-lucide="trash-2"');
-  assert.ok(watchlistHtml.includes('Open Pin'), 'Saved Pins Actions column must include Open Pin action');
+  assert.ok(!watchlistHtml.includes('Open Pin'), 'Saved Pins Actions column must omit redundant Open Pin button since thumbnail and title link directly');
+  assert.ok(watchlistHtml.includes('24h Velocity'), 'Saved Pins table must include 24h Velocity column');
+  assert.ok(watchlistHtml.includes('Campaign'), 'Saved Pins table must include Campaign column');
+  assert.ok(watchlistHtml.includes("'/pin/'"), 'Saved Pins thumbnail and title must link directly to /pin/:id');
   assert.ok(watchlistHtml.includes('aria-label="Remove pin from Watchlist"'), 'Saved Pins Actions column must include accessible Remove button');
 
   // Verify Pin Details HTML renders reactive active Watchlisted state & inline SVG bookmark

@@ -1281,8 +1281,35 @@ export async function removeCampaignTrackedPin(sql, { folderId, workspaceId, pin
     RETURNING pin_id, source_type;
   `;
 
+  let detachedNewborn = 0;
+  if (cleanSource === null || cleanSource === 'newborn') {
+    try {
+      const nbDetached = await sql`
+        UPDATE newborn_candidates
+        SET folder_id = NULL, updated_at = NOW()
+        WHERE pin_id = ${cleanPinId} AND folder_id = ${fid}
+        RETURNING pin_id;
+      `;
+      detachedNewborn += Array.isArray(nbDetached) ? nbDetached.length : 0;
+    } catch (err) {
+      if (err?.code !== '42P01' && err?.code !== '42703') throw err;
+    }
+    try {
+      const anchorDetached = await sql`
+        UPDATE newborn_daily_anchors
+        SET folder_id = NULL, updated_at = NOW()
+        WHERE pin_id = ${cleanPinId} AND folder_id = ${fid}
+        RETURNING pin_id;
+      `;
+      detachedNewborn += Array.isArray(anchorDetached) ? anchorDetached.length : 0;
+    } catch (err) {
+      if (err?.code !== '42P01' && err?.code !== '42703') throw err;
+    }
+  }
+
   invalidateFolderCache(fid, wid);
-  return { removed: Array.isArray(deleted) ? deleted.length : 0, pin_id: cleanPinId };
+  const removedCount = (Array.isArray(deleted) ? deleted.length : 0) + (detachedNewborn > 0 && (!Array.isArray(deleted) || deleted.length === 0) ? 1 : 0);
+  return { removed: removedCount, pin_id: cleanPinId };
 }
 
 // =========================================================================
@@ -1446,6 +1473,9 @@ export async function listWatchlist(sql, { workspaceId = DEFAULT_WORKSPACE_ID, e
         ump.save_count AS pin_save_count,
         ump.repin_count AS pin_repin_count,
         ump.daily_save_velocity AS pin_daily_save_velocity,
+        ump.daily_repin_velocity AS pin_daily_repin_velocity,
+        ump.delta_saves_24h AS pin_delta_saves_24h,
+        ump.delta_repins_24h AS pin_delta_repins_24h,
         COALESCE(ump.clean_domain, ump.domain, '') AS pin_domain
       FROM workspace_watchlist w
       LEFT JOIN competitor_profiles cp
@@ -1475,8 +1505,127 @@ export async function listWatchlist(sql, { workspaceId = DEFAULT_WORKSPACE_ID, e
     }
   }
 
-  const items = (Array.isArray(rows) ? rows : []).map((r) => {
+  const rawRows = Array.isArray(rows) ? rows : [];
+  const pinIds = Array.from(new Set(
+    rawRows
+      .filter((r) => String(r.entity_type || '').toLowerCase() === 'pin' && r.entity_key)
+      .map((r) => String(r.entity_key).trim())
+      .filter(Boolean)
+  ));
+
+  const campaignsByPin = new Map();
+  if (pinIds.length > 0) {
+    try {
+      const campRows = await sql`
+        WITH combined AS (
+          SELECT
+            ctp.pin_id,
+            kf.id AS folder_id,
+            kf.name AS folder_name,
+            kf.color AS folder_color,
+            ctp.source_type,
+            0 AS priority
+          FROM campaign_tracked_pins ctp
+          JOIN keyword_folders kf ON kf.id = ctp.folder_id
+          WHERE ctp.pin_id = ANY(${pinIds}::text[])
+            AND ctp.is_active = TRUE
+            AND COALESCE(ctp.workspace_id, kf.workspace_id, 1) = ${wid}
+          UNION ALL
+          SELECT
+            nc.pin_id,
+            kf.id AS folder_id,
+            kf.name AS folder_name,
+            kf.color AS folder_color,
+            'newborn'::text AS source_type,
+            1 AS priority
+          FROM newborn_candidates nc
+          JOIN keyword_folders kf ON kf.id = nc.folder_id
+          WHERE nc.pin_id = ANY(${pinIds}::text[])
+            AND nc.folder_id IS NOT NULL
+            AND (
+              nc.stage = 'promoted'
+              OR EXISTS (
+                SELECT 1 FROM newborn_daily_anchors nda
+                WHERE nda.pin_id = nc.pin_id AND nda.is_active = TRUE
+              )
+            )
+            AND COALESCE(kf.workspace_id, 1) = ${wid}
+          UNION ALL
+          SELECT
+            nda.pin_id,
+            kf.id AS folder_id,
+            kf.name AS folder_name,
+            kf.color AS folder_color,
+            'newborn'::text AS source_type,
+            2 AS priority
+          FROM newborn_daily_anchors nda
+          JOIN keyword_folders kf ON kf.id = nda.folder_id
+          WHERE nda.pin_id = ANY(${pinIds}::text[])
+            AND nda.folder_id IS NOT NULL
+            AND nda.is_active = TRUE
+            AND COALESCE(kf.workspace_id, 1) = ${wid}
+          UNION ALL
+          SELECT
+            ksp.pin_id,
+            kf.id AS folder_id,
+            kf.name AS folder_name,
+            kf.color AS folder_color,
+            CASE
+              WHEN BOOL_OR(ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL AND ksp.rank_position >= 1)
+                THEN 'serp'
+              ELSE 'vault'
+            END AS source_type,
+            3 AS priority
+          FROM keyword_serp_positions ksp
+          JOIN keyword_folder_items kfi ON kfi.keyword_id = ksp.keyword_id
+          JOIN keyword_folders kf ON kf.id = kfi.folder_id
+          WHERE ksp.pin_id = ANY(${pinIds}::text[])
+            AND ((ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL AND ksp.rank_position >= 1) OR ksp.is_displaced = TRUE)
+            AND COALESCE(kf.workspace_id, 1) = ${wid}
+            AND NOT EXISTS (
+              SELECT 1 FROM keyword_ignored_pins kip
+              WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
+            )
+          GROUP BY ksp.pin_id, kf.id, kf.name, kf.color
+        )
+        SELECT DISTINCT ON (pin_id, folder_id)
+          pin_id,
+          folder_id,
+          folder_name,
+          folder_color,
+          source_type
+        FROM combined
+        ORDER BY pin_id ASC, folder_id ASC, priority ASC;
+      `;
+      for (const cr of (Array.isArray(campRows) ? campRows : [])) {
+        const pid = String(cr.pin_id || '').trim();
+        const fid = Number(cr.folder_id);
+        if (!pid || !Number.isInteger(fid) || fid <= 0) continue;
+        if (!campaignsByPin.has(pid)) campaignsByPin.set(pid, []);
+        campaignsByPin.get(pid).push({
+          folder_id: fid,
+          folder_name: cr.folder_name || `Campaign #${fid}`,
+          folder_color: cr.folder_color || null,
+          source_type: String(cr.source_type || 'tracked').trim().toLowerCase()
+        });
+      }
+    } catch (err) {
+      if (err?.code !== '42P01' && err?.code !== '42703') {
+        console.warn('[workspaces/service] Watchlist pin campaigns enrichment warning:', err?.message || err);
+      }
+    }
+  }
+
+  const items = rawRows.map((r) => {
     const decodedTitle = r.pin_title ? decodeHtmlEntities(r.pin_title) : null;
+    const isPin = String(r.entity_type || '').toLowerCase() === 'pin';
+    const pinCampaigns = isPin ? (campaignsByPin.get(String(r.entity_key || '').trim()) || []) : [];
+    const deltaSaves24h = r.pin_delta_saves_24h !== null && r.pin_delta_saves_24h !== undefined && r.pin_delta_saves_24h !== ''
+      ? Number(r.pin_delta_saves_24h)
+      : null;
+    const deltaRepins24h = r.pin_delta_repins_24h !== null && r.pin_delta_repins_24h !== undefined && r.pin_delta_repins_24h !== ''
+      ? Number(r.pin_delta_repins_24h)
+      : null;
     return {
       ...r,
       id: Number(r.id),
@@ -1484,7 +1633,11 @@ export async function listWatchlist(sql, { workspaceId = DEFAULT_WORKSPACE_ID, e
       display_label: r.creator_display_name || decodedTitle || r.entity_key,
       is_active: true,
       added_at: r.created_at || null,
-      pin_title: decodedTitle
+      pin_title: decodedTitle,
+      pin_delta_saves_24h: Number.isFinite(deltaSaves24h) ? deltaSaves24h : null,
+      pin_delta_repins_24h: Number.isFinite(deltaRepins24h) ? deltaRepins24h : null,
+      pin_daily_repin_velocity: r.pin_daily_repin_velocity != null ? Number(r.pin_daily_repin_velocity) : null,
+      campaigns: pinCampaigns
     };
   });
 

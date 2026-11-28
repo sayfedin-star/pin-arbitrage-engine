@@ -472,8 +472,9 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30, worksp
       WITH explicit_tracked AS (
         SELECT
           ctp.folder_id,
-          ctp.workspace_id,
+          COALESCE(ctp.workspace_id, kf.workspace_id, 1) AS workspace_id,
           kf.name AS folder_name,
+          kf.color AS folder_color,
           ctp.source_type,
           ctp.source_ref,
           ctp.seed_query,
@@ -487,11 +488,61 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30, worksp
           AND ctp.is_active = TRUE
           AND (${cleanWid}::int IS NULL OR COALESCE(ctp.workspace_id, kf.workspace_id, 1) = ${cleanWid})
       ),
+      newborn_promoted AS (
+        SELECT DISTINCT ON (nb.folder_id)
+          nb.folder_id,
+          COALESCE(kf.workspace_id, 1) AS workspace_id,
+          kf.name AS folder_name,
+          kf.color AS folder_color,
+          'newborn'::text AS source_type,
+          'discover_promote'::text AS source_ref,
+          nb.seed_query,
+          nb.added_at,
+          nb.notes,
+          'newborn_promoted'::text AS membership_type,
+          TRUE AS can_remove
+        FROM (
+          SELECT
+            nc.folder_id,
+            nc.seed_query,
+            COALESCE(nc.promoted_at, nc.updated_at, nc.first_seen_at) AS added_at,
+            NULL::text AS notes,
+            0 AS priority
+          FROM newborn_candidates nc
+          WHERE nc.pin_id = ${cleanPinId}
+            AND nc.folder_id IS NOT NULL
+            AND (
+              nc.stage = 'promoted'
+              OR EXISTS (
+                SELECT 1 FROM newborn_daily_anchors nda
+                WHERE nda.pin_id = nc.pin_id AND nda.is_active = TRUE
+              )
+            )
+          UNION ALL
+          SELECT
+            nda.folder_id,
+            nda.seed_query,
+            COALESCE(nda.promoted_at, nda.updated_at) AS added_at,
+            nda.notes,
+            1 AS priority
+          FROM newborn_daily_anchors nda
+          WHERE nda.pin_id = ${cleanPinId}
+            AND nda.folder_id IS NOT NULL
+            AND nda.is_active = TRUE
+        ) nb
+        JOIN keyword_folders kf ON kf.id = nb.folder_id
+        WHERE (${cleanWid}::int IS NULL OR COALESCE(kf.workspace_id, 1) = ${cleanWid})
+          AND NOT EXISTS (
+            SELECT 1 FROM explicit_tracked et_ex WHERE et_ex.folder_id = nb.folder_id
+          )
+        ORDER BY nb.folder_id ASC, nb.priority ASC, nb.added_at DESC NULLS LAST
+      ),
       serp_cluster_folders AS (
         SELECT
           kf.id AS folder_id,
           COALESCE(kf.workspace_id, 1) AS workspace_id,
           kf.name AS folder_name,
+          kf.color AS folder_color,
           CASE
             WHEN BOOL_OR(ksp.is_displaced = FALSE AND ksp.rank_position IS NOT NULL AND ksp.rank_position >= 1)
               THEN 'serp'
@@ -510,12 +561,13 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30, worksp
             WHERE kip.keyword_id = ksp.keyword_id AND kip.pin_id = ksp.pin_id
           )
           AND (${cleanWid}::int IS NULL OR COALESCE(kf.workspace_id, 1) = ${cleanWid})
-        GROUP BY kf.id, kf.workspace_id, kf.name
+        GROUP BY kf.id, kf.workspace_id, kf.name, kf.color
       )
       SELECT
         et.folder_id,
         et.workspace_id,
         et.folder_name,
+        et.folder_color,
         et.source_type,
         et.source_ref,
         et.seed_query,
@@ -529,9 +581,27 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30, worksp
       LEFT JOIN serp_cluster_folders scf ON scf.folder_id = et.folder_id
       UNION ALL
       SELECT
+        np.folder_id,
+        np.workspace_id,
+        np.folder_name,
+        np.folder_color,
+        np.source_type,
+        np.source_ref,
+        np.seed_query,
+        np.added_at,
+        np.notes,
+        np.membership_type,
+        np.can_remove,
+        COALESCE(scf.keyword_count, 0)::int AS keyword_count,
+        scf.best_rank
+      FROM newborn_promoted np
+      LEFT JOIN serp_cluster_folders scf ON scf.folder_id = np.folder_id
+      UNION ALL
+      SELECT
         scf.folder_id,
         scf.workspace_id,
         scf.folder_name,
+        scf.folder_color,
         scf.source_type,
         NULL::text AS source_ref,
         NULL::text AS seed_query,
@@ -545,6 +615,9 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30, worksp
       WHERE NOT EXISTS (
         SELECT 1 FROM explicit_tracked et2 WHERE et2.folder_id = scf.folder_id
       )
+        AND NOT EXISTS (
+          SELECT 1 FROM newborn_promoted np2 WHERE np2.folder_id = scf.folder_id
+        )
       ORDER BY can_remove DESC, added_at DESC NULLS LAST, folder_id ASC;
     `.catch((err) => {
       console.warn(`[dossier-reader] Campaign provenance query warning for pin ${cleanPinId}:`, err?.message || err);
@@ -621,9 +694,14 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30, worksp
         nc.save_count AS anchor_baseline_saves,
         nda.is_active AS anchor_active,
         nda.last_crawled_at AS anchor_last_crawled_at,
-        nda.notes AS anchor_notes
+        nda.notes AS anchor_notes,
+        nkf.name AS folder_name,
+        nkf.color AS folder_color
       FROM newborn_candidates nc
       LEFT JOIN newborn_daily_anchors nda ON nda.pin_id = nc.pin_id
+      LEFT JOIN keyword_folders nkf
+        ON nkf.id = COALESCE(nc.folder_id, nda.folder_id)
+        AND (${cleanWid}::int IS NULL OR COALESCE(nkf.workspace_id, 1) = ${cleanWid})
       WHERE nc.pin_id = ${cleanPinId}
       ORDER BY nc.promoted_at DESC NULLS LAST, nc.first_seen_at DESC NULLS LAST
       LIMIT 1;
@@ -1535,24 +1613,33 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, tr
       metadata: snapMeta
     },
     algorithmic_intelligence: algorithmicIntelligence,
-    tracked_campaigns: (Array.isArray(trackedCampaignRows) ? trackedCampaignRows : []).map((row) => {
-      const membershipType = String(row.membership_type || 'tracked').trim().toLowerCase();
-      const canRemove = row.can_remove !== undefined && row.can_remove !== null
-        ? Boolean(row.can_remove)
-        : membershipType !== 'cluster_serp';
+    ...(() => {
+      const normalizedCampaigns = (Array.isArray(trackedCampaignRows) ? trackedCampaignRows : []).map((row) => {
+        const membershipType = String(row.membership_type || 'tracked').trim().toLowerCase();
+        const canRemove = row.can_remove !== undefined && row.can_remove !== null
+          ? Boolean(row.can_remove)
+          : membershipType !== 'cluster_serp';
+        const seedQuery = row.seed_query ? String(row.seed_query).trim() : null;
+        return {
+          folder_id: Number(row.folder_id),
+          folder_name: row.folder_name || `Campaign #${row.folder_id}`,
+          folder_color: row.folder_color || null,
+          source_type: String(row.source_type || 'manual').trim().toLowerCase(),
+          source_query: seedQuery,
+          membership_type: membershipType,
+          can_remove: canRemove,
+          keyword_count: row.keyword_count != null ? Number(row.keyword_count) : 0,
+          best_rank: row.best_rank != null ? Number(row.best_rank) : null,
+          seed_query: seedQuery,
+          added_at: repoSafeIsoDate(row.added_at),
+          notes: row.notes || null
+        };
+      });
       return {
-        folder_id: Number(row.folder_id),
-        folder_name: row.folder_name || `Campaign #${row.folder_id}`,
-        source_type: String(row.source_type || 'manual').trim().toLowerCase(),
-        membership_type: membershipType,
-        can_remove: canRemove,
-        keyword_count: row.keyword_count != null ? Number(row.keyword_count) : 0,
-        best_rank: row.best_rank != null ? Number(row.best_rank) : null,
-        seed_query: row.seed_query ? String(row.seed_query).trim() : null,
-        added_at: repoSafeIsoDate(row.added_at),
-        notes: row.notes || null
+        tracked_campaigns: normalizedCampaigns,
+        campaigns: normalizedCampaigns
       };
-    }),
+    })(),
     newborn_context: newbornContextRow ? {
       pin_id: String(newbornContextRow.pin_id || cleanPinId),
       seed_query: newbornContextRow.seed_query ? String(newbornContextRow.seed_query).trim() : null,
@@ -1561,6 +1648,8 @@ function buildUnifiedDossier({ pin, trajectoryRows, serpRows, creatorProfile, tr
       discovery_surface: newbornContextRow.discovery_surface || null,
       discovered_surfaces: Array.isArray(newbornContextRow.discovered_surfaces) ? newbornContextRow.discovered_surfaces : [],
       folder_id: newbornContextRow.folder_id != null ? Number(newbornContextRow.folder_id) : null,
+      folder_name: newbornContextRow.folder_name ? String(newbornContextRow.folder_name).trim() : null,
+      folder_color: newbornContextRow.folder_color || null,
       first_seen_at: repoSafeIsoDate(newbornContextRow.first_seen_at),
       promoted_at: repoSafeIsoDate(newbornContextRow.promoted_at),
       anchor_active: Boolean(newbornContextRow.anchor_active),

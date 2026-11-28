@@ -535,11 +535,11 @@ test('P1-4 & P1-5: displacedLimit slicing, organic vault SQL parity, catalog ann
     return [];
   };
 
-  const dossier = await getDomainDeepDossier(mockDossierSql, 'recipes-blog.com', { displacedLimit: 30 });
-  assert.equal(dossier.ranked_pins.length, 31, '1 active + 30 displaced pins returned');
-  assert.equal(dossier.summary.displaced_pins_count, 30);
+  const dossier = await getDomainDeepDossier(mockDossierSql, 'recipes-blog.com');
+  assert.equal(dossier.ranked_pins.length, 41, 'All 1 active + 40 displaced pins returned 1:1 with zero truncation');
+  assert.equal(dossier.summary.displaced_pins_count, 40);
   assert.equal(dossier.summary.displaced_total_count, 40);
-  assert.equal(dossier.summary.displaced_remaining_count, 10);
+  assert.equal(dossier.summary.displaced_remaining_count, 0);
   assert.deepEqual(dossier.catalog_pins[0].visual_annotations, ['Pasta', 'Dinner']);
 
   // Organic vault SQL parity & emoji-free blueprint
@@ -641,7 +641,7 @@ test('P1-6: Client VM state checks (closeDossier age_years, fetchPinnedDomains, 
   await ok200FalseApp.refreshDomains();
   assert.ok(ok200FalseApp.toasts.some((t) => t.type === 'warning'), 'HTTP 200 { success: false } must trigger warning toast');
 
-  // fetchPinnedDomains ignores stale out-of-order folder responses & loadMoreDisplaced resets dossierLoadingMore on abort
+  // fetchPinnedDomains ignores stale out-of-order folder responses
   let resolveFolderA;
   const raceApp = instantiateDomainsApp('', '', {
     window: {
@@ -667,9 +667,8 @@ test('P1-6: Client VM state checks (closeDossier age_years, fetchPinnedDomains, 
   assert.equal(raceApp.pinnedDomains.has('folder10-stale.com'), false);
 
   raceApp.dossierDomain = 'folder20.com';
-  raceApp.dossierLoadingMore = true;
   raceApp.closeDossier(false);
-  assert.equal(raceApp.dossierLoadingMore, false, 'closeDossier must reset dossierLoadingMore');
+  assert.equal(raceApp.dossierDomain, '', 'closeDossier must clear active dossierDomain');
 
   // /api/domains/refresh-rollup returns 500 with redacted error when rollup fails
   const refreshFailRes = await handleDomainsRoutes(makeDomainsRouteCtx({
@@ -980,7 +979,7 @@ test('Blind-Review P0/P1/P2 fixes: cache poisoning guard, stats secret redaction
   }));
   assert.equal(refreshAlias401.status, 401);
 
-  // 7. P2: displaced_limit=abc cache key, enrichMissingAdNetworksBatch 120-domain cap, loadMoreDisplaced rollback, batchEnrichAdsVisible 401, UI contracts
+  // 7. P2: clean canonical dossier cache key (ignores legacy displaced_limit), enrichMissingAdNetworksBatch 120-domain cap, batchEnrichAdsVisible 401, UI contracts
   const dossierCacheKeys = [];
   await handleDomainsRoutes(makeDomainsRouteCtx({
     pathname: '/api/domains/dossier',
@@ -993,7 +992,7 @@ test('Blind-Review P0/P1/P2 fixes: cache poisoning guard, stats secret redaction
     },
     sql: async () => []
   }));
-  assert.ok(dossierCacheKeys.some((k) => k.includes('"displacedLimit":30') && !k.includes('NaN')));
+  assert.ok(dossierCacheKeys.some((k) => k.includes('"domain":"example.com"') && !k.includes('NaN') && !k.includes('displacedLimit')));
 
   const candidates120 = Array.from({ length: 120 }, (_, i) => `site-${i + 1}.com`);
   const queriedBatchDomains = [];
@@ -1018,29 +1017,6 @@ test('Blind-Review P0/P1/P2 fixes: cache poisoning guard, stats secret redaction
   );
   assert.equal(batchCapRes.enriched, 50, 'enrichMissingAdNetworksBatch must cap at 50 even with 120 candidates');
   assert.equal(queriedBatchDomains.includes('site-101.com'), false, 'Candidates beyond 100 must be sliced off');
-
-  const dispApp = instantiateDomainsApp('', '', {
-    window: {
-      safeApiFetch: async () => {
-        const e = new Error('The operation was aborted due to timeout');
-        e.name = 'AbortError';
-        throw e;
-      },
-      location: { pathname: '/domains', search: '' },
-      history: { pushState: () => {} }
-    }
-  });
-  dispApp.dossierDomain = 'alpha.com';
-  dispApp.dossierData = { ranked_pins: [], summary: {} };
-  dispApp._dossierAbortController = new AbortController();
-  dispApp.currentDisplacedLimit = 30;
-  await dispApp.loadMoreDisplaced();
-  assert.equal(dispApp.currentDisplacedLimit, 30, 'Timeout AbortError must roll back currentDisplacedLimit');
-  assert.equal(dispApp.dossierLoadingMore, false, 'loadMoreDisplaced must reset dossierLoadingMore on timeout');
-  assert.ok(dispApp.toasts.some((t) => t.type === 'error'));
-  dispApp.currentDisplacedLimit = 500;
-  await dispApp.loadMoreDisplaced();
-  assert.equal(dispApp.currentDisplacedLimit, 500, 'loadMoreDisplaced must not exceed 500 cap');
 
   let adBatchCalls = 0;
   const adBatchApp = instantiateDomainsApp('', '', {
@@ -1067,7 +1043,7 @@ test('Blind-Review P0/P1/P2 fixes: cache poisoning guard, stats secret redaction
   const lbHtml = getDomainsLeaderboardViewHtml();
   const stHtml = getDomainsStudioViewHtml();
   assert.ok(lbHtml.includes('value="domain_asc"') && lbHtml.includes('value="domain_desc"'));
-  assert.ok(stHtml.includes('currentDisplacedLimit < 500') && stHtml.includes('encodeURIComponent(dossierDomain)'));
+  assert.ok(!stHtml.includes('loadMoreDisplaced') && stHtml.includes('encodeURIComponent(dossierDomain)'));
 });
 
 test('Static audit: Room 4 files contain zero banned legacy tables', () => {
@@ -1496,22 +1472,10 @@ test('Phase C.4: Review P1/P2 fixes — trailing-slash cache/write-back, fastPat
   assert.equal(fastPathDossier.ad_info.checked_at, recentCheckedIso);
   assert.equal(fastPathDossier.needs_ad_enrichment, false);
 
-  // 3. loadMoreDisplaced preserves hydrated url_global_saves on money_urls
+  // 3. Instantiate studio app for navigation & keyword sort checks (full 1:1 dossier without loadMoreDisplaced)
   const moreApp = instantiateDomainsApp('', '', {
     window: {
-      safeApiFetch: async () => ({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          ranked_pins: [{ pin_id: 'p1' }, { pin_id: 'p2' }],
-          summary: { total_pins: 2 },
-          money_urls: [
-            { clean_slug: '/pasta', url_global_saves: null, pins: [] },
-            { clean_slug: '/soup', url_global_saves: 900, pins: [] }
-          ],
-          keyword_monopoly: []
-        })
-      }),
+      safeApiFetch: async () => ({ ok: true, status: 200, json: async () => ({}) }),
       location: { pathname: '/domains', search: '' },
       history: { pushState: () => {} }
     }
@@ -1525,9 +1489,7 @@ test('Phase C.4: Review P1/P2 fixes — trailing-slash cache/write-back, fastPat
       { clean_slug: '/soup', url_global_saves: 500, pins: [] }
     ]
   };
-  await moreApp.loadMoreDisplaced();
-  assert.equal(moreApp.dossierData.money_urls[0].url_global_saves, 5200);
-  assert.equal(moreApp.dossierData.money_urls[1].url_global_saves, 900);
+  assert.equal(typeof moreApp.loadMoreDisplaced, 'undefined', 'Legacy loadMoreDisplaced truncation helper must be removed');
 
   // 4. navigateDossierView resets catalog filter & filterToArticle ignores '/'
   moreApp.dossierStatusFilter = 'catalog';

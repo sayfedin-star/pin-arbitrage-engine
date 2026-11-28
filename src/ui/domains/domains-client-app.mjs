@@ -88,8 +88,6 @@ export function getDomainsClientAppScript() {
         dossierPinsPerPage: 25,
         dossierArticlesPage: 1,
         dossierArticlesPerPage: 15,
-        currentDisplacedLimit: 30,
-        dossierLoadingMore: false,
         _dossierReqSeq: 0,
         _pinnedReqSeq: 0,
         _dossierAbortController: null,
@@ -849,8 +847,6 @@ export function getDomainsClientAppScript() {
           this.dossierExpandedKeywords = {};
           this.dossierExpandedPinKws = {};
           this.dossierExpandedArtKws = {};
-          this.currentDisplacedLimit = 30;
-          this.dossierLoadingMore = false;
           this.dossierSearch = '';
           this.dossierSort = 'saves';
           this.dossierPinsPage = 1;
@@ -936,57 +932,7 @@ export function getDomainsClientAppScript() {
           }
         },
 
-        async loadMoreDisplaced() {
-          if (!this.dossierDomain || this.dossierLoadingMore || this.currentDisplacedLimit >= 500) return;
-          const signal = this._dossierAbortController ? this._dossierAbortController.signal : undefined;
-          const reqSeq = this._dossierReqSeq;
-          const prevLimit = this.currentDisplacedLimit;
-          this.currentDisplacedLimit = Math.min(500, this.currentDisplacedLimit + 50);
-          this.dossierLoadingMore = true;
-          try {
-            const activeFid = this.scopedFolderId || this.selectedFolderId || '';
-            const folderParam = activeFid ? '&folder_id=' + encodeURIComponent(activeFid) : '';
-            const apiUrl = '/api/domains/dossier?domain=' + encodeURIComponent(this.dossierDomain) + folderParam + '&displaced_limit=' + this.currentDisplacedLimit;
-            const res = await (window.safeApiFetch || fetch)(apiUrl, { timeout: 28000, ...(signal ? { signal } : {}) });
-            if (signal && signal.aborted) return;
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            const data = await res.json();
-            if (signal && signal.aborted) return;
-            const _dossierDataReady = Boolean(data?.ranked_pins && this.dossierData);
-            if (reqSeq !== this._dossierReqSeq) return;
-            if (_dossierDataReady) {
-              const prevGlobalSaves = new Map();
-              for (const art of (this.dossierData.money_urls || [])) {
-                if (art?.clean_slug && Number(art.url_global_saves || 0) > 0) {
-                  prevGlobalSaves.set(art.clean_slug, Number(art.url_global_saves));
-                }
-              }
-              this.dossierData.ranked_pins = data.ranked_pins;
-              this.dossierData.summary = data.summary;
-              if (Array.isArray(data.money_urls)) {
-                this.dossierData.money_urls = data.money_urls.map(art => {
-                  const prevSaves = art?.clean_slug ? prevGlobalSaves.get(art.clean_slug) : null;
-                  const nextSaves = Number(art?.url_global_saves || 0);
-                  return (prevSaves && prevSaves > nextSaves) ? { ...art, url_global_saves: prevSaves } : art;
-                });
-              }
-              if (Array.isArray(data.keyword_monopoly)) this.dossierData.keyword_monopoly = data.keyword_monopoly;
-              if (typeof this.$nextTick === 'function') this.$nextTick(() => { if (typeof window !== 'undefined' && window.PAE && typeof window.PAE.refreshIcons === 'function') window.PAE.refreshIcons(); else if (typeof window !== 'undefined' && window.lucide) window.lucide.createIcons(); });
-              this.showToast('Loaded ' + data.ranked_pins.length + ' visual pins!', 'success');
-            }
-          } catch (err) {
-            if (signal && signal.aborted) return;
-            if (reqSeq === this._dossierReqSeq) this.currentDisplacedLimit = prevLimit;
-            this.showToast('Failed to load more displaced pins: ' + err.message, 'error');
-          } finally {
-            if (!signal || !signal.aborted) {
-              this.dossierLoadingMore = false;
-            }
-          }
-        },
-
         closeDossier(pushState = true) {
-          this.dossierLoadingMore = false;
           if (this._dossierAbortController) {
             try { this._dossierAbortController.abort(); } catch (_) {}
             this._dossierAbortController = null;
@@ -1305,8 +1251,7 @@ export function getDomainsClientAppScript() {
             ? (Array.isArray(this.dossierData?.catalog_pins) ? [...this.dossierData.catalog_pins] : [])
             : (Array.isArray(this.dossierData?.ranked_pins) ? [...this.dossierData.ranked_pins] : []);
 
-          // [INVARIANT: STRICT-VISUAL-PIN-FIDELITY] Every displayed pin must have an authentic image
-          list = list.filter(p => Boolean(p.image_url && p.image_url.trim()));
+          // [INVARIANT: 1:1-DOMAIN-PIN-PARITY] Preserve all ranked/catalog pins even when image_url is missing (rendered with clean inline SVG fallback)
 
           // Status filter: all | active | displaced | catalog
           if (this.dossierStatusFilter === 'active') {
@@ -1395,13 +1340,13 @@ export function getDomainsClientAppScript() {
           // [INVARIANT: CLEAN-MONEY-ARTICLES] Exclude root domain '/' dump from Money Articles
           list = list.filter(art => art.clean_slug && art.clean_slug !== '/');
 
-          // Ensure pins inside each article only contain valid image pins
+          // Preserve all pins inside each article (1:1 parity with summary.total_pins; SVG fallback handles missing thumbnails)
           list = list.map(art => {
-            const validPins = (art.pins || []).filter(p => Boolean(p.image_url && p.image_url.trim()));
+            const pins = Array.isArray(art.pins) ? art.pins : [];
             return {
               ...art,
-              pins: validPins,
-              pins_count: validPins.length
+              pins,
+              pins_count: pins.length
             };
           }).filter(art => art.pins.length > 0);
 

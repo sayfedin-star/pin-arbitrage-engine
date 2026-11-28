@@ -627,32 +627,44 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                                       <th class="py-2 px-3">Creator</th>
                                       <th class="py-2 px-3 text-right">Daily Velocity &amp; Gains</th>
                                       <th class="py-2 px-3 text-right">Saves &amp; Engagement</th>
-                                      <th class="py-2 px-3 text-right">Rank</th>
-                                      <th class="py-2 px-3 text-right">Pin Age</th>
-                                      <th class="py-2 px-3 text-right">Action</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60">
-                                    <template x-for="p in (art.pins || [])" :key="p.pin_id">
-                                      <tr class="hover:bg-slate-50/80 dark:hover:bg-[#18181B]/60 transition">
-                                        <td class="py-2.5 px-3">
-                                          <img :src="p.image_url"
-                                               alt="Pin preview"
-                                               referrerpolicy="no-referrer"
-                                               class="w-10 h-14 rounded-lg object-cover bg-slate-200 dark:bg-slate-700 shrink-0 shadow-sm"
-                                               loading="lazy"
-                                               onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}">
-                                        </td>
-                                        <td class="py-2.5 px-3 min-w-[230px]">
-                                          <div class="flex items-center gap-1.5 flex-wrap">
-                                            <span class="font-bold text-slate-900 dark:text-white truncate max-w-[260px]" x-text="p.title"></span>
-                                            <template x-if="p.intent_tag">
-                                              <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30" x-text="p.intent_tag"></span>
-                                            </template>
-                                            <template x-if="p.is_vulnerable">
-                                              <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">Vulnerable</span>
-                                            </template>
-                                          </div>
+                                        <th class="py-2 px-3 text-right">Rank</th>
+                                        <th class="py-2 px-3 text-right">Pin Age</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60">
+                                      <template x-for="p in (art.pins || [])" :key="p.pin_id">
+                                        <tr class="hover:bg-slate-50/80 dark:hover:bg-[#18181B]/60 transition">
+                                          <td class="py-2.5 px-3">
+                                            <a :href="getPinInspectUrl(p.pin_id)"
+                                               class="block w-10 h-14 rounded-lg overflow-hidden shrink-0 hover:opacity-90 transition"
+                                               :aria-label="'Inspect Pin #' + p.pin_id">
+                                              <template x-if="p.image_url">
+                                                <img :src="p.image_url"
+                                                     alt="Pin preview"
+                                                     referrerpolicy="no-referrer"
+                                                     class="w-10 h-14 rounded-lg object-cover bg-slate-200 dark:bg-slate-700 shadow-sm"
+                                                     loading="lazy"
+                                                     onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}">
+                                              </template>
+                                              <template x-if="!p.image_url">
+                                                <div class="w-10 h-14 rounded-lg bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] flex items-center justify-center text-slate-400">
+                                                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                                                </div>
+                                              </template>
+                                            </a>
+                                          </td>
+                                          <td class="py-2.5 px-3 min-w-[230px]">
+                                            <div class="flex items-center gap-1.5 flex-wrap">
+                                              <a :href="getPinInspectUrl(p.pin_id)"
+                                                 class="font-bold text-slate-900 dark:text-white hover:text-rose-600 dark:hover:text-rose-400 hover:underline truncate max-w-[260px] transition"
+                                                 x-text="p.title || ('Pin #' + p.pin_id)"></a>
+                                              <template x-if="p.intent_tag">
+                                                <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30" x-text="p.intent_tag"></span>
+                                              </template>
+                                              <template x-if="p.is_vulnerable">
+                                                <span class="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">Vulnerable</span>
+                                              </template>
+                                            </div>
                                           <div class="flex items-center gap-2 text-[10px] font-mono tabular-nums text-slate-400 mt-0.5 flex-wrap">
                                             <span x-text="'#' + p.pin_id"></span>
                                             <template x-if="p.dominant_color && p.dominant_color.toLowerCase() !== '#888888'">
@@ -723,13 +735,6 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                                           </template>
                                           <template x-if="!getPinAgeBadgeFromDays(p.pin_age_days, p.created_at_pinterest)"><span class="text-slate-400">—</span></template>
                                         </td>
-                                        <td class="py-2.5 px-3 text-right">
-                                          <a :href="getPinInspectUrl(p.pin_id)"
-                                             target="_blank" rel="noopener noreferrer"
-                                             class="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 text-[11px] font-semibold font-mono inline-block">
-                                            Inspect ↗
-                                          </a>
-                                        </td>
                                       </tr>
                                     </template>
                                   </tbody>
@@ -789,7 +794,6 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                         <th class="py-3 px-3 text-right">Daily Velocity</th>
                         <th class="py-3 px-3 text-right">Saves &amp; Engagement</th>
                         <th class="py-3 px-3 text-right">Pin Age</th>
-                        <th class="py-3 px-3 text-right">Action</th>
                       </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -809,24 +813,37 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                           showRepins: false,
                           showAge: true,
                           agePosition: 'beforeActions',
-                          showActions: true,
+                          showActions: false,
                           rowClass: 'hover:bg-slate-50/80 dark:hover:bg-[#18181B]/60 transition',
                           rankHtml: `
                           <td class="py-3 px-3 text-center font-mono tabular-nums text-slate-400 text-xs" x-text="((dossierPinsPage - 1) * dossierPinsPerPage) + idx + 1"></td>`,
                           thumbHtml: `
                           <td class="py-3 px-3">
-                            <img :src="p.image_url"
-                                 alt="Pin preview"
-                                 referrerpolicy="no-referrer"
-                                 class="w-12 h-16 rounded-xl object-cover bg-slate-200 dark:bg-slate-700 shrink-0 shadow-sm"
-                                 loading="lazy"
-                                 onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}">
+                            <a :href="getPinInspectUrl(p.pin_id)"
+                               class="block w-12 h-16 rounded-xl overflow-hidden shrink-0 hover:opacity-90 transition"
+                               :aria-label="'Inspect Pin #' + p.pin_id">
+                              <template x-if="p.image_url">
+                                <img :src="p.image_url"
+                                     alt="Pin preview"
+                                     referrerpolicy="no-referrer"
+                                     class="w-12 h-16 rounded-xl object-cover bg-slate-200 dark:bg-slate-700 shadow-sm"
+                                     loading="lazy"
+                                     onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}">
+                              </template>
+                              <template x-if="!p.image_url">
+                                <div class="w-12 h-16 rounded-xl bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] flex items-center justify-center text-slate-400">
+                                  <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                                </div>
+                              </template>
+                            </a>
                           </td>`,
                           titleHtml: `
                           <td class="py-3 px-3 min-w-[270px]">
                             <div class="flex flex-col min-w-0">
                               <div class="flex items-center gap-2 flex-wrap">
-                                <span class="text-sm font-bold text-slate-900 dark:text-white truncate max-w-md" x-text="p.title"></span>
+                                <a :href="getPinInspectUrl(p.pin_id)"
+                                   class="text-sm font-bold text-slate-900 dark:text-white hover:text-rose-600 dark:hover:text-rose-400 hover:underline truncate max-w-md transition"
+                                   x-text="p.title || ('Pin #' + p.pin_id)"></a>
                                 <template x-if="p.is_vulnerable">
                                   <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold font-mono tabular-nums bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30 shrink-0"
                                         title="Decaying Monopoly: High Saves + Stale Velocity. Vulnerable to Fresh Pin Overhaul!">
@@ -937,15 +954,6 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                             <template x-if="!getPinAgeBadgeFromDays(p.pin_age_days, p.created_at_pinterest)">
                               <span class="text-slate-400">—</span>
                             </template>
-                          </td>`,
-                          actionsHtml: `
-                          <td class="py-3 px-3 text-right">
-                            <a :href="getPinInspectUrl(p.pin_id)"
-                               target="_blank"
-                               rel="noopener noreferrer"
-                               class="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 text-xs font-semibold transition font-mono tabular-nums inline-block">
-                              Inspect ↗
-                            </a>
                           </td>`
                         })}
                       </template>
@@ -981,27 +989,6 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                         Next →
                       </button>
                     </div>
-                  </div>
-                </template>
-
-                <!-- On-Demand Displaced Pins Loader -->
-                <template x-if="dossierData?.summary?.displaced_remaining_count > 0">
-                  <div class="mt-4 p-4 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 flex items-center justify-between flex-wrap gap-3 font-mono tabular-nums text-xs">
-                    <div class="flex items-center gap-2">
-                      <span class="inline-flex items-center gap-1.5 text-sky-600 dark:text-sky-400 font-bold"><i data-lucide="package" class="w-3.5 h-3.5 shrink-0"></i><span>Historical Displaced Vault:</span></span>
-                      <span class="text-slate-600 dark:text-slate-300" x-text="formatNumber(dossierData.summary.displaced_remaining_count) + ' additional historical displaced pins are stored in Unified PostgreSQL.'"></span>
-                    </div>
-                    <template x-if="currentDisplacedLimit < 500">
-                      <button type="button" @click="loadMoreDisplaced()"
-                              :disabled="dossierLoadingMore"
-                              class="px-3.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50">
-                        <i data-lucide="refresh-cw" class="w-3.5 h-3.5 shrink-0" :class="{ 'animate-spin': dossierLoadingMore }"></i>
-                        <span x-text="dossierLoadingMore ? 'Hydrating Vault...' : 'Load +50 Displaced Vault Pins'">Load +50 Displaced Vault Pins</span>
-                      </button>
-                    </template>
-                    <template x-if="currentDisplacedLimit >= 500">
-                      <span class="text-slate-500 dark:text-slate-400 font-semibold">Max 500 displaced pins loaded</span>
-                    </template>
                   </div>
                 </template>
               </div>
@@ -1154,7 +1141,6 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                                       <th class="py-2 px-3 text-right">Daily Velocity</th>
                                       <th class="py-2 px-3 text-right">Saves &amp; Repins</th>
                                       <th class="py-2 px-3 text-right">Pin Age</th>
-                                      <th class="py-2 px-3 text-right">Inspect</th>
                                     </tr>
                                   </thead>
                                   <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -1165,7 +1151,7 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                                                 x-text="slot.rank_position != null ? ('#' + slot.rank_position) : (slot.last_known_rank != null ? ('V#' + slot.last_known_rank) : 'Vault')"></span>
                                         </td>
                                         <td class="py-2 px-3 min-w-[220px]">
-                                          <div class="font-sans font-semibold text-slate-900 dark:text-white truncate max-w-sm" x-text="slot.title"></div>
+                                          <a :href="getPinInspectUrl(slot.pin_id)" class="font-sans font-semibold text-slate-900 dark:text-white hover:text-rose-600 dark:hover:text-rose-400 hover:underline truncate max-w-sm block transition" x-text="slot.title || ('Pin #' + slot.pin_id)"></a>
                                           <template x-if="slot.clean_slug && slot.clean_slug !== '/'">
                                             <button type="button" @click="filterToArticle(slot.clean_slug)"
                                                     class="text-[10px] text-sky-600 dark:text-sky-400 hover:underline truncate max-w-xs block"
@@ -1192,13 +1178,6 @@ export function getDomainsStudioViewHtml({ hasInitialDomain = false } = {}) {
                                                   x-text="getPinAgeBadgeFromDays(slot.pin_age_days, slot.created_at_pinterest).label"></span>
                                           </template>
                                           <template x-if="!getPinAgeBadgeFromDays(slot.pin_age_days, slot.created_at_pinterest)"><span class="text-slate-400">—</span></template>
-                                        </td>
-                                        <td class="py-2 px-3 text-right">
-                                          <a :href="getPinInspectUrl(slot.pin_id)"
-                                             target="_blank" rel="noopener noreferrer"
-                                             class="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-[#18181B] dark:hover:bg-[#27272A] text-slate-700 dark:text-slate-200 text-[10.5px] font-semibold">
-                                            Inspect ↗
-                                          </a>
                                         </td>
                                       </tr>
                                     </template>

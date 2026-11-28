@@ -370,9 +370,12 @@ export function getDashboardBoardsAndPinMethods() {
           this.activeCreatorAllPins = [];
           this.creatorAllPinsLimit = 100;
           this.activeCreatorAllPinsTotal = 0;
+          this.activeCreatorScopeTotal = 0;
           this.activeCreatorCatalogTotal = 0;
           this.activeCreatorWinningPinsTotal = 0;
           this.activeCreatorRankedTotal = 0;
+          this.activeCreatorActiveSerpTotal = 0;
+          this.activeCreatorVaultSerpTotal = 0;
           this.activeCreatorHighVelocityTotal = 0;
           this.activeCreatorAllPinsBoards = [];
           this.activeCreatorTopics = [];

@@ -212,12 +212,15 @@ export function getDashboardClientAppScript() {
         // All Account Pins State (Raw Inventory)
         activeCreatorAllPins: [],
         activeCreatorAllPinsTotal: 0,
+        activeCreatorScopeTotal: 0,
         activeCreatorCatalogTotal: 0,
         activeCreatorExternalPinsTotal: 0,
         activeCreatorCuratorPinsTotal: 0,
         activeCreatorEcosystemTotal: 0,
         activeCreatorWinningPinsTotal: 0,
         activeCreatorRankedTotal: 0,
+        activeCreatorActiveSerpTotal: 0,
+        activeCreatorVaultSerpTotal: 0,
         activeCreatorHighVelocityTotal: 0,
         activeCreatorAllPinsPage: 1,
         activeCreatorAllPinsTotalPages: 1,
@@ -248,8 +251,7 @@ export function getDashboardClientAppScript() {
           { key: 'saves', label: 'Saves (with 24h Δ)', required: false },
           { key: 'repins', label: 'Repins (with 24h Δ)', required: false },
           { key: 'status', label: 'Status Badges', required: false },
-          { key: 'created_at', label: 'Created / Discovered', required: false },
-          { key: 'actions', label: 'Actions', required: false }
+          { key: 'created_at', label: 'Created / Discovered', required: false }
         ],
         visibleMasterColumns: {
           media: true,
@@ -258,8 +260,7 @@ export function getDashboardClientAppScript() {
           saves: true,
           repins: true,
           status: true,
-          created_at: true,
-          actions: true
+          created_at: true
         },
         toggleMasterColumn(key) {
           if (key === 'title') return;
@@ -276,8 +277,7 @@ export function getDashboardClientAppScript() {
             saves: true,
             repins: true,
             status: true,
-            created_at: true,
-            actions: true
+            created_at: true
           };
           try {
             localStorage.removeItem('creator_master_visible_columns');

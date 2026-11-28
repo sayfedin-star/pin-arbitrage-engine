@@ -324,7 +324,7 @@ async function fetchDomainRollupFastPath(sql, cleanDomain) {
  * 5. P2P Sybil Network (Primary Brand vs Satellite Creators & Cross-Domain Footprint)
  * 6. Reverse-Engineered Visual DNA (Computer Vision Annotations Cloud & Palette)
  */
-export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, keywordId = null, fastPath = true, displacedLimit = 30 } = {}) {
+export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, keywordId = null, fastPath = true } = {}) {
   const isOrganicVault = typeof rawDomain === 'string' && (
     rawDomain.trim().toLowerCase() === 'uploaded by user' || 
     rawDomain.trim().toLowerCase() === 'uploaded-by-user' ||
@@ -335,7 +335,6 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
 
   const fId = folderId && !isNaN(Number(folderId)) ? Number(folderId) : null;
   const kId = keywordId && !isNaN(Number(keywordId)) ? Number(keywordId) : null;
-  const safeDisplacedLimit = Math.max(30, Math.min(500, Number(displacedLimit) || 30));
 
   let degraded = false;
   // [INVARIANT: DEFENSIVE-QUERY-TIMEOUT-GUARD]
@@ -1296,10 +1295,10 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
   const summaryTotalDailyVelocity = Number(allPins.reduce((acc, p) => acc + Math.max(0, Number(p.velocity || 0)), 0).toFixed(1));
   const allPinAges = allPins.map(p => p.pin_age_days).filter(d => d !== null && Number.isFinite(d));
 
-  const activeVisualPins = visualPins.filter(p => p.best_rank !== null || !p.is_displaced);
-  const displacedVisualPins = visualPins.filter(p => p.best_rank === null && p.is_displaced);
-  const visibleDisplacedPins = displacedVisualPins.slice(0, safeDisplacedLimit);
-  const pagedVisualPins = [...activeVisualPins, ...visibleDisplacedPins];
+  // 100% 1:1 parity between RANKED PINS KPI and By Pin rows (no 30-pin displaced cap, no silent image_url drop).
+  const activeRankedPins = allPins.filter(p => p.best_rank !== null || !p.is_displaced);
+  const displacedRankedPins = allPins.filter(p => p.best_rank === null && p.is_displaced);
+  const unifiedRankedPins = [...activeRankedPins, ...displacedRankedPins];
 
   return {
     success: true,
@@ -1313,14 +1312,14 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       all_catalog_pins_count: allPins.length + catalogOnlyVisualPins.length,
       catalog_only_pins_count: catalogOnlyVisualPins.length,
       visual_pins_count: visualPins.length,
-      active_pins_count: visualPins.filter(p => p.best_rank !== null).length,
+      active_pins_count: allPins.filter(p => p.best_rank !== null).length,
       active_total_saves: activeTotalSaves,
-      top3_pins: visualPins.filter(p => p.best_rank !== null && p.best_rank <= 3).length,
-      top10_pins: visualPins.filter(p => p.best_rank !== null && p.best_rank <= 10).length,
-      rank_11_50_pins: visualPins.filter(p => p.best_rank !== null && p.best_rank >= 11 && p.best_rank <= 50).length,
-      displaced_pins_count: visibleDisplacedPins.length,
-      displaced_total_count: displacedVisualPins.length,
-      displaced_remaining_count: Math.max(0, displacedVisualPins.length - visibleDisplacedPins.length),
+      top3_pins: allPins.filter(p => p.best_rank !== null && p.best_rank <= 3).length,
+      top10_pins: allPins.filter(p => p.best_rank !== null && p.best_rank <= 10).length,
+      rank_11_50_pins: allPins.filter(p => p.best_rank !== null && p.best_rank >= 11 && p.best_rank <= 50).length,
+      displaced_pins_count: displacedRankedPins.length,
+      displaced_total_count: displacedRankedPins.length,
+      displaced_remaining_count: 0,
       unique_urls: summaryUniqueUrls,
       all_unique_urls_count: isOrganicVault ? 0 : moneyUrls.length,
       active_unique_urls_count: activeUniqueUrls,
@@ -1344,14 +1343,14 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       total_gains_15d: allPins.reduce((acc, p) => acc + Number(p.gains_15d || 0), 0),
       min_pin_age_days: allPinAges.length > 0 ? Math.min(...allPinAges) : null,
       max_pin_age_days: allPinAges.length > 0 ? Math.max(...allPinAges) : null,
-      best_rank: visualPins.reduce((min, p) => p.best_rank !== null ? (min === null ? p.best_rank : Math.min(min, p.best_rank)) : min, null),
+      best_rank: allPins.reduce((min, p) => p.best_rank !== null ? (min === null ? p.best_rank : Math.min(min, p.best_rank)) : min, null),
       avg_rank: (() => {
-        const r = visualPins.filter(p => p.best_rank !== null);
+        const r = allPins.filter(p => p.best_rank !== null);
         return r.length > 0 ? Number((r.reduce((sum, p) => sum + p.best_rank, 0) / r.length).toFixed(1)) : null;
       })(),
-      visibility_score: Number(((visualPins.filter(p => p.best_rank !== null && p.best_rank <= 3).length * 100) + (visualPins.filter(p => p.best_rank !== null && p.best_rank > 3 && p.best_rank <= 10).length * 45) + (visualPins.filter(p => p.best_rank !== null && p.best_rank > 10 && p.best_rank <= 50).length * 12)).toFixed(1)),
+      visibility_score: Number(((allPins.filter(p => p.best_rank !== null && p.best_rank <= 3).length * 100) + (allPins.filter(p => p.best_rank !== null && p.best_rank > 3 && p.best_rank <= 10).length * 45) + (allPins.filter(p => p.best_rank !== null && p.best_rank > 10 && p.best_rank <= 50).length * 12)).toFixed(1)),
       accounts_count: accountsMap.size,
-      vulnerable_pins_count: visualPins.filter(p => p.is_vulnerable).length,
+      vulnerable_pins_count: allPins.filter(p => p.is_vulnerable).length,
       decaying_monopoly_count: keywordMonopoly.filter(k => k.is_decaying_monopoly).length,
       sybil_accounts_count: accountsList.filter(a => a.role === 'SATELLITE_CREATOR').length,
       sybil_index: cSybil,
@@ -1369,7 +1368,7 @@ export async function getDomainDeepDossier(sql, rawDomain, { folderId = null, ke
       is_organic_vault: isOrganicVault
     },
     sybil_pbn_metrics: sybilMetrics,
-    ranked_pins: pagedVisualPins,
+    ranked_pins: unifiedRankedPins,
     catalog_pins: catalogOnlyVisualPins,
     money_urls: moneyUrls,
     keyword_monopoly: keywordMonopoly,

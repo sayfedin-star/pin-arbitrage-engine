@@ -706,7 +706,9 @@ export function getPinDetailsClientAppScripts() {
               this.errorMessage = '';
               this.isWatchlisted = Boolean(data?.is_watchlisted || data?.watchlist?.is_watchlisted);
               this.watchlistItemId = data?.watchlist_item_id ?? data?.watchlist?.item_id ?? null;
-              this.trackedCampaigns = Array.isArray(data?.tracked_campaigns) ? data.tracked_campaigns : [];
+              this.trackedCampaigns = Array.isArray(data?.campaigns)
+                ? data.campaigns
+                : (Array.isArray(data?.tracked_campaigns) ? data.tracked_campaigns : []);
               this.isDbBusy = Boolean(data?.is_degraded);
               this.rebuildDateMapCache();
 
@@ -1774,11 +1776,23 @@ export function getPinDetailsClientAppScripts() {
         get campaignButtonLabel() {
           const unique = this.uniqueTrackedCampaigns;
           if (unique.length === 0) return '+ Add to Campaign';
+          const firstName = String(unique[0].folder_name || ('Campaign #' + unique[0].folder_id)).trim();
           if (unique.length === 1) {
-            const name = String(unique[0].folder_name || ('Campaign #' + unique[0].folder_id)).trim();
-            return 'In Campaign: ' + name;
+            return 'In Campaign: ' + firstName;
           }
-          return 'In ' + unique.length + ' Campaigns';
+          return 'In ' + unique.length + ' Campaigns (' + firstName + ', +' + (unique.length - 1) + ')';
+        },
+
+        isFolderAssigned(folderId) {
+          const fid = Number(folderId);
+          if (!Number.isInteger(fid) || fid <= 0) return false;
+          return this.uniqueTrackedCampaigns.some((tc) => Number(tc.folder_id) === fid);
+        },
+
+        getFolderMembership(folderId) {
+          const fid = Number(folderId);
+          if (!Number.isInteger(fid) || fid <= 0) return null;
+          return (this.trackedCampaigns || []).find((tc) => Number(tc.folder_id) === fid) || null;
         },
 
         formatCampaignSourceBadge(tc) {
@@ -1802,6 +1816,13 @@ export function getPinDetailsClientAppScripts() {
           return existing.can_remove === false ? (name + ' (In Cluster)') : (name + ' (Tracked)');
         },
 
+        async addPinToSpecificCampaign(folderId) {
+          const fid = Number(folderId);
+          if (!Number.isInteger(fid) || fid <= 0 || this.v4CampaignActionBusy) return;
+          this.v4SelectedFolderId = String(fid);
+          await this.addPinToCampaignTracked();
+        },
+
         async addPinToCampaignTracked() {
           if (!this.v4SelectedFolderId || this.v4CampaignActionBusy) return;
           this.v4CampaignActionBusy = true;
@@ -1816,13 +1837,16 @@ export function getPinDetailsClientAppScripts() {
             if (res.ok && data?.success) {
               const matchedFolder = (this.v4CampaignFolders || []).find((f) => Number(f.id) === fid);
               const folderName = matchedFolder?.name || ('Campaign #' + fid);
+              const folderColor = matchedFolder?.color || null;
               const exists = (this.trackedCampaigns || []).some((tc) => Number(tc.folder_id) === fid && String(tc.source_type || '') === 'related');
               if (!exists && Number.isInteger(fid) && fid > 0) {
                 const clusterRow = (this.trackedCampaigns || []).find((tc) => Number(tc.folder_id) === fid && tc.can_remove === false);
                 const entry = {
                   folder_id: fid,
                   folder_name: folderName,
+                  folder_color: folderColor,
                   source_type: 'related',
+                  source_query: null,
                   seed_query: null,
                   added_at: new Date().toISOString(),
                   notes: null,
@@ -1835,6 +1859,7 @@ export function getPinDetailsClientAppScripts() {
                 this.trackedCampaigns = [...remaining, entry];
                 if (this.dossier) {
                   this.dossier.tracked_campaigns = [...this.trackedCampaigns];
+                  this.dossier.campaigns = [...this.trackedCampaigns];
                 }
               }
               this.showToast('Pin #' + this.pinId + ' added to ' + folderName);
@@ -1867,6 +1892,14 @@ export function getPinDetailsClientAppScripts() {
               });
               if (this.dossier) {
                 this.dossier.tracked_campaigns = [...this.trackedCampaigns];
+                this.dossier.campaigns = [...this.trackedCampaigns];
+                if (this.dossier.newborn_context && Number(this.dossier.newborn_context.folder_id) === fid) {
+                  if (!sourceType || String(sourceType) === 'newborn') {
+                    this.dossier.newborn_context.folder_id = null;
+                    this.dossier.newborn_context.folder_name = null;
+                    this.dossier.newborn_context.folder_color = null;
+                  }
+                }
               }
               this.showToast('Removed Pin #' + this.pinId + ' from campaign');
             } else {

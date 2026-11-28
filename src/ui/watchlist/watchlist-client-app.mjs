@@ -70,6 +70,8 @@ window.watchlistApp = function watchlistApp() {
     selectedCreatorName: '',
     catalogPins: [],
     catalogTotal: 0,
+    catalogOfficialTotal: 0,
+    catalogCuratorTotal: 0,
     catalogLoading: false,
     catalogError: '',
     pinFilterMinSaves: 0,
@@ -77,6 +79,13 @@ window.watchlistApp = function watchlistApp() {
     pinFilterMaxAgeDays: 0,
     pinFilterSearch: '',
     pinSortBy: 'saves_desc',
+
+    // Saved Pin Campaign Assignment Modal
+    showPinCampaignModal: false,
+    pinCampaignTarget: null,
+    workspaceFolders: [],
+    pinCampaignFoldersLoading: false,
+    pinCampaignBusy: false,
 
     async init() {
       this.isDark = document.documentElement.classList.contains('dark');
@@ -153,6 +162,132 @@ window.watchlistApp = function watchlistApp() {
 
     decodeTitle(t) {
       return decodeHtmlEntitiesClient(t || '');
+    },
+
+    savedPinVelocity(item) {
+      if (!item) return 0;
+      const d24 = Number(item.pin_delta_saves_24h);
+      if (Number.isFinite(d24) && d24 !== 0) return Math.round(d24);
+      const v = Number(item.pin_daily_save_velocity);
+      return Number.isFinite(v) ? Math.round(v) : 0;
+    },
+
+    savedPinRepinDelta(item) {
+      if (!item) return 0;
+      const d24 = Number(item.pin_delta_repins_24h);
+      if (Number.isFinite(d24) && d24 !== 0) return Math.round(d24);
+      const v = Number(item.pin_daily_repin_velocity);
+      return Number.isFinite(v) ? Math.round(v) : 0;
+    },
+
+    catalogPinVelocity(pin) {
+      if (!pin) return 0;
+      const d24 = Number(pin.delta_saves_24h);
+      if (Number.isFinite(d24) && d24 !== 0) return Math.round(d24);
+      const v = Number(pin.velocity ?? pin.daily_save_velocity);
+      return Number.isFinite(v) ? Math.round(v) : 0;
+    },
+
+    formatVelocityPill(v) {
+      const n = Number(v || 0);
+      if (!Number.isFinite(n) || n === 0) return '—';
+      return (n > 0 ? '+' : '') + this.fmtNum(n) + '/d';
+    },
+
+    get catalogSummaryText() {
+      const shown = this.filteredCatalogPins.length;
+      const loaded = this.catalogPins.length;
+      const official = Number(this.catalogOfficialTotal || 0);
+      const community = Number(this.catalogCuratorTotal || 0);
+      const base = 'Showing ' + shown + ' of ' + loaded + ' loaded pins';
+      if (community > 0 && official > 0) {
+        return base + ' (' + official + ' official · ' + community + ' community)';
+      }
+      if (this.catalogTotal > loaded) {
+        return base + ' (Total indexed: ' + this.catalogTotal + ')';
+      }
+      return base;
+    },
+
+    isSavedPinInFolder(item, folderId) {
+      if (!item || !Array.isArray(item.campaigns)) return false;
+      const fid = Number(folderId);
+      return item.campaigns.some((c) => Number(c.folder_id) === fid);
+    },
+
+    async openPinCampaignModal(item) {
+      if (!item) return;
+      this.pinCampaignTarget = item;
+      this.showPinCampaignModal = true;
+      this.pinCampaignFoldersLoading = true;
+      try {
+        const res = await this._reqFetch('/api/folders?lite=true', { headers: { Accept: 'application/json' } });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        this.workspaceFolders = Array.isArray(data.folders) ? data.folders : [];
+      } catch (err) {
+        this.showToast(err.message || 'Failed to load workspace campaigns');
+      } finally {
+        this.pinCampaignFoldersLoading = false;
+      }
+    },
+
+    closePinCampaignModal() {
+      this.showPinCampaignModal = false;
+      this.pinCampaignTarget = null;
+    },
+
+    async assignSavedPinToFolder(item, folder) {
+      if (!item || !folder || this.pinCampaignBusy) return;
+      this.pinCampaignBusy = true;
+      try {
+        const res = await this._reqFetch('/api/folders/' + encodeURIComponent(folder.id) + '/tracked-pins', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ pin_ids: [String(item.entity_key)], source_type: 'related', source_ref: 'watchlist' })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false) {
+          throw new Error(data.error || 'Failed to assign pin to campaign');
+        }
+        if (!Array.isArray(item.campaigns)) item.campaigns = [];
+        if (!item.campaigns.some((c) => Number(c.folder_id) === Number(folder.id))) {
+          item.campaigns = [...item.campaigns, {
+            folder_id: Number(folder.id),
+            folder_name: folder.name || ('Campaign #' + folder.id),
+            folder_color: folder.color || null,
+            source_type: 'related'
+          }];
+        }
+        this.showToast('Added Pin #' + item.entity_key + ' to ' + (folder.name || ('Campaign #' + folder.id)));
+      } catch (err) {
+        this.showToast(err.message || 'Could not assign pin to campaign');
+      } finally {
+        this.pinCampaignBusy = false;
+      }
+    },
+
+    async removeSavedPinFromFolder(item, folder) {
+      if (!item || !folder || this.pinCampaignBusy) return;
+      this.pinCampaignBusy = true;
+      try {
+        const res = await this._reqFetch('/api/folders/' + encodeURIComponent(folder.id) + '/tracked-pins/' + encodeURIComponent(String(item.entity_key)), {
+          method: 'DELETE',
+          headers: { Accept: 'application/json' }
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false) {
+          throw new Error(data.error || 'Failed to remove pin from campaign');
+        }
+        if (Array.isArray(item.campaigns)) {
+          item.campaigns = item.campaigns.filter((c) => Number(c.folder_id) !== Number(folder.id));
+        }
+        this.showToast('Removed Pin #' + item.entity_key + ' from ' + (folder.name || ('Campaign #' + folder.id)));
+      } catch (err) {
+        this.showToast(err.message || 'Could not remove pin from campaign');
+      } finally {
+        this.pinCampaignBusy = false;
+      }
     },
 
     async loadWatchlist() {
@@ -463,7 +598,9 @@ window.watchlistApp = function watchlistApp() {
           throw new Error(data.error || ('HTTP ' + res.status));
         }
         this.catalogPins = Array.isArray(data.pins) ? data.pins : [];
-        this.catalogTotal = Number(data.catalog_total ?? data.total ?? this.catalogPins.length);
+        this.catalogTotal = Number(data.scope_total ?? data.total ?? data.ecosystem_catalog_total ?? this.catalogPins.length);
+        this.catalogOfficialTotal = Number(data.catalog_total ?? 0);
+        this.catalogCuratorTotal = Number(data.curator_pins_total ?? 0);
       } catch (err) {
         this.catalogError = err.message || 'Failed to load creator catalog pins.';
       } finally {

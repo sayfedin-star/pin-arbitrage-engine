@@ -17,7 +17,7 @@ export function renderCreatorsProfilePins() {
                   <div>
                     <div class="flex items-center gap-2">
                       <h3 class="text-base font-bold text-slate-900 dark:text-white">Master Pin Ledger</h3>
-                      <span class="text-xs font-mono tabular-nums font-bold px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" x-text="formatNumber(activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0) + ' pins'"></span>
+                      <span class="text-xs font-mono tabular-nums font-bold px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20" x-text="formatNumber(activeCreatorScopeTotal || activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0) + ' pins'"></span>
                     </div>
                     <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Discovered pins catalog for @<span x-text="(activeCreator?.username || '').replace(/^@+/, '')"></span>. Synchronized in Unified PostgreSQL.</p>
                   </div>
@@ -34,7 +34,7 @@ export function renderCreatorsProfilePins() {
               </div>
 
               <!-- Bottom Row: Smart Segmented Filter Pills with Live Backend Counts -->
-              <div class="flex items-center gap-2 overflow-x-auto pb-1 pt-1 select-none border-t border-slate-100 dark:border-[#27272A]/80">
+              <div class="flex flex-wrap items-center gap-2 pt-2 select-none border-t border-slate-100 dark:border-[#27272A]/80">
                 <!-- All Catalog -->
                 <button 
                   type="button" 
@@ -43,7 +43,7 @@ export function renderCreatorsProfilePins() {
                   :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinStage) ? 'bg-indigo-600 text-white border-indigo-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A] hover:text-slate-900 dark:hover:text-white'"
                 >
                   <span class="inline-flex items-center gap-1"><i data-lucide="clipboard-list" class="w-3.5 h-3.5 shrink-0"></i><span>All Catalog</span></span>
-                  <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono tabular-nums" :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinStage) ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'" x-text="formatNumber(activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0)"></span>
+                  <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono tabular-nums" :class="(!creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly && !creatorAllPinStage) ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'" x-text="formatNumber(activeCreatorScopeTotal || activeCreatorCatalogTotal || activeCreatorAllPinsTotal || 0)"></span>
                 </button>
 
                 <!-- Qualified Winners -->
@@ -57,12 +57,13 @@ export function renderCreatorsProfilePins() {
                   <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono tabular-nums" :class="(creatorAllPinQualifiedOnly && !creatorAllPinRankedOnly) ? 'bg-white/20 text-white' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'" x-text="formatNumber(activeCreatorWinningPinsTotal || 0)"></span>
                 </button>
 
-                <!-- SERP Ranked -->
+                <!-- SERP Ranked (Active + Vault) -->
                 <button 
                   type="button" 
                   @click="creatorAllPinRankedOnly = true; creatorAllPinQualifiedOnly = false; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
                   class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs whitespace-nowrap shrink-0"
                   :class="(creatorAllPinRankedOnly) ? 'bg-sky-600 text-white border-sky-700 shadow-xs' : 'bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-[#27272A] hover:text-slate-900 dark:hover:text-white'"
+                  :title="'Active SERP: ' + formatNumber(activeCreatorActiveSerpTotal || 0) + ' · Vault SERP: ' + formatNumber(activeCreatorVaultSerpTotal || 0)"
                 >
                   <span class="inline-flex items-center gap-1"><i data-lucide="target" class="w-3.5 h-3.5 shrink-0"></i><span>SERP Ranked</span></span>
                   <span class="px-1.5 py-0.2 rounded text-[10.5px] font-mono tabular-nums" :class="(creatorAllPinRankedOnly) ? 'bg-white/20 text-white' : 'bg-sky-500/10 text-sky-600 dark:text-sky-400'" x-text="formatNumber(activeCreatorRankedTotal || 0)"></span>
@@ -70,7 +71,7 @@ export function renderCreatorsProfilePins() {
 
                 <!-- Domain Ecosystem Attribution Scope Pills -->
                 <template x-if="(activeCreatorCuratorPinsTotal || activeCreatorDetail?.domain_ecosystem?.curator_pins || 0) > 0 || (activeCreatorExternalPinsTotal || activeCreatorDetail?.domain_ecosystem?.external_pins || 0) > 0">
-                  <div class="flex items-center gap-1.5 pl-2 ml-1 border-l border-slate-200 dark:border-[#27272A]">
+                  <div class="flex flex-wrap items-center gap-1.5 pl-2 ml-1 border-l border-slate-200 dark:border-[#27272A]">
                     <button
                       type="button"
                       @click="creatorAllPinScope = 'official'; activeCreatorAllPinsPage = 1; fetchCreatorAllPins()"
@@ -302,7 +303,6 @@ export function renderCreatorsProfilePins() {
                     <th x-show="visibleMasterColumns.repins" class="py-3 px-3 font-semibold text-right">Repins</th>
                     <th x-show="visibleMasterColumns.status" class="py-3 px-3 text-center font-semibold">Status</th>
                     <th x-show="visibleMasterColumns.created_at" class="py-3 px-3 font-semibold">Created / Discovered</th>
-                    <th x-show="visibleMasterColumns.actions" class="py-3 px-3 text-center font-semibold">Actions</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono tabular-nums">
@@ -321,7 +321,7 @@ export function renderCreatorsProfilePins() {
                       showRepins: true,
                       showAge: true,
                       agePosition: 'beforeActions',
-                      showActions: true,
+                      showActions: false,
                       rowClass: 'hover:bg-slate-50/80 dark:hover:bg-slate-900/40 transition',
                       rowDynamicClass: "isPinSelected(p.pin_id) ? 'bg-amber-500/5 dark:bg-amber-500/10' : ''",
                       checkboxHtml: `
@@ -330,19 +330,28 @@ export function renderCreatorsProfilePins() {
                         <input type="checkbox" :checked="isPinSelected(p.pin_id)" @change="togglePinSelection(p.pin_id)" class="rounded border-slate-300 text-amber-500 cursor-pointer" />
                       </td>`,
                       thumbHtml: `
-                      <!-- Thumbnail with hover preview -->
+                      <!-- Thumbnail with hover preview (direct link to Pin Dossier) -->
                       <td x-show="visibleMasterColumns.media" class="py-2.5 px-3 w-14">
-                        <div class="relative group cursor-pointer" @click="openPinDossier(p)">
-                          <img :src="p.image_url" loading="lazy" class="w-11 h-14 rounded-lg object-cover border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-slate-800 hover:opacity-80 transition" onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}" />
-                          <div class="hidden group-hover:block absolute left-14 top-0 z-40 w-44 rounded-xl overflow-hidden shadow-2xl border border-slate-200 dark:border-[#27272A] pointer-events-none bg-white dark:bg-slate-900">
-                            <img :src="p.image_url" class="w-full h-auto object-cover" onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}" />
-                          </div>
-                        </div>
+                        <a :href="'/pin/' + encodeURIComponent(p.pin_id)" @click.prevent="openPinDossier(p)" class="relative group block w-11 h-14" :aria-label="'Inspect Pin #' + p.pin_id">
+                          <template x-if="p.image_url">
+                            <img :src="p.image_url" loading="lazy" class="w-11 h-14 rounded-lg object-cover border border-slate-200 dark:border-[#27272A] bg-slate-100 dark:bg-slate-800 hover:opacity-80 transition" onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}" />
+                          </template>
+                          <template x-if="!p.image_url">
+                            <div class="w-11 h-14 rounded-lg bg-slate-100 dark:bg-[#18181B] border border-slate-200 dark:border-[#27272A] flex items-center justify-center text-slate-400">
+                              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                            </div>
+                          </template>
+                          <template x-if="p.image_url">
+                            <div class="hidden group-hover:block absolute left-14 top-0 z-40 w-44 rounded-xl overflow-hidden shadow-2xl border border-slate-200 dark:border-[#27272A] pointer-events-none bg-white dark:bg-slate-900">
+                              <img :src="p.image_url" class="w-full h-auto object-cover" onerror="if(window.handlePinImgError){window.handlePinImgError(this)}else{this.onerror=null}" />
+                            </div>
+                          </template>
+                        </a>
                       </td>`,
                       titleHtml: `
                       <!-- Title & Destination -->
                       <td x-show="visibleMasterColumns.title" class="py-2.5 px-4 font-sans font-bold text-slate-900 dark:text-white max-w-md">
-                        <div class="line-clamp-2 cursor-pointer hover:text-rose-500 transition" :title="p.title" x-text="p.title || 'Untitled Pin'" @click="openPinDossier(p)"></div>
+                        <a :href="'/pin/' + encodeURIComponent(p.pin_id)" @click.prevent="openPinDossier(p)" class="line-clamp-2 hover:text-rose-500 hover:underline transition block" :title="p.title" x-text="p.title || 'Untitled Pin'"></a>
                         <div class="flex items-center gap-2 mt-1 font-mono tabular-nums text-[10.5px] font-normal flex-wrap">
                           <span class="text-slate-400" x-text="'ID: ' + p.pin_id"></span>
                           <template x-if="p.attribution_source === 'curator' && p.curator_username">
@@ -384,13 +393,18 @@ export function renderCreatorsProfilePins() {
                         </div>
                       </td>`,
                       extraCellsBeforeAge: `
-                      <!-- Status Badge (Clean: 🏆, 🎯, Product) -->
+                      <!-- Status Badge (Active SERP vs Vault SERP, Product, Winner) -->
                       <td x-show="visibleMasterColumns.status" class="py-2.5 px-3 text-center">
                         <div class="inline-flex items-center justify-center gap-1.5 flex-wrap">
-                          <template x-if="p.is_ranked">
-                            <span class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/30 shadow-2xs" :title="'Ranked in SERP position #' + (p.rank_position || '—')">
+                          <template x-if="p.is_active_serp || p.active_serp_rank != null">
+                            <span class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/30 shadow-2xs" :title="'Active SERP rank #' + (p.active_serp_rank || p.rank_position || '—')">
                               <i data-lucide="target" class="w-3 h-3 shrink-0"></i>
-                              <span x-text="p.rank_position ? '#' + p.rank_position : ''"></span>
+                              <span x-text="'#' + (p.active_serp_rank || p.rank_position)"></span>
+                            </span>
+                          </template>
+                          <template x-if="p.is_ranked && !(p.is_active_serp || p.active_serp_rank != null)">
+                            <span class="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 shadow-2xs" :title="'Historical Vault SERP rank #' + (p.vault_serp_rank || p.rank_position || '—')">
+                              <span x-text="(p.vault_serp_rank || p.rank_position) ? ('Vault #' + (p.vault_serp_rank || p.rank_position)) : 'Vault'"></span>
                             </span>
                           </template>
                           <template x-if="p.is_product">
@@ -415,18 +429,6 @@ export function renderCreatorsProfilePins() {
                       <!-- Created / Discovered -->
                       <td x-show="visibleMasterColumns.created_at" class="py-2.5 px-3 font-sans text-slate-500 text-[11px]">
                         <span x-text="p.created_at_pinterest ? new Date(p.created_at_pinterest).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : (p.first_seen_at ? new Date(p.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—')"></span>
-                      </td>`,
-                      actionsHtml: `
-                      <!-- Actions: Eye icon and External Link -->
-                      <td x-show="visibleMasterColumns.actions" class="py-2.5 px-3 text-center">
-                        <div class="inline-flex items-center gap-1.5 justify-center">
-                          <a :href="'/pin/' + p.pin_id" @click.prevent="openPinDossier(p)" class="inline-flex items-center justify-center h-7 w-7 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 transition cursor-pointer" title="Inspect Pin Dossier">
-                            <i data-lucide="eye" class="w-3.5 h-3.5"></i>
-                          </a>
-                          <a :href="'https://www.pinterest.com/pin/' + p.pin_id + '/'" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center h-7 w-7 rounded-lg text-slate-500 hover:text-rose-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition" title="Open on Pinterest">
-                            <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-                          </a>
-                        </div>
                       </td>`
                     })}
                   </template>

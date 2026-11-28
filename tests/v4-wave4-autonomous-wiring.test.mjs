@@ -736,7 +736,7 @@ test('Wave 4 Pillar 3: Campaigns Studio & Pin Dossier SSR templates expose V4 co
   const pinHtml = getPinDetailPageHtml('123456789012');
   assert.match(pinHtml, /savePinToWatchlist\(\)/, 'Pin Dossier must expose V4 Watchlist action');
   assert.match(pinHtml, /openV4CampaignModal\(\)/, 'Pin Dossier must expose V4 Campaign / Seed modal trigger');
-  assert.match(pinHtml, /addPinToCampaignTracked\(\)/, 'Pin Dossier must support Add to Campaign Tracking');
+  assert.match(pinHtml, /addPinToSpecificCampaign\(/, 'Pin Dossier must support one-click Add to Campaign Tracking in checklist modal');
   assert.match(pinHtml, /queuePinAsGraphSeed\(\)/, 'Pin Dossier must support Queue Pin Graph Seed');
   assert.match(pinHtml, /getBackUrl\(\)/, 'Pin Dossier must preserve getBackUrl()');
   assert.match(pinHtml, /Live Deep Sync/, 'Pin Dossier must preserve Live Deep Sync');

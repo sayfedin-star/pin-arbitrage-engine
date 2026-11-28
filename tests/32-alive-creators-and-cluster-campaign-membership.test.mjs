@@ -391,8 +391,10 @@ test('fetchUniversalPinDossier unifies explicit campaign_tracked_pins AND cluste
   assert.deepEqual(dossier.tracked_campaigns[0], {
     folder_id: 7,
     folder_name: 'crockpot meals',
+    folder_color: null,
     source_type: 'vault',
     seed_query: null,
+    source_query: null,
     added_at: '2026-11-20T00:00:00.000Z',
     notes: null,
     membership_type: 'cluster_serp',
@@ -400,6 +402,7 @@ test('fetchUniversalPinDossier unifies explicit campaign_tracked_pins AND cluste
     keyword_count: 2,
     best_rank: 32
   });
+  assert.deepEqual(dossier.campaigns, dossier.tracked_campaigns);
 
   // Verify the SQL query joins keyword_serp_positions -> keyword_folder_items -> keyword_folders
   const campQuery = sql.queries.find((q) => q.queryText.includes('serp_cluster_folders'));
@@ -453,6 +456,6 @@ test('Pin Dossier client controller displays In Campaign: crockpot meals (1 fold
     }
   ];
   assert.equal(ctrl.isInCampaign, true);
-  assert.equal(ctrl.campaignButtonLabel, 'In 2 Campaigns');
+  assert.equal(ctrl.campaignButtonLabel, 'In 2 Campaigns (Comfort Dinners & Casseroles, +1)');
   assert.equal(ctrl.formatCampaignSourceBadge(ctrl.trackedCampaigns[0]), 'vault · 1 kw · #40');
 });

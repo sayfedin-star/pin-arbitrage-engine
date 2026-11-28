@@ -359,11 +359,11 @@ test('Pin Dossier (/pin/:id) renders stateful Campaign Membership CTA and modal 
   assert.equal(state.isInCampaign, true);
   assert.equal(state.campaignButtonLabel, 'In Campaign: cranberry sauce');
 
-  // 2 campaigns -> In 2 Campaigns
+  // 2 campaigns -> In 2 Campaigns (<first>, +1)
   state.trackedCampaigns = [
     { folder_id: 13, folder_name: 'cranberry sauce', source_type: 'newborn' },
     { folder_id: 5, folder_name: 'high protein', source_type: 'related' }
   ];
   assert.equal(state.isInCampaign, true);
-  assert.equal(state.campaignButtonLabel, 'In 2 Campaigns');
+  assert.equal(state.campaignButtonLabel, 'In 2 Campaigns (cranberry sauce, +1)');
 });

@@ -485,15 +485,12 @@ export async function handleDomainsRoutes(routeCtx) {
       const isForceRefresh = searchParams.get('refresh') === 'true' || searchParams.get('force') === 'true';
       const folderId = validatedFolderId ? String(validatedFolderId) : null;
       const keywordId = searchParams.get('keyword_id') || null;
-      const rawDisplacedLimit = Number(searchParams.get('displaced_limit'));
-      const displacedLimit = Math.min(500, Math.max(30, Number.isFinite(rawDisplacedLimit) && rawDisplacedLimit > 0 ? rawDisplacedLimit : 30));
 
       const cacheKey = buildCanonicalCacheKey('domains:dossier', {
         workspaceId: numericWid,
         domain: cleanDomain,
         folderId,
-        keywordId,
-        displacedLimit
+        keywordId
       });
 
       if (isForceRefresh && canMutateInBackground && typeof invalidateEdgeCache === 'function') {
@@ -506,8 +503,7 @@ export async function handleDomainsRoutes(routeCtx) {
           folderId,
           keywordId,
           env,
-          fastPath: true,
-          displacedLimit
+          fastPath: true
         });
       };
 

@@ -21,6 +21,17 @@ export {
 } from './creator-harvest-and-archive.mjs';
 
 /**
+ * Derives Pinterest's official domain-preview system handle (e.g. `spiceupbites.com` -> `preview_spiceupbites_com`)
+ * so brand preview pins are attributed to the brand account rather than third-party community curators,
+ * matching Domain Dossier's PRIMARY_BRAND classification 1:1.
+ */
+export function deriveBrandPreviewAlias(domain) {
+  const clean = String(domain || '').trim().toLowerCase().replace(/^https?:\/\/(www\.)?/, '').replace(/\/.*$/, '').replace(/^www\./, '');
+  if (!clean || !clean.includes('.')) return '';
+  return 'preview_' + clean.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+/**
  * Retrieve comprehensive details for a competitor, including profile,
  * historical snapshots, deltas, strategy age, velocity, and boards.
  */
@@ -192,6 +203,8 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
   // [INVARIANT: ZERO-READ-PATH-MUTATIONS]
   // Read path is strictly read-only: zero UPDATE competitor_profiles or writes during GET /api/creators/detail.
 
+  const resolvedBrandPreviewAlias = deriveBrandPreviewAlias(resolvedPrimaryDomain);
+
   const aggregatesPromise = (async () => {
     try {
       const [agg] = await sql`
@@ -247,7 +260,10 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
                 OR (
                   ${resolvedPrimaryDomain} <> ''
                   AND ump.clean_domain = ${resolvedPrimaryDomain}
-                  AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+                  AND (
+                    LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+                    OR (${resolvedBrandPreviewAlias} <> '' AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${resolvedBrandPreviewAlias})
+                  )
                 )
               )
           ) dp_raw
@@ -340,7 +356,10 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
                 (${cleanUsername} <> '' AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${cleanUsername})
                 OR (
                   ump.clean_domain = ${resolvedPrimaryDomain}
-                  AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+                  AND (
+                    LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+                    OR (${resolvedBrandPreviewAlias} <> '' AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${resolvedBrandPreviewAlias})
+                  )
                 )
               )
           ) dp_raw
@@ -366,7 +385,7 @@ export async function getCompetitorDetail(sql, competitorIdOrUsername, { generat
           FROM universal_master_pins ump
           WHERE ump.pin_id ~ '^[0-9]{10,30}$'
             AND ump.clean_domain = ${resolvedPrimaryDomain}
-            AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) NOT IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator', ${cleanUsername})
+            AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) NOT IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator', ${cleanUsername}, ${resolvedBrandPreviewAlias})
             AND NOT EXISTS (
               SELECT 1 FROM direct_pins dp_ex
               WHERE dp_ex.pin_id = ump.pin_id
@@ -877,6 +896,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     ? scope
     : (scope === 'all' ? 'all' : 'official');
   const restrictToPrimaryDomain = activeScope === 'domain_only' && Boolean(primaryDomain);
+  const brandPreviewAlias = deriveBrandPreviewAlias(primaryDomain);
 
   const boardsPromise = sql`
     WITH direct_pins AS (
@@ -896,7 +916,10 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
             OR (
               ${primaryDomain} <> ''
               AND ump.clean_domain = ${primaryDomain}
-              AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+              AND (
+                LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+                OR (${brandPreviewAlias} <> '' AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${brandPreviewAlias})
+              )
             )
           )
       ) dp_raw
@@ -994,7 +1017,10 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
             OR (
               ${primaryDomain} <> ''
               AND ump.clean_domain = ${primaryDomain}
-              AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+              AND (
+                LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+                OR (${brandPreviewAlias} <> '' AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${brandPreviewAlias})
+              )
             )
           )
       ) dp_raw
@@ -1035,7 +1061,9 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         COALESCE(dp.clean_domain ILIKE '%etsy%' OR dp.clean_domain ILIKE '%shopify%' OR dp.clean_domain ILIKE '%amazon%' OR dp.destination_url ILIKE '%/listing/%' OR dp.destination_url ILIKE '%/product/%' OR dp.destination_url ILIKE '%/item/%' OR dp.destination_url ILIKE '%gumroad.com%', false)
       ) AS is_product,
       (COALESCE(dp.save_count, 0) >= 100 OR COALESCE(dp.daily_save_velocity, 0) >= 3.5) AS is_qualified,
-      ((ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AND ksp.is_displaced = FALSE) AS is_ranked,
+      (ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AS is_ranked,
+      ((ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AND ksp.is_displaced = FALSE) AS is_active_serp,
+      ((ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AND ksp.is_displaced = TRUE) AS is_vault_serp,
       COALESCE(ksp.rank_position, ksp.last_known_rank) AS rank_position,
       CASE WHEN ksp.is_displaced = FALSE THEN ksp.rank_position ELSE NULL END AS active_serp_rank,
       ksp.active_keyword,
@@ -1060,7 +1088,6 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         OR dp.clean_domain ILIKE '%pin.it%'
       )
       AND (ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL)
-      AND ksp.is_displaced = FALSE
       AND (${minSavesNum} = 0 OR COALESCE(dp.save_count, 0) >= ${minSavesNum})
       AND (${searchPattern}::text IS NULL OR LOWER(COALESCE(dp.title, '')) LIKE ${searchPattern} ESCAPE '\\' OR LOWER(COALESCE(dp.description, '')) LIKE ${searchPattern} ESCAPE '\\')
       AND (${cleanBoardSlug}::text IS NULL OR dp.board_slug = ${cleanBoardSlug})
@@ -1164,7 +1191,10 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
             OR (
               ${primaryDomain} <> ''
               AND ump.clean_domain = ${primaryDomain}
-              AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+              AND (
+                LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+                OR (${brandPreviewAlias} <> '' AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${brandPreviewAlias})
+              )
             )
           )
       ) dp_raw
@@ -1248,7 +1278,9 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         COALESCE(fp.clean_domain ILIKE '%etsy%' OR fp.clean_domain ILIKE '%shopify%' OR fp.clean_domain ILIKE '%amazon%' OR fp.destination_url ILIKE '%/listing/%' OR fp.destination_url ILIKE '%/product/%' OR fp.destination_url ILIKE '%/item/%' OR fp.destination_url ILIKE '%gumroad.com%', false)
       ) AS is_product,
       (COALESCE(fp.save_count, 0) >= 100 OR COALESCE(fp.daily_save_velocity, 0) >= 3.5) AS is_qualified,
-      ((ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AND ksp.is_displaced = FALSE) AS is_ranked,
+      (ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AS is_ranked,
+      ((ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AND ksp.is_displaced = FALSE) AS is_active_serp,
+      ((ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AND ksp.is_displaced = TRUE) AS is_vault_serp,
       COALESCE(ksp.rank_position, ksp.last_known_rank) AS rank_position,
       CASE WHEN ksp.is_displaced = FALSE THEN ksp.rank_position ELSE NULL END AS active_serp_rank,
       ksp.active_keyword,
@@ -1348,7 +1380,10 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
             OR (
               ${primaryDomain} <> ''
               AND ump.clean_domain = ${primaryDomain}
-              AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+              AND (
+                LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+                OR (${brandPreviewAlias} <> '' AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${brandPreviewAlias})
+              )
             )
           )
       ) dp_raw
@@ -1439,7 +1474,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         AND ${primaryDomain} <> ''
         AND ump.pin_id ~ '^[0-9]{10,30}$'
         AND ump.clean_domain = ${primaryDomain}
-        AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) NOT IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator', ${normCreatorUser})
+        AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) NOT IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator', ${normCreatorUser}, ${brandPreviewAlias})
         AND NOT EXISTS (
           SELECT 1 FROM direct_pins dp_ex
           WHERE dp_ex.pin_id = ump.pin_id
@@ -1448,7 +1483,9 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     SELECT
       ep.*,
       (ep.save_count >= 100 OR ep.velocity >= 3.5) AS is_qualified,
-      ((ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AND ksp.is_displaced = FALSE) AS is_ranked,
+      (ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AS is_ranked,
+      ((ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AND ksp.is_displaced = FALSE) AS is_active_serp,
+      ((ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AND ksp.is_displaced = TRUE) AS is_vault_serp,
       COALESCE(ksp.rank_position, ksp.last_known_rank) AS rank_position,
       CASE WHEN ksp.is_displaced = FALSE THEN ksp.rank_position ELSE NULL END AS active_serp_rank,
       ksp.active_keyword,
@@ -1466,7 +1503,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
       ORDER BY ksp_sub.is_displaced ASC, ksp_sub.rank_position ASC NULLS LAST, ksp_sub.last_known_rank ASC NULLS LAST
       LIMIT 1
     ) ksp ON TRUE
-    WHERE (${ranked_only} = FALSE OR ((ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AND ksp.is_displaced = FALSE))
+    WHERE (${ranked_only} = FALSE OR (ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL))
       AND (${minSavesNum} = 0 OR ep.save_count >= ${minSavesNum})
       AND (${searchPattern}::text IS NULL OR LOWER(ep.title) LIKE ${searchPattern} ESCAPE '\\' OR LOWER(ep.description) LIKE ${searchPattern} ESCAPE '\\' OR LOWER(ep.curator_username) LIKE ${searchPattern} ESCAPE '\\')
       AND (${cleanBoardSlug}::text IS NULL OR ep.board_slug = ${cleanBoardSlug})
@@ -1541,7 +1578,10 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
               OR (
                 ${primaryDomain} <> ''
                 AND ump.clean_domain = ${primaryDomain}
-                AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+                AND (
+                  LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+                  OR (${brandPreviewAlias} <> '' AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${brandPreviewAlias})
+                )
               )
             )
         ) dp_raw
@@ -1604,7 +1644,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
           AND ${primaryDomain} <> ''
           AND ump.pin_id ~ '^[0-9]{10,30}$'
           AND ump.clean_domain = ${primaryDomain}
-          AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) NOT IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator', ${normCreatorUser})
+          AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) NOT IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator', ${normCreatorUser}, ${brandPreviewAlias})
           AND NOT EXISTS (SELECT 1 FROM direct_pins dp_ex WHERE dp_ex.pin_id = ump.pin_id)
       )
       SELECT COUNT(*)::int as total
@@ -1621,7 +1661,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         ORDER BY ksp_sub.is_displaced ASC, ksp_sub.rank_position ASC NULLS LAST
         LIMIT 1
       ) ksp ON TRUE
-      WHERE (${ranked_only} = FALSE OR ((ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL) AND ksp.is_displaced = FALSE))
+      WHERE (${ranked_only} = FALSE OR (ksp.rank_position IS NOT NULL OR ksp.last_known_rank IS NOT NULL))
         AND (${minSavesNum} = 0 OR sp.save_count >= ${minSavesNum})
         AND (${searchPattern}::text IS NULL OR LOWER(sp.title) LIKE ${searchPattern} ESCAPE '\\' OR LOWER(sp.description) LIKE ${searchPattern} ESCAPE '\\' OR LOWER(sp.curator_username) LIKE ${searchPattern} ESCAPE '\\')
         AND (${cleanBoardSlug}::text IS NULL OR sp.board_slug = ${cleanBoardSlug})
@@ -1642,7 +1682,7 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     return row?.total || 0;
   };
 
-  // Global Unfiltered Totals Query: Decoupled from active filter predicates
+  // Global Unfiltered Totals Query: Decoupled from active filter predicates, with transparent Active + Vault SERP totals
   const unfilteredTotalsPromise = sql`
     WITH direct_pins AS (
       SELECT DISTINCT ON (pin_id) pin_id, clean_domain, save_count, ump_vel
@@ -1671,7 +1711,10 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
             OR (
               ${primaryDomain} <> ''
               AND ump.clean_domain = ${primaryDomain}
-              AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+              AND (
+                LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+                OR (${brandPreviewAlias} <> '' AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) = ${brandPreviewAlias})
+              )
             )
           )
       ) dp_raw
@@ -1682,7 +1725,8 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         dp.pin_id,
         dp.save_count,
         dp.ump_vel,
-        ksp.pin_id AS ksp_pin_id,
+        ksp.has_any_serp,
+        ksp.has_active_serp,
         (
           ${primaryDomain} = ''
           OR COALESCE(dp.clean_domain, '') IN ('', 'uploaded by user', 'uploaded-by-user', 'organic', ${primaryDomain})
@@ -1691,21 +1735,26 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         ) AS is_official_domain
       FROM direct_pins dp
       LEFT JOIN (
-        SELECT DISTINCT ksp_sub.pin_id
+        SELECT
+          ksp_sub.pin_id,
+          TRUE AS has_any_serp,
+          BOOL_OR(ksp_sub.is_displaced = FALSE AND ksp_sub.rank_position IS NOT NULL) AS has_active_serp
         FROM keyword_serp_positions ksp_sub
         WHERE (ksp_sub.rank_position IS NOT NULL OR ksp_sub.last_known_rank IS NOT NULL)
-          AND ksp_sub.is_displaced = FALSE
           AND NOT EXISTS (
             SELECT 1 FROM keyword_ignored_pins kip
             WHERE kip.keyword_id = ksp_sub.keyword_id AND kip.pin_id = ksp_sub.pin_id
           )
+        GROUP BY ksp_sub.pin_id
       ) ksp ON ksp.pin_id = dp.pin_id
     )
     SELECT
       COUNT(*)::int AS catalog_total,
       COUNT(*) FILTER (WHERE is_official_domain = FALSE)::int AS external_pins_total,
       COUNT(*) FILTER (WHERE COALESCE(save_count, 0) >= 100 OR COALESCE(ump_vel, 0) >= 3.5)::int AS qualified_total,
-      COUNT(*) FILTER (WHERE ksp_pin_id IS NOT NULL)::int AS ranked_total,
+      COUNT(*) FILTER (WHERE has_any_serp = TRUE)::int AS ranked_total,
+      COUNT(*) FILTER (WHERE has_active_serp = TRUE)::int AS active_serp_total,
+      COUNT(*) FILTER (WHERE has_any_serp = TRUE AND COALESCE(has_active_serp, FALSE) = FALSE)::int AS vault_serp_total,
       COUNT(*) FILTER (WHERE COALESCE(ump_vel, 0) >= 10)::int AS high_velocity_total
     FROM classified_cp;
   `;
@@ -1728,22 +1777,52 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
                 (${normCreatorUser} <> '' AND LOWER(LTRIM(BTRIM(COALESCE(ump_dp.creator_username, '')), '@')) = ${normCreatorUser})
                 OR (
                   ump_dp.clean_domain = ${primaryDomain}
-                  AND LOWER(LTRIM(BTRIM(COALESCE(ump_dp.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+                  AND (
+                    LOWER(LTRIM(BTRIM(COALESCE(ump_dp.creator_username, '')), '@')) IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator')
+                    OR (${brandPreviewAlias} <> '' AND LOWER(LTRIM(BTRIM(COALESCE(ump_dp.creator_username, '')), '@')) = ${brandPreviewAlias})
+                  )
                 )
               )
           ) dp_raw
+        ),
+        curator_pins AS (
+          SELECT
+            ump.pin_id,
+            ump.save_count,
+            ump.daily_save_velocity AS ump_vel,
+            ksp.has_any_serp,
+            ksp.has_active_serp
+          FROM universal_master_pins ump
+          LEFT JOIN (
+            SELECT
+              ksp_sub.pin_id,
+              TRUE AS has_any_serp,
+              BOOL_OR(ksp_sub.is_displaced = FALSE AND ksp_sub.rank_position IS NOT NULL) AS has_active_serp
+            FROM keyword_serp_positions ksp_sub
+            WHERE (ksp_sub.rank_position IS NOT NULL OR ksp_sub.last_known_rank IS NOT NULL)
+              AND NOT EXISTS (
+                SELECT 1 FROM keyword_ignored_pins kip
+                WHERE kip.keyword_id = ksp_sub.keyword_id AND kip.pin_id = ksp_sub.pin_id
+              )
+            GROUP BY ksp_sub.pin_id
+          ) ksp ON ksp.pin_id = ump.pin_id
+          WHERE ump.pin_id ~ '^[0-9]{10,30}$'
+            AND ump.clean_domain = ${primaryDomain}
+            AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) NOT IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator', ${normCreatorUser}, ${brandPreviewAlias})
+            AND NOT EXISTS (
+              SELECT 1 FROM direct_pins dp_ex
+              WHERE dp_ex.pin_id = ump.pin_id
+            )
         )
-        SELECT COUNT(*)::int AS curator_pins_total
-        FROM universal_master_pins ump
-        WHERE ump.pin_id ~ '^[0-9]{10,30}$'
-          AND ump.clean_domain = ${primaryDomain}
-          AND LOWER(LTRIM(BTRIM(COALESCE(ump.creator_username, '')), '@')) NOT IN ('', 'uploaded by user', 'uploaded by pinner', 'anonymous', 'community_curator', ${normCreatorUser})
-          AND NOT EXISTS (
-            SELECT 1 FROM direct_pins dp_ex
-            WHERE dp_ex.pin_id = ump.pin_id
-          );
-      `.catch(() => [{ curator_pins_total: 0 }])
-    : Promise.resolve([{ curator_pins_total: 0 }]);
+        SELECT
+          COUNT(*)::int AS curator_pins_total,
+          COUNT(*) FILTER (WHERE COALESCE(save_count, 0) >= 100 OR COALESCE(ump_vel, 0) >= 3.5)::int AS curator_qualified_total,
+          COUNT(*) FILTER (WHERE has_any_serp = TRUE)::int AS curator_ranked_total,
+          COUNT(*) FILTER (WHERE has_active_serp = TRUE)::int AS curator_active_serp_total,
+          COUNT(*) FILTER (WHERE has_any_serp = TRUE AND COALESCE(has_active_serp, FALSE) = FALSE)::int AS curator_vault_serp_total
+        FROM curator_pins;
+      `.catch(() => [{ curator_pins_total: 0, curator_qualified_total: 0, curator_ranked_total: 0, curator_active_serp_total: 0, curator_vault_serp_total: 0 }])
+    : Promise.resolve([{ curator_pins_total: 0, curator_qualified_total: 0, curator_ranked_total: 0, curator_active_serp_total: 0, curator_vault_serp_total: 0 }]);
 
   const [boardsRows, rows, [unfilteredRow], [curatorRow]] = await Promise.all([
     boardsPromise,
@@ -1760,8 +1839,33 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
   const external_pins_total = Number(unfilteredRow?.external_pins_total || 0);
   const curator_pins_total = Number(curatorRow?.curator_pins_total || 0);
   const ecosystem_catalog_total = catalog_total + curator_pins_total;
-  const qualified_total = unfilteredRow ? (unfilteredRow.qualified_total || 0) : 0;
-  const ranked_total = unfilteredRow ? (unfilteredRow.ranked_total || 0) : 0;
+
+  const officialQualified = Number(unfilteredRow?.qualified_total || 0);
+  const curatorQualified = Number(curatorRow?.curator_qualified_total || 0);
+  const officialRanked = Number(unfilteredRow?.ranked_total || 0);
+  const curatorRanked = Number(curatorRow?.curator_ranked_total || 0);
+  const officialActiveSerp = Number(unfilteredRow?.active_serp_total || 0);
+  const curatorActiveSerp = Number(curatorRow?.curator_active_serp_total || 0);
+  const officialVaultSerp = Number(unfilteredRow?.vault_serp_total || Math.max(0, officialRanked - officialActiveSerp));
+  const curatorVaultSerp = Number(curatorRow?.curator_vault_serp_total || Math.max(0, curatorRanked - curatorActiveSerp));
+
+  const isEcosystemScope = activeScope === 'ecosystem' || activeScope === 'all';
+  const isCuratorScope = activeScope === 'curators';
+  const scope_total = isCuratorScope
+    ? curator_pins_total
+    : (isEcosystemScope ? ecosystem_catalog_total : catalog_total);
+  const qualified_total = isCuratorScope
+    ? curatorQualified
+    : (isEcosystemScope ? (officialQualified + curatorQualified) : officialQualified);
+  const ranked_total = isCuratorScope
+    ? curatorRanked
+    : (isEcosystemScope ? (officialRanked + curatorRanked) : officialRanked);
+  const active_serp_total = isCuratorScope
+    ? curatorActiveSerp
+    : (isEcosystemScope ? (officialActiveSerp + curatorActiveSerp) : officialActiveSerp);
+  const vault_serp_total = isCuratorScope
+    ? curatorVaultSerp
+    : (isEcosystemScope ? (officialVaultSerp + curatorVaultSerp) : officialVaultSerp);
   const high_velocity_total = unfilteredRow ? (unfilteredRow.high_velocity_total || 0) : 0;
   const total_pages = Math.ceil(total / pLim);
 
@@ -1791,10 +1895,14 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
         age_days: ageDays,
         stage,
         is_product: Boolean(r.is_product),
-        is_qualified: Boolean(r.is_qualified)
+        is_qualified: Boolean(r.is_qualified),
+        is_ranked: Boolean(r.is_ranked),
+        is_active_serp: Boolean(r.is_active_serp),
+        is_vault_serp: Boolean(r.is_vault_serp)
       };
     }),
     total,
+    scope_total,
     catalog_total,
     external_pins_total,
     curator_pins_total,
@@ -1803,6 +1911,8 @@ export async function listCompetitorAccountPins(sql, competitorIdOrUsername, {
     scope: activeScope,
     qualified_total,
     ranked_total,
+    active_serp_total,
+    vault_serp_total,
     high_velocity_total,
     page: pNum,
     limit: pLim,
