@@ -1026,6 +1026,7 @@ export async function handleKeywordsRoutes({
       workspaceId,
       jsonResponse,
       methodNotAllowedResponse,
+      buildCanonicalCacheKey,
       invalidateEdgeCache
     });
     if (foldersRes) return foldersRes;

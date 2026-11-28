@@ -1608,6 +1608,24 @@ export async function handleNewbornRoutes({
       }, 404, -1);
     }
 
+    if (typeof invalidateEdgeCache === 'function') {
+      const effectiveWid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
+      await Promise.all([
+        Promise.resolve(invalidateEdgeCache('newborn')).catch(() => {}),
+        Promise.resolve(invalidateEdgeCache('folders')).catch(() => {}),
+        ...(Array.isArray(pinIds) ? pinIds.slice(0, 100) : []).map((pid) => {
+          const cleanPid = String(pid || '').trim();
+          if (!cleanPid) return Promise.resolve();
+          return Promise.all([
+            Promise.resolve(invalidateEdgeCache(`pin:dossier?pin_id=${cleanPid}`)).catch(() => {}),
+            typeof buildCanonicalCacheKey === 'function'
+              ? Promise.resolve(invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: cleanPid, workspace_id: effectiveWid }))).catch(() => {})
+              : Promise.resolve()
+          ]);
+        })
+      ]);
+    }
+
     return jsonResponse({
       success: true,
       pins: pinsResult,

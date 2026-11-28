@@ -337,6 +337,7 @@ export async function apiRoutesPlugin(app, options = {}) {
               workspaceId,
               jsonResponse: boundJsonResponse,
               methodNotAllowedResponse: boundMethodNotAllowed,
+              buildCanonicalCacheKey,
               invalidateEdgeCache
             });
             if (watchlistRes) return watchlistRes;

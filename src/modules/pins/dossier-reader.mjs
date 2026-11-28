@@ -503,16 +503,23 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30, worksp
           TRUE AS can_remove
         FROM (
           SELECT
-            nc.folder_id,
+            COALESCE(nc.folder_id, kf_fallback.id) AS folder_id,
             nc.seed_query,
             COALESCE(nc.promoted_at, nc.updated_at, nc.first_seen_at) AS added_at,
             NULL::text AS notes,
             0 AS priority
           FROM newborn_candidates nc
+          LEFT JOIN keyword_folders kf_fallback
+            ON nc.folder_id IS NULL
+            AND nc.seed_query IS NOT NULL
+            AND BTRIM(nc.seed_query) <> ''
+            AND LOWER(BTRIM(kf_fallback.name)) = LOWER(BTRIM(nc.seed_query))
+            AND (${cleanWid}::int IS NULL OR COALESCE(kf_fallback.workspace_id, 1) = ${cleanWid})
           WHERE nc.pin_id = ${cleanPinId}
-            AND nc.folder_id IS NOT NULL
+            AND COALESCE(nc.folder_id, kf_fallback.id) IS NOT NULL
             AND (
               nc.stage = 'promoted'
+              OR nc.promoted_at IS NOT NULL
               OR EXISTS (
                 SELECT 1 FROM newborn_daily_anchors nda
                 WHERE nda.pin_id = nc.pin_id AND nda.is_active = TRUE
@@ -550,7 +557,7 @@ async function loadRawPinDossierRows(sql, cleanPinId, snapshotLimit = 30, worksp
           END AS source_type,
           COUNT(DISTINCT ksp.keyword_id)::int AS keyword_count,
           MIN(COALESCE(ksp.rank_position, ksp.last_known_rank))::int AS best_rank,
-          MAX(COALESCE(ksp.last_seen_at, ksp.updated_at, ksp.first_seen_at)) AS latest_seen_at
+          MAX(COALESCE(ksp.crawled_at, ksp.updated_at, ksp.first_seen_at)) AS latest_seen_at
         FROM keyword_serp_positions ksp
         JOIN keyword_folder_items kfi ON kfi.keyword_id = ksp.keyword_id
         JOIN keyword_folders kf ON kf.id = kfi.folder_id

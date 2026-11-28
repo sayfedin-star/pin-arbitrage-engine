@@ -29,6 +29,7 @@ export async function handleWatchlistRoutes({
   workspaceId = DEFAULT_WORKSPACE_ID,
   jsonResponse,
   methodNotAllowedResponse,
+  buildCanonicalCacheKey = null,
   invalidateEdgeCache = null
 }) {
   if (!isWatchlistRoute(pathname)) return null;
@@ -37,11 +38,21 @@ export async function handleWatchlistRoutes({
     return jsonResponse({ success: false, error: 'Database unavailable' }, 503);
   }
 
-  const bustRadarCaches = async () => {
+  const bustRadarCaches = async (pinId = null) => {
     if (typeof invalidateEdgeCache === 'function') {
+      const cleanPid = pinId ? String(pinId).trim() : '';
+      const effectiveWid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
       await Promise.all([
         Promise.resolve(invalidateEdgeCache('creators')).catch(() => {}),
-        Promise.resolve(invalidateEdgeCache('domains:leaderboard')).catch(() => {})
+        Promise.resolve(invalidateEdgeCache('domains:leaderboard')).catch(() => {}),
+        ...(cleanPid
+          ? [
+              Promise.resolve(invalidateEdgeCache(`pin:dossier?pin_id=${cleanPid}`)).catch(() => {}),
+              typeof buildCanonicalCacheKey === 'function'
+                ? Promise.resolve(invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: cleanPid, workspace_id: effectiveWid }))).catch(() => {})
+                : Promise.resolve()
+            ]
+          : [])
       ]);
     }
   };
@@ -90,7 +101,7 @@ export async function handleWatchlistRoutes({
           notes: body?.notes ?? '',
           addedFromFolderId: rawFolderId
         });
-        await bustRadarCaches();
+        await bustRadarCaches(item?.entity_type === 'pin' ? item.entity_key : null);
         return jsonResponse({ success: true, item }, 201);
       } catch (err) {
         return jsonResponse({ success: false, error: err.message }, err.status || 400);
@@ -123,7 +134,7 @@ export async function handleWatchlistRoutes({
     if (method === 'DELETE') {
       try {
         const result = await removeWatchlistItem(sql, { workspaceId, id });
-        await bustRadarCaches();
+        await bustRadarCaches(result?.deleted?.entity_type === 'pin' ? result.deleted.entity_key : null);
         return jsonResponse({ success: true, ...result }, 200);
       } catch (err) {
         return jsonResponse({ success: false, error: err.message }, err.status || 400);

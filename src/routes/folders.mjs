@@ -72,6 +72,7 @@ export async function handleFoldersRoutes({
   workspaceId = DEFAULT_WORKSPACE_ID,
   jsonResponse,
   methodNotAllowedResponse,
+  buildCanonicalCacheKey = null,
   invalidateEdgeCache
 }) {
   const invalidateFolderCrossCaches = async (fid = null, { includeCreators = false } = {}) => {
@@ -293,6 +294,21 @@ export async function handleFoldersRoutes({
           sourceRef: body.source_ref || ''
         });
         await invalidateFolderCrossCaches(folderId);
+        if (typeof invalidateEdgeCache === 'function') {
+          const effectiveWid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
+          await Promise.all(
+            pinIds.slice(0, 100).map((pid) => {
+              const cleanPid = String(pid || '').trim();
+              if (!cleanPid) return Promise.resolve();
+              return Promise.all([
+                Promise.resolve(invalidateEdgeCache(`pin:dossier?pin_id=${cleanPid}`)).catch(() => {}),
+                typeof buildCanonicalCacheKey === 'function'
+                  ? Promise.resolve(invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: cleanPid, workspace_id: effectiveWid }))).catch(() => {})
+                  : Promise.resolve()
+              ]);
+            })
+          );
+        }
         return jsonResponse({ success: true, ...result });
       }
       if (method === 'DELETE') {
@@ -306,6 +322,16 @@ export async function handleFoldersRoutes({
         if (!pinId) return jsonResponse({ success: false, error: 'pin_id is required' }, 400);
         const result = await removeCampaignTrackedPin(sql, { folderId, workspaceId, pinId, sourceType });
         await invalidateFolderCrossCaches(folderId);
+        if (typeof invalidateEdgeCache === 'function') {
+          const cleanPid = String(pinId || '').trim();
+          const effectiveWid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
+          await Promise.all([
+            Promise.resolve(invalidateEdgeCache(`pin:dossier?pin_id=${cleanPid}`)).catch(() => {}),
+            typeof buildCanonicalCacheKey === 'function'
+              ? Promise.resolve(invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: cleanPid, workspace_id: effectiveWid }))).catch(() => {})
+              : Promise.resolve()
+          ]);
+        }
         return jsonResponse({ success: true, ...result });
       }
       return jsonResponse({ success: false, error: 'Method not allowed on /tracked-pins' }, 405);

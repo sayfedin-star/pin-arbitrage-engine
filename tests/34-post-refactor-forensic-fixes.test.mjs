@@ -393,3 +393,59 @@ test('Bug 3 client parity: filteredDossierPins and filteredDossierArticles prese
   assert.equal(app.filteredDossierPins().length, 55, 'filteredDossierPins must keep all 55 pins including empty image_url');
   assert.equal(app.filteredDossierArticles()[0].pins.length, 2, 'filteredDossierArticles must preserve pins without image_url');
 });
+
+test('Live-DB schema guard: getPinDossier campaign CTE only references real keyword_serp_positions columns (never ksp.last_seen_at)', async () => {
+  const VALID_KSP_COLUMNS = new Set([
+    'keyword_id',
+    'pin_id',
+    'rank_position',
+    'is_displaced',
+    'last_known_rank',
+    'displaced_date',
+    'vacuum_opportunity_score',
+    'prev_rank_position',
+    'crawled_at',
+    'updated_at',
+    'first_seen_at'
+  ]);
+  const capturedSql = [];
+  const mockSql = makeMockSql((text) => {
+    capturedSql.push(text);
+    if (text.includes('FROM universal_master_pins')) {
+      return [{ pin_id: '557531628905046632', title: 'Cranberry Jalapeno Cream Cheese Dip', save_count: 6094, repin_count: 6056, metadata: {} }];
+    }
+    if (text.includes('WITH explicit_tracked AS')) {
+      return [{
+        folder_id: 13,
+        workspace_id: 1,
+        folder_name: 'cranberry sauce',
+        folder_color: '#ec4899',
+        source_type: 'newborn',
+        source_ref: 'run:29',
+        seed_query: 'cranberry sauce',
+        added_at: '2026-11-26T13:10:34.838Z',
+        notes: null,
+        membership_type: 'tracked',
+        can_remove: true,
+        keyword_count: 0,
+        best_rank: null
+      }];
+    }
+    return [];
+  });
+
+  const dossier = await getPinDossier(mockSql, '557531628905046632', { workspaceId: 1 });
+  assert.equal(dossier.campaigns.length, 1);
+  assert.equal(dossier.campaigns[0].folder_id, 13);
+  assert.equal(dossier.campaigns[0].folder_name, 'cranberry sauce');
+
+  const kspQueries = capturedSql.filter((q) => q.includes('FROM keyword_serp_positions ksp'));
+  assert.ok(kspQueries.length >= 2, 'Expected both SERP and campaign CTE queries against keyword_serp_positions ksp');
+  for (const q of kspQueries) {
+    const matches = q.match(/\bksp\.([a-z0-9_]+)/gi) || [];
+    for (const m of matches) {
+      const col = m.slice(4).toLowerCase();
+      assert.ok(VALID_KSP_COLUMNS.has(col), `Invalid keyword_serp_positions column referenced in dossier-reader SQL: ${m}`);
+    }
+  }
+});

@@ -59,6 +59,15 @@ export async function handlePinsRoutes({
 }) {
   const parts = pathname.slice('/api/pins/'.length).split('/').filter(Boolean);
   const pinId = parts[0];
+  const effectiveWid = Number.isInteger(Number(workspaceId)) && Number(workspaceId) > 0 ? Number(workspaceId) : 1;
+  const invalidatePinDossierCaches = async (targetPinId) => {
+    if (!targetPinId || typeof invalidateEdgeCache !== 'function') return;
+    await invalidateEdgeCache(`pin:dossier?pin_id=${targetPinId}`);
+    if (typeof buildCanonicalCacheKey === 'function') {
+      await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: targetPinId }));
+      await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: targetPinId, workspace_id: effectiveWid }));
+    }
+  };
 
   // 0. GET /api/pins/resolve-shortlink?url=...
   if (pinId === 'resolve-shortlink') {
@@ -125,8 +134,7 @@ export async function handlePinsRoutes({
           message: safeErr
         }, 500);
       }
-      await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
-      await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
+      await invalidatePinDossierCaches(pinId);
       await invalidateEdgeCache('keywords:pin-dossier');
       await invalidateEdgeCache('keywords');
       await invalidateEdgeCache('domains:leaderboard');
@@ -174,8 +182,7 @@ export async function handlePinsRoutes({
       return jsonResponse({ success: false, error: delRes.error, message: delRes.message }, delRes.status || 400);
     }
 
-    await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
-    await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
+    await invalidatePinDossierCaches(pinId);
     await invalidateEdgeCache('keywords:pin-dossier');
     await invalidateEdgeCache('keywords');
     await invalidateEdgeCache('domains:leaderboard');
@@ -235,8 +242,7 @@ export async function handlePinsRoutes({
       }, 500);
     }
 
-    await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
-    await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
+    await invalidatePinDossierCaches(pinId);
     await invalidateEdgeCache('keywords:pin-dossier');
     await invalidateEdgeCache('keywords');
     await invalidateEdgeCache('folders');
@@ -284,8 +290,7 @@ export async function handlePinsRoutes({
       }, 400);
     }
 
-    await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
-    await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
+    await invalidatePinDossierCaches(pinId);
     await invalidateEdgeCache('keywords:pin-dossier');
     await invalidateEdgeCache('keywords');
     await invalidateEdgeCache('domains:leaderboard');
@@ -346,8 +351,7 @@ export async function handlePinsRoutes({
       });
 
       // [INVARIANT: POST-SYNC-EVICTION] Invalidate L0/L1 AFTER database commits succeed
-      await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
-      await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
+      await invalidatePinDossierCaches(pinId);
       await invalidateEdgeCache(`pin:trajectory?pin_id=${pinId}`);
       await invalidateEdgeCache('keywords:pin-dossier');
       await invalidateEdgeCache('keywords');
@@ -477,8 +481,7 @@ export async function handlePinsRoutes({
       }
 
       // Invalidate Edge Caches synchronously
-      await invalidateEdgeCache(`pin:dossier?pin_id=${pinId}`);
-      await invalidateEdgeCache(buildCanonicalCacheKey('pin:dossier', { pin_id: pinId }));
+      await invalidatePinDossierCaches(pinId);
       await invalidateEdgeCache(`pin:trajectory?pin_id=${pinId}`);
       await invalidateEdgeCache('keywords:pin-dossier');
       await invalidateEdgeCache('keywords');
@@ -531,7 +534,7 @@ export async function handlePinsRoutes({
           message: dossier?.message || (isUnavailable ? 'Pin database is temporarily unavailable. Please retry.' : `Pin dossier not found for pin_id: ${pinId}`)
         }, isUnavailable ? 503 : 404);
       }
-      return jsonResponse(dossier, 200, 15);
+      return jsonResponse(dossier, 200, 0);
     } catch (err) {
       return jsonResponse({
         success: false,
