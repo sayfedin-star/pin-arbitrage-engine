@@ -60,7 +60,8 @@ function createCapturingSql(handler) {
 }
 
 function instantiatePinDossierController(pinId = '743375482289034272') {
-  const scriptSource = getPinDetailsClientAppScripts(pinId);
+  const rawHtml = getPinDetailsClientAppScripts(pinId);
+  const scriptSource = rawHtml.replace(/^[\s\S]*?<script[^>]*>/i, '').replace(/<\/script>[\s\S]*$/i, '');
   const sandbox = {
     window: {
       location: { pathname: `/pin/${pinId}`, search: '' },
@@ -89,7 +90,7 @@ function instantiatePinDossierController(pinId = '743375482289034272') {
   };
   vm.createContext(sandbox);
   vm.runInContext(scriptSource, sandbox);
-  const ctrl = sandbox.pinDossierApp();
+  const ctrl = sandbox.pinDetailApp(pinId);
   ctrl.$nextTick = (cb) => { if (typeof cb === 'function') cb(); };
   return { ctrl, sandbox };
 }
@@ -383,15 +384,16 @@ test('fetchUniversalPinDossier unifies explicit campaign_tracked_pins AND cluste
     return [];
   });
 
-  const dossier = await fetchUniversalPinDossier(sql, '743375482289034272', { workspaceId: 1 });
-  assert.ok(dossier, 'Dossier should resolve');
+  const res = await fetchUniversalPinDossier({ sql, pinId: '743375482289034272', workspaceId: 1 });
+  assert.ok(res && res.success !== false, 'Dossier should resolve');
+  const dossier = res.dossier || res;
   assert.equal(dossier.tracked_campaigns.length, 1);
   assert.deepEqual(dossier.tracked_campaigns[0], {
     folder_id: 7,
     folder_name: 'crockpot meals',
     source_type: 'vault',
     seed_query: null,
-    added_at: '2026-11-20T00:00:00Z',
+    added_at: '2026-11-20T00:00:00.000Z',
     notes: null,
     membership_type: 'cluster_serp',
     can_remove: false,
